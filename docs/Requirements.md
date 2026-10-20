@@ -80,6 +80,7 @@
 
 ### Version 1 scope
 - Local NAM blocks
+- Local IR blocks (cab impulse responses from .wav files), added to the prototype at the owner's request
 - Delay block (with stereo delay)
 - Reverb block (room, hall and plate types)
 - Everything else in this document (Tone3000 integration, IR loader, other effect categories, etc.) follows in later versions, but the architecture must allow for it

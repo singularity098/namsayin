@@ -3,6 +3,7 @@
 
 #include "engine/BlockRegistry.hpp"
 
+#include "engine/blocks/IrBlock.hpp"
 #include "engine/blocks/NamBlock.hpp"
 
 namespace namsayin {
@@ -17,6 +18,7 @@ const BlockRegistry& BlockRegistry::builtin()
     // One line per block type, in Add Block dialog order within each category
     static const BlockRegistry registry({
         &kNamBlockDescriptor,
+        &kIrBlockDescriptor,
     });
     return registry;
 }

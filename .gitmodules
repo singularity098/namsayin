@@ -7,3 +7,6 @@
 [submodule "deps/doctest"]
 	path = deps/doctest
 	url = https://github.com/doctest/doctest
+[submodule "deps/FFTConvolver"]
+	path = deps/FFTConvolver
+	url = https://github.com/HiFi-LoFi/FFTConvolver

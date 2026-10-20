@@ -49,6 +49,22 @@ public:
         set(1 + alpha * a, -2 * cw, 1 - alpha * a, 1 + alpha / a, -2 * cw, 1 - alpha / a);
     }
 
+    void setHighPass(double sampleRate, double freq, double q = M_SQRT1_2)
+    {
+        const double w = 2.0 * M_PI * freq / sampleRate;
+        const double cw = std::cos(w);
+        const double alpha = std::sin(w) / (2.0 * q);
+        set((1 + cw) / 2, -(1 + cw), (1 + cw) / 2, 1 + alpha, -2 * cw, 1 - alpha);
+    }
+
+    void setLowPass(double sampleRate, double freq, double q = M_SQRT1_2)
+    {
+        const double w = 2.0 * M_PI * freq / sampleRate;
+        const double cw = std::cos(w);
+        const double alpha = std::sin(w) / (2.0 * q);
+        set((1 - cw) / 2, 1 - cw, (1 - cw) / 2, 1 + alpha, -2 * cw, 1 - alpha);
+    }
+
     float process(float x)
     {
         const double y = fB0 * x + fZ1;

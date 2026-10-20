@@ -22,6 +22,7 @@ jobs:
             deps/DPF
             deps/NeuralAmpModelerCore
             deps/doctest
+            deps/FFTConvolver
           key: submodules-${{ runner.os }}-${{ steps.submodules.outputs.key }}
       - name: Fetch submodules
         shell: bash
@@ -62,6 +63,7 @@ jobs:
             deps/DPF
             deps/NeuralAmpModelerCore
             deps/doctest
+            deps/FFTConvolver
           key: submodules-${{ runner.os }}-${{ steps.submodules.outputs.key }}
       - name: Fetch submodules
         shell: bash

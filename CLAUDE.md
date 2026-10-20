@@ -8,14 +8,14 @@ NAMsayin is a guitar rig plugin (VST3 + LV2) in C++20, built with DPF (plugin fr
 
 - **Requirements**: `docs/Requirements.md` — the owner's feature list plus agreed decisions. Treat it as the source of truth; record new decisions there.
 - **Architecture and milestones**: `docs/Architecture.md` — design, v1 milestones (M0–M10) and decisions log.
-- **Current milestone**: M1, M2 (minus resampling) and an M4 prototype are done: the plugin loads local .nam files and has a working UI (chain tiles, add/remove/bypass/drag-reorder, block controls, global knobs, meters, clip lights). The owner asked for M2 then M4 to get a prototype quickly. Still to do for M4: the Add Block dialog with categories (the "+" opens a file browser for now), real block images, MIDI learn UI. Next: M3 (delay/reverb).
+- **Current milestone**: M1, M2 (minus resampling) and an M4 prototype are done: the plugin loads local .nam files and has a working UI (chain tiles, add/remove/bypass/drag-reorder, block controls, global knobs, meters, clip lights). The owner asked for M2 then M4 to get a prototype quickly. The IR loader (local .wav cab IRs) is also done, at the owner's request. Still to do for M4: the Add Block dialog with categories (the "+" opens a file browser for now), real block images, MIDI learn UI. Next: M3 (delay/reverb).
 
 ## Fixed decisions (don't revisit without the owner)
 
 - Formats: VST3 and LV2 only. No standalone app, no CLAP, no AU.
 - Platforms: Linux and Windows, x86-64 only, AVX2/FMA required. No macOS, no ARM.
 - License: MIT. New source files start with `// SPDX-License-Identifier: MIT` and `// Copyright (c) 2026 singularity098`.
-- UI: DPF's NanoVG, very dark theme (gradient from near-black at the top to black at the bottom, translucent surfaces, purple accent that will become configurable). Theme tokens are at the top of `src/ui/NAMsayinUI.cpp`. Draw in logical pixels and scale by `getScaleFactor()`.
+- UI: DPF's NanoVG, very dark theme (gradient from near-black at the top to black at the bottom, translucent surfaces, purple accent that will become configurable). Theme tokens are at the top of `src/ui/NAMsayinUI.cpp`. The background gradient is dithered with a faint noise texture (`drawDither`), because a near-black gradient bands visibly in 8 bits. Draw in logical pixels and scale by `getScaleFactor()`.
 - Zero latency by default; only blocks that need latency add it, and it's reported to the host.
 - Max 32 blocks; each block keeps a fixed parameter slot for its lifetime (automation/MIDI follow the block).
 - One split at a time; branch B may run on a second core.
@@ -29,6 +29,7 @@ CMakeLists.txt        Top-level build; builds NAM Core as the static library `na
 deps/DPF              Submodule (DPF main)
 deps/NeuralAmpModelerCore  Submodule, pinned to tag v0.6.0
 deps/doctest          Submodule, pinned to v2.4.12 (unit tests)
+deps/FFTConvolver     Submodule (MIT): zero-latency partitioned convolution for the IR block
 src/engine/           Audio engine, independent of DPF (static library `namsayin-engine`)
   Params.*            Host parameter indices and global parameter specs
   Block.hpp           Block base class, ParamSpec, BlockDescriptor, Category
@@ -36,7 +37,7 @@ src/engine/           Audio engine, independent of DPF (static library `namsayin
   Engine.*            Input stage, chain, tone stack, output, limiter, meters; lock-free chain swaps
   SpscQueue.hpp       Lock-free queue (retired graphs go back to the non-RT side through it)
   dsp/                Smoother, Biquad, ToneStack, Limiter, Meter
-  blocks/             Block implementations (NamBlock)
+  blocks/             Block implementations (NamBlock, IrBlock)
 src/state/            ChainState (the chain as plain data, JSON)
 src/plugin/           DistrhoPluginInfo.h + DSP side (Plugin subclass; thin wrapper around Engine)
 src/ui/               UI side (UI subclass, NanoVG). Immediate-mode: draw functions record hit areas, mouse handlers look them up
@@ -103,6 +104,7 @@ The file browser opens in the host's working directory. Final checks happen in R
 - The engine reports running slots through two output parameters (`kParamRunningSlotsLow/High`); the UI marks blocks that haven't started 2.5 s after a chain change, and shows a banner if none have.
 - **Reaper's LV2 hosting doesn't deliver the UI's state messages to the DSP** (confirmed by the owner; VST3 works). So the chain has a second route: the UI writes it to a per-instance file and bumps the hidden Chain Revision parameter; a DSP thread reads the file (`src/state/ChainExchange.*`). The DSP also keeps the chain itself (`DISTRHO_PLUGIN_WANT_FULL_STATE`) for project save/restore and writes the file so a reopened UI can read it. Test the fallback with a build configured with `-DCMAKE_CXX_FLAGS=-DNAMSAYIN_TEST_NO_STATE_MESSAGE` (UI never sends the state message) in jalv.
 - Not done yet in the NAM block: resampling when the host rate differs from the model's training rate.
+- IR block: WAV files via NAM Core's `nam::detail::load_wav_ir` (PCM 16/24/32, float 32; channels stored contiguously), linearly resampled to the host rate, energy-normalized, convolved with FFTConvolver's `TwoStageFFTConvolver` (head 64, tail 2048; zero latency). Low/High Cut are off at the ends of their ranges.
 - NAM A2 Full/Lite: `nam::SlimmableModel::SetSlimmableSize(1.0)` = Full, `0.0` = Lite (`NAM/slimmable.h`). Not real-time safe — call it off the audio thread.
 - Fretbored (the owner's other app, https://github.com/singularity098/fretbored) is the reference for the metronome and tuner features.
 - Tone3000's site is blocked by this cloud environment's network policy, so its API docs can't be fetched here.

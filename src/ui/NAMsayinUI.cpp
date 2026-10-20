@@ -5,6 +5,7 @@
 
 #include "engine/BlockRegistry.hpp"
 #include "engine/Params.hpp"
+#include "engine/blocks/IrBlock.hpp"
 #include "engine/blocks/NamBlock.hpp"
 #include "state/ChainExchange.hpp"
 #include "state/ChainState.hpp"
@@ -28,7 +29,7 @@ namespace {
 // Theme tokens. Very dark: the window fades from near-black at the top to pure black at the bottom, and every
 // surface is a faint translucent white over it.
 namespace theme {
-const Color backgroundTop(0x14, 0x14, 0x17);
+const Color backgroundTop(0x0b, 0x0b, 0x0d);
 const Color backgroundBottom(0x00, 0x00, 0x00);
 const Color bar(255, 255, 255, 0.025f);
 const Color panel(255, 255, 255, 0.035f);
@@ -83,14 +84,19 @@ std::string fileStem(const std::string& path)
     return std::filesystem::path(reinterpret_cast<const char8_t*>(path.c_str())).stem().string();
 }
 
-bool hasNamExtension(const char* filename)
+// The block type for a file the user picked, by extension: .nam -> NAM model, .wav -> IR
+const BlockDescriptor* blockTypeForFile(const char* filename)
 {
     const size_t len = std::strlen(filename);
     if (len < 4)
-        return false;
+        return nullptr;
     std::string ext(filename + len - 4);
     std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return std::tolower(c); });
-    return ext == ".nam";
+    if (ext == ".nam")
+        return &kNamBlockDescriptor;
+    if (ext == ".wav")
+        return &kIrBlockDescriptor;
+    return nullptr;
 }
 
 } // namespace
@@ -155,22 +161,25 @@ protected:
 
     void uiFileBrowserSelected(const char* const filename) override
     {
-        if (filename == nullptr || !hasNamExtension(filename))
+        const BlockDescriptor* type = filename != nullptr ? blockTypeForFile(filename) : nullptr;
+        if (type == nullptr)
             return;
         const int slot = fChain.freeSlot();
         if (slot < 0)
             return;
 
         BlockState block;
-        block.typeId = kNamBlockDescriptor.typeId;
+        block.typeId = type->typeId;
         block.slot = slot;
-        block.config = { { "path", filename }, { "a2Size", 1.0 } };
+        block.config = { { "path", filename } };
+        if (type == &kNamBlockDescriptor)
+            block.config["a2Size"] = 1.0;
 
         // A new block starts from its defaults; parameter values live in the host
         setHostParameter(slotBypassParam(slot), 0.0f);
-        for (int p = 0; p < kNamBlockDescriptor.numParams; ++p)
+        for (int p = 0; p < type->numParams; ++p)
         {
-            const ParamSpec& spec = kNamBlockDescriptor.params[p];
+            const ParamSpec& spec = type->params[p];
             block.params[p] = spec.toNormalized(spec.def);
             setHostParameter(slotParam(slot, p), block.params[p]);
         }
@@ -198,6 +207,7 @@ protected:
         rect(0, 0, fWidth, fHeight);
         fillPaint(linearGradient(0, 0, 0, fHeight, theme::backgroundTop, theme::backgroundBottom));
         fill();
+        drawDither(scale);
         drawTopBar();
         drawChain();
         drawSelectedPanel();
@@ -273,7 +283,7 @@ protected:
 
         case Hit::AddBlock: {
             FileBrowserOptions options;
-            options.title = "Add a NAM model (.nam)";
+            options.title = "Add a NAM model (.nam) or cab IR (.wav)";
             openFileBrowser(options);
             return true;
         }
@@ -442,7 +452,10 @@ private:
             const float v = spec->toValue(fParams[index]);
             if (spec->scale == ParamScale::Toggle)
                 return v >= 0.5f ? "On" : "Off";
-            std::snprintf(buf, sizeof(buf), "%.1f %s", v, spec->unit);
+            if (std::strcmp(spec->unit, "Hz") == 0 && v >= 1000.0f)
+                std::snprintf(buf, sizeof(buf), "%.1f kHz", v / 1000.0f);
+            else
+                std::snprintf(buf, sizeof(buf), "%.1f %s", v, spec->unit);
             return buf;
         }
         const GlobalParamSpec& spec = globalParamSpec(index);
@@ -543,6 +556,39 @@ private:
 
     // ---------------------------------------------------------------------------------------------------------------
     // Drawing helpers
+
+    // A dark gradient only spans a handful of 8-bit levels, so it shows as bands. A faint noise texture (0-3 levels
+    // of white per pixel, one texel per physical pixel) breaks the bands up into a smooth fade.
+    // NanoVG has no built-in dithering, so we draw it ourselves.
+    void drawDither(float scale)
+    {
+        constexpr uint kSize = 128;
+        if (!fDither.isValid())
+        {
+            std::vector<uchar> pixels(kSize * kSize * 4);
+            uint32_t seed = 0x12345678u;
+            for (uint i = 0; i < kSize * kSize; ++i)
+            {
+                seed = seed * 1664525u + 1013904223u; // LCG: plenty for noise
+                pixels[i * 4 + 0] = pixels[i * 4 + 1] = pixels[i * 4 + 2] = 255;
+                pixels[i * 4 + 3] = static_cast<uchar>((seed >> 24) % 4);
+            }
+            fDither = createImageFromRGBA(kSize, kSize, pixels.data(),
+                                          static_cast<ImageFlags>(IMAGE_REPEAT_X | IMAGE_REPEAT_Y));
+        }
+        // Fade the noise out towards the bottom, which stays pure black
+        constexpr int kStrips = 32;
+        const float tile = kSize / scale;
+        const float stripHeight = fHeight / kStrips;
+        for (int i = 0; i < kStrips; ++i)
+        {
+            const float alpha = 1.0f - (i + 0.5f) / kStrips;
+            beginPath();
+            rect(0, i * stripHeight, fWidth, stripHeight + 0.5f);
+            fillPaint(imagePattern(0, 0, tile, tile, 0.0f, fDither, alpha));
+            fill();
+        }
+    }
 
     void fillRect(float x, float y, float w, float h, const Color& color, float radius = 0.0f)
     {
@@ -673,7 +719,7 @@ private:
         resetScissor();
 
         if (count == 0)
-            label(16.0f + kTileSize + 32.0f, y + kTileSize / 2, "Click + to add a NAM model", theme::textDim,
+            label(16.0f + kTileSize + 32.0f, y + kTileSize / 2, "Click + to add a NAM model or a cab IR", theme::textDim,
                   14.0f, ALIGN_LEFT | ALIGN_MIDDLE);
 
         bool anyRunning = false;
@@ -718,17 +764,31 @@ private:
             stroke();
         }
 
-        // generic amp image: a speaker grille (placeholder until real images)
+        // generic images (placeholders until real images): an amp grille for NAM, a speaker cone for IRs
         globalAlpha(bypassed || missing || notRunning ? 0.35f : 1.0f);
         fillRect(x + 18, y + 24, kTileSize - 36, 52, theme::inset, 6.0f);
-        for (int row = 0; row < 5; ++row)
+        if (block.typeId == kIrBlockDescriptor.typeId)
         {
-            beginPath();
-            moveTo(x + 24, y + 32 + row * 9.0f);
-            lineTo(x + kTileSize - 24, y + 32 + row * 9.0f);
-            strokeColor(theme::border);
-            strokeWidth(2.0f);
-            stroke();
+            for (const float r : { 22.0f, 13.0f, 5.0f })
+            {
+                beginPath();
+                circle(x + kTileSize / 2, y + 50, r);
+                strokeColor(theme::border);
+                strokeWidth(2.0f);
+                stroke();
+            }
+        }
+        else
+        {
+            for (int row = 0; row < 5; ++row)
+            {
+                beginPath();
+                moveTo(x + 24, y + 32 + row * 9.0f);
+                lineTo(x + kTileSize - 24, y + 32 + row * 9.0f);
+                strokeColor(theme::border);
+                strokeWidth(2.0f);
+                stroke();
+            }
         }
         std::string name = missing ? "Missing file" : (notRunning ? "Not running" : fileStem(path));
         if (name.size() > 16)
@@ -841,6 +901,7 @@ private:
     // ---------------------------------------------------------------------------------------------------------------
 
     float fParams[kParamCount] {};
+    NanoImage fDither;
     ChainState fChain;
     int fSelected = -1;
 

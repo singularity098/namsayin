@@ -41,11 +41,21 @@ target_include_directories(nam SYSTEM PUBLIC
   ${NAM_DIR}/Dependencies/nlohmann)   # NAM includes "json.hpp"
 target_compile_definitions(nam PUBLIC NAM_ENABLE_A2_FAST NAM_SAMPLE_FLOAT)
 
+# FFTConvolver: zero-latency partitioned convolution for the IR block
+set(FFTCONVOLVER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/deps/FFTConvolver)
+add_library(fftconvolver STATIC
+  ${FFTCONVOLVER_DIR}/AudioFFT.cpp
+  ${FFTCONVOLVER_DIR}/FFTConvolver.cpp
+  ${FFTCONVOLVER_DIR}/TwoStageFFTConvolver.cpp
+  ${FFTCONVOLVER_DIR}/Utilities.cpp)
+target_include_directories(fftconvolver SYSTEM PUBLIC ${FFTCONVOLVER_DIR})
+
 # ---------------------------------------------------------------------------------------------------------------------
 # Engine (DSP and state, independent of DPF so it can be unit tested)
 
 add_library(namsayin-engine STATIC
   src/engine/BlockRegistry.cpp
+  src/engine/blocks/IrBlock.cpp
   src/engine/blocks/NamBlock.cpp
   src/engine/Engine.cpp
   src/engine/Params.cpp
@@ -54,7 +64,7 @@ add_library(namsayin-engine STATIC
 target_include_directories(namsayin-engine PUBLIC src)
 # Whole archive: NAM Core registers its model architectures from static initializers, which the linker would
 # otherwise drop ("No config parser registered for architecture")
-target_link_libraries(namsayin-engine PUBLIC "$<LINK_LIBRARY:WHOLE_ARCHIVE,nam>")
+target_link_libraries(namsayin-engine PUBLIC "$<LINK_LIBRARY:WHOLE_ARCHIVE,nam>" fftconvolver)
 
 set(NAMSAYIN_WARNINGS $<IF:$<CXX_COMPILER_ID:MSVC>,/W4,-Wall -Wextra -Wpedantic>)
 target_compile_options(namsayin-engine PRIVATE ${NAMSAYIN_WARNINGS})
@@ -89,6 +99,7 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/ChainStateTests.cpp
     tests/DspTests.cpp
     tests/EngineTests.cpp
+    tests/IrBlockTests.cpp
     tests/NamBlockTests.cpp)
   target_include_directories(namsayin-tests PRIVATE tests deps/doctest)
   target_link_libraries(namsayin-tests PRIVATE namsayin-engine)

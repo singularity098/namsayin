@@ -2,7 +2,7 @@
 
 A free, open source guitar rig plugin (VST3 and LV2) built on [Neural Amp Modeler](https://github.com/sdatkinson/NeuralAmpModelerCore) and [DPF](https://github.com/DISTRHO/DPF). Runs on Linux and Windows (x86-64 with AVX2).
 
-Status: early prototype — load local NAM models (A1 and A2), chain them, and shape the result with the global controls.
+Status: early prototype — load local NAM models (A1 and A2) and cab IRs (.wav), chain them, and shape the result with the global controls.
 
 ![NAMsayin prototype](docs/images/prototype.png)
 
