@@ -1,30 +1,54 @@
 ### NAMsayin
 - An LV2/VST3 plugin written in C++ using DPF and NeuralAmpModelerCore
+  - Also builds as a standalone JACK application
 - The plugin is ultra-light, fast, and snappy
-- It introduces minimal plugin delay compensation (PDC) to the DAW
-- Natively runs on Linux, Windows, MacOS
-- Beautiful interface with a dark theme
+- Zero latency by default: latency (plugin delay compensation, PDC) is only introduced by blocks that require it, and is reported to the host
+- Natively runs on Linux and Windows, x86-64 only (macOS and ARM are not supported for now)
+- Beautiful interface with a dark theme, drawn with NanoVG
 - The interface can be resized and scales for high DPI displays
-- Free, open source software
+- Free, open source software under the MIT license
 - Supports NAM A1 and A2
+  - A2 is the 2026 NAM architecture; one A2 file can run in Full or Lite (lower CPU) mode
 - Supports an IR cab loader
 - Settings panel where the user can:
     - Specify the directory for NAM files and separately for IR files, with refresh/rescan button
-    - Select NAM A2 size, lite or full
-    - Add per-block NAM A2 size, if desired
-    - Turn on per-block volume normalization
-    - Multi-core processing
+    - Select NAM A2 size, lite or full (global default)
+    - Add per-block NAM A2 size, if desired (overrides the global default)
+    - Turn on per-block volume normalization, using the loudness metadata in NAM files; IRs can also be normalized
+    - Multi-core processing: the two parallel branches of a split run on separate cores
+- Settings and favorites are stored in one global config file per user, shared by all plugin instances
 - The scanner for NAM and IR files is able to see inside of zip files and load those files as if they were already extracted
-- Allows user to star/favorite NAM files in the interface
+- Allows user to star/favorite NAM files in the interface. Favorites are tied to the file's content hash, so they survive the file being moved or renamed
 - Has a built-in very high performance and high accuracy tuner, with traditional or strobe modes. The tuner can be toggled on with a button in the top-right of the window.  The guitar sound is by default muted when the tuner is engaged, but the mute also can be toggled on or off
-- Also has a built-in metronome which can be toggled on and off from a button next to the tuner. It is modeled to have the same features as the one in the other application that you've built for me, Fretbored
-- Has a linear signal chain which runs from left to right, where users can add as many NAM, IR, or built-in effects as they like
+    - The tuner reads the dry input (before the signal chain), with a gain boost so that quiet inputs are not a problem
+    - Adjustable reference pitch (A4 = 415–466 Hz, default 440)
+    - Accuracy target: ±0.1 cent, from a 5-string bass's low B (31 Hz) up to the 24th fret of a guitar's high E string
+- Also has a built-in metronome which can be toggled on and off from a button next to the tuner. It has the same features as the metronome in Fretbored (https://github.com/singularity098/fretbored):
+    - Tempo 20–300 BPM, tap tempo
+    - Meter: 1–16 beats over 2, 4, 8 or 16; beat grouping for compound/odd meters (e.g. 7/8 as 2+2+3)
+    - Per-beat accents: accent / normal / soft / mute
+    - Subdivisions: eighths, triplets, sixteenths, quintuplets, sextuplets, swing, dotted, and mixed 8th/16th figures
+    - Sounds: Classic, Digital and Beep; separate volume for subdivisions
+    - Trainer: Step mode (+N BPM every M bars from start to end tempo) and Gradual mode (smooth ramp over N bars); works for slowing down too
+    - Gap trainer: play N bars, then mute M bars
+    - Visual pulse synced to what you hear
+    - Sample-accurate timing
+    - Tempo is independent of the DAW by default; a switch syncs tempo and transport to the DAW instead
+    - Keyboard shortcuts only apply while the plugin window has focus
+- Has a linear signal chain which runs from left to right, where users can add NAM, IR, or built-in effects, up to a maximum of 32 blocks
 - Near the metronome and tuner is another button which links to my other free application Fretbored: https://singularity098.github.io/fretbored/
 - The signal chain may be split into 2 at any point, and then merged back into 1 at any other point, allowing for effects to run in parallel, or multiple NAM simultaneously
+    - Only one split at a time
+    - The merge has controls for A/B balance, level, pan and phase invert per branch
+    - The two branches are time-aligned at the merge if their latencies differ
 - The blocks in the signal chain are square shaped, and we will use provided images
-- When a local NAM file or IR is selected which does not have a corresponding image, we will use a generic image. In the beginning, we can use a very crude mockup and I will provide higher quality images later
+- A local NAM file or IR uses an image sidecar file with the same name (e.g. `My Amp.nam` → `My Amp.png`). When there is no sidecar image, we will use a generic image. In the beginning, we can use a very crude mockup and I will provide higher quality images later
 - Blocks can be easily reordered by dragging and dropping. They can also be temporarily disabled/bypassed, or removed
+- Undo/redo for all edits to the signal chain and block settings
 - Codebase is designed such that effects are modular and easy to add or remove from the program as we get new ideas
+- MIDI control and DAW automation:
+    - Each block occupies a fixed slot with a fixed set of host parameters, so every block parameter can be automated by the DAW and controlled by MIDI (MIDI learn)
+    - A block keeps its slot when it is reordered, so automation and MIDI mappings follow the block, not its position
 - Has completely optional Tone3000.com integration for NAM, following closely all of Tone3000's API guidelines
 - To add a new block, the user will click on a "+" box in the signal chain and it will bring up an Add Block dialog which has categories which can be selected on the left-hand side, and then the user selects:
     - Tone3000 Amp Head
@@ -37,28 +61,25 @@
     - EQ
     - Modulation
     - Reverb
+    - Delay
     - Pitch/Synth
     - Filter
     - Wah
 - There is also a button to load a Tone3000 NAM from the clipboard when adding a block
 - A menu is present at the top of the application to save and load presets
-- At the bottom of the application, we have turnable knobs for:
-    - Input mode (mono/stereo)
-    - Input (level)
-    - Bass
-    - Middle
-    - Treble
-    - Output (level)
-
-### Decisions
-- Maximum of 32 blocks in the signal chain. Each block occupies a fixed slot with a fixed set of host parameters, so every block parameter can be automated by the DAW and controlled by MIDI (MIDI learn). A block keeps its slot when it is reordered, so automation and MIDI mappings follow the block, not its position
-- Zero latency by default; latency is only introduced by blocks that require it, and is reported to the host for PDC
-- Multi-core processing is limited to running the two parallel branches of a split on separate cores
-- NAM A2 is the 2026 NAM architecture; one A2 file can run in Full or Lite (lower CPU) mode. The Settings panel sets the global default, and each block may override it
-- Metronome matches Fretbored's metronome feature set (tempo 20–300 BPM, tap tempo, meter and beat grouping, per-beat accents, subdivisions, sounds, step/gradual trainer, gap trainer, sample-accurate timing)
+    - Presets can embed everything they use (NAM files, IRs, images), so they can be shared
+    - When a preset references a NAM or IR file that no longer exists, the block is still added but grayed out, with a button to locate the file
+- Global bypass button
+- At the bottom of the application, we have:
+    - Input mode toggle (mono/stereo). Stereo processes both channels (double CPU) and allows stereo effects such as stereo delay
+    - Input (level) knob
+    - Bass, Middle and Treble knobs: a global EQ at the end of the chain
+    - Output (level) knob
+    - Input and output meters, with a clip indicator
+    - Output limiter
 
 ### Version 1 scope
 - Local NAM blocks
-- Delay block
+- Delay block (with stereo delay)
 - Reverb block
 - Everything else in this document (Tone3000 integration, IR loader, other effect categories, etc.) follows in later versions, but the architecture must allow for it
