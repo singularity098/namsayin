@@ -19,6 +19,8 @@ jobs:
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
       - name: Build
         run: cmake --build build
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
       - name: Check LV2 bundle
         run: LV2_PATH=$PWD/build/bin lv2info https://github.com/singularity098/namsayin
       - uses: actions/upload-artifact@v4
@@ -38,6 +40,8 @@ jobs:
         run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
       - name: Build
         run: cmake --build build --config Release -j 2
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
       - uses: actions/upload-artifact@v4
         with:
           name: namsayin-windows-x86_64

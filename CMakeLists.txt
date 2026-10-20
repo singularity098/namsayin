@@ -34,8 +34,25 @@ set(NAM_DIR ${CMAKE_CURRENT_SOURCE_DIR}/deps/NeuralAmpModelerCore)
 file(GLOB_RECURSE NAM_SOURCES CONFIGURE_DEPENDS ${NAM_DIR}/NAM/*.cpp)
 add_library(nam STATIC ${NAM_SOURCES})
 target_include_directories(nam PUBLIC ${NAM_DIR})
-target_include_directories(nam SYSTEM PUBLIC ${NAM_DIR}/Dependencies/eigen ${NAM_DIR}/Dependencies/nlohmann)
+target_include_directories(nam SYSTEM PUBLIC
+  ${NAM_DIR}/Dependencies             # <nlohmann/json.hpp>
+  ${NAM_DIR}/Dependencies/eigen
+  ${NAM_DIR}/Dependencies/nlohmann)   # NAM includes "json.hpp"
 target_compile_definitions(nam PUBLIC NAM_ENABLE_A2_FAST)
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Engine (DSP and state, independent of DPF so it can be unit tested)
+
+add_library(namsayin-engine STATIC
+  src/engine/BlockRegistry.cpp
+  src/engine/Engine.cpp
+  src/engine/Params.cpp
+  src/state/ChainState.cpp)
+target_include_directories(namsayin-engine PUBLIC src)
+target_link_libraries(namsayin-engine PUBLIC nam)
+
+set(NAMSAYIN_WARNINGS $<IF:$<CXX_COMPILER_ID:MSVC>,/W4,-Wall -Wextra -Wpedantic>)
+target_compile_options(namsayin-engine PRIVATE ${NAMSAYIN_WARNINGS})
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Plugin
@@ -48,4 +65,21 @@ dpf_add_plugin(namsayin
     src/ui/NAMsayinUI.cpp)
 
 target_include_directories(namsayin PUBLIC src src/plugin)
-target_link_libraries(namsayin PUBLIC nam)
+target_link_libraries(namsayin PUBLIC namsayin-engine)
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Tests
+
+option(NAMSAYIN_BUILD_TESTS "Build unit tests" ON)
+if(NAMSAYIN_BUILD_TESTS)
+  enable_testing()
+  add_executable(namsayin-tests
+    tests/TestMain.cpp
+    tests/ChainStateTests.cpp
+    tests/DspTests.cpp
+    tests/EngineTests.cpp)
+  target_include_directories(namsayin-tests PRIVATE tests deps/doctest)
+  target_link_libraries(namsayin-tests PRIVATE namsayin-engine)
+  target_compile_options(namsayin-tests PRIVATE ${NAMSAYIN_WARNINGS})
+  add_test(NAME namsayin-tests COMMAND namsayin-tests)
+endif()

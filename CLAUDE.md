@@ -8,7 +8,7 @@ NAMsayin is a guitar rig plugin (VST3 + LV2) in C++20, built with DPF (plugin fr
 
 - **Requirements**: `docs/Requirements.md` — the owner's feature list plus agreed decisions. Treat it as the source of truth; record new decisions there.
 - **Architecture and milestones**: `docs/Architecture.md` — design, v1 milestones (M0–M10) and decisions log.
-- **Current milestone**: M0 (project skeleton) — done: CMake build, submodules, pass-through plugin, empty resizable NanoVG UI, CI. Next: M1 (engine core).
+- **Current milestone**: M1 (engine core) done — block interface and registry, chain state, lock-free chain swaps, parameter slots, input/tone stack/output/limiter/meters, global and slot bypass, mono/stereo, unit tests. Next: M2 (NAM block).
 
 ## Fixed decisions (don't revisit without the owner)
 
@@ -28,8 +28,18 @@ NAMsayin is a guitar rig plugin (VST3 + LV2) in C++20, built with DPF (plugin fr
 CMakeLists.txt        Top-level build; builds NAM Core as the static library `nam`
 deps/DPF              Submodule (DPF main)
 deps/NeuralAmpModelerCore  Submodule, pinned to tag v0.6.0
-src/plugin/           DistrhoPluginInfo.h + DSP side (Plugin subclass)
+deps/doctest          Submodule, pinned to v2.4.12 (unit tests)
+src/engine/           Audio engine, independent of DPF (static library `namsayin-engine`)
+  Params.*            Host parameter indices and global parameter specs
+  Block.hpp           Block base class, ParamSpec, BlockDescriptor, Category
+  BlockRegistry.*     The list of built-in block types — add new effects here
+  Engine.*            Input stage, chain, tone stack, output, limiter, meters; lock-free chain swaps
+  SpscQueue.hpp       Lock-free queue (retired graphs go back to the non-RT side through it)
+  dsp/                Smoother, Biquad, ToneStack, Limiter, Meter
+src/state/            ChainState (the chain as plain data, JSON)
+src/plugin/           DistrhoPluginInfo.h + DSP side (Plugin subclass; thin wrapper around Engine)
 src/ui/               UI side (UI subclass, NanoVG)
+tests/                doctest unit tests; TestSupport.hpp has a test block and an allocation counter
 docs/                 Requirements and architecture
 .github/workflows/    CI: Linux (Ninja) and Windows (MSVC) builds
 ```
@@ -42,10 +52,21 @@ Planned layout for later milestones is in `docs/Architecture.md` section 2.
 git submodule update --init --recursive
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
+ctest --test-dir build --output-on-failure          # or ./build/namsayin-tests
 LV2_PATH=$PWD/build/bin lv2info https://github.com/singularity098/namsayin   # check the LV2 bundle loads
 ```
 
 Output goes to `build/bin/namsayin.lv2` and `build/bin/namsayin.vst3`.
+
+Sanitizer runs (worth doing after touching threading or the engine):
+
+```sh
+cmake -S . -B build-tsan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=thread -g" -DCMAKE_C_FLAGS="-fsanitize=thread"
+cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -g" -DCMAKE_C_FLAGS="-fsanitize=address,undefined"
+cmake --build build-tsan --target namsayin-tests && ./build-tsan/namsayin-tests
+```
+
+`lv2apply` can't run the plugin (it doesn't support DPF's atom port), so end-to-end checks happen in Reaper.
 
 ## Conventions
 
@@ -53,6 +74,12 @@ Output goes to `build/bin/namsayin.lv2` and `build/bin/namsayin.vst3`.
 - The audio thread (`run()` and everything it calls) must never allocate, lock or touch files. Heavy work (model loading, chain rebuilds, tuner analysis) happens on other threads and is handed over lock-free.
 - The UI may run in a separate process (LV2), so DSP↔UI communication goes through parameters and state only — no direct pointers.
 - `CMAKE_CXX_EXTENSIONS` is ON because DPF's UI code uses `typeof`.
+- **Host parameter indices are DAW automation IDs — never reorder or remove them.** Globals come first, then 32 slots × 9 (bypass + 8). Parameters added later go after the slots (`kFirstLaterParam` in `src/engine/Params.hpp`).
+- Slot parameters are normalized 0..1 for the host; each block's `ParamSpec` maps them to real values.
+- Block `typeId`s are stored in presets and plugin state — never rename one.
+- Parameter values live in the host. `ChainState.params`/`bypass` are only for presets and undo; the UI pushes them to the host.
+- The chain reaches the DSP as the `chain` state string (JSON). `setState()` runs off the audio thread and builds the new graph there.
+- New audio-path code gets a test, including the no-allocation check (`testing::AllocationGuard`).
 
 ## Notes
 

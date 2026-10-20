@@ -1,0 +1,122 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 singularity098
+
+#pragma once
+
+#include "engine/Params.hpp"
+
+#include <nlohmann/json.hpp>
+
+#include <array>
+#include <cmath>
+#include <cstdint>
+#include <memory>
+
+namespace namsayin {
+
+// Add Block dialog categories, in display order
+enum class Category {
+    Tone3000AmpHead,
+    Tone3000AmpCab,
+    Tone3000Cab,
+    LocalNam,
+    LocalIr,
+    Distortion,
+    Dynamics,
+    Eq,
+    Modulation,
+    Reverb,
+    Delay,
+    PitchSynth,
+    Filter,
+    Wah,
+};
+
+enum class ParamScale {
+    Linear,
+    Log,     // min and max must be > 0
+    Toggle,
+    Choice,  // integer steps from min to max
+};
+
+// One block parameter. The host sees every slot parameter as 0..1; the spec maps that to the real value.
+struct ParamSpec {
+    const char* name = nullptr;
+    const char* unit = "";
+    float min = 0.0f;
+    float max = 1.0f;
+    float def = 0.0f;
+    ParamScale scale = ParamScale::Linear;
+
+    float toValue(float normalized) const
+    {
+        const float n = normalized < 0.0f ? 0.0f : (normalized > 1.0f ? 1.0f : normalized);
+        switch (scale)
+        {
+        case ParamScale::Log:
+            return min * std::pow(max / min, n);
+        case ParamScale::Toggle:
+            return n >= 0.5f ? 1.0f : 0.0f;
+        case ParamScale::Choice:
+            return std::round(min + n * (max - min));
+        case ParamScale::Linear:
+            break;
+        }
+        return min + n * (max - min);
+    }
+
+    float toNormalized(float value) const
+    {
+        float n;
+        switch (scale)
+        {
+        case ParamScale::Log:
+            n = std::log(value / min) / std::log(max / min);
+            break;
+        case ParamScale::Toggle:
+            n = value >= 0.5f ? 1.0f : 0.0f;
+            break;
+        default:
+            n = (value - min) / (max - min);
+            break;
+        }
+        return n < 0.0f ? 0.0f : (n > 1.0f ? 1.0f : n);
+    }
+};
+
+// Base class for every block in the signal chain.
+// Blocks always support up to two channels; in mono mode only the first is processed.
+class Block {
+public:
+    virtual ~Block() = default;
+
+    // Non-RT. Called before first use, and again whenever the sample rate or maximum buffer size changes.
+    virtual void prepare(double sampleRate, uint32_t maxFrames) = 0;
+
+    // Non-RT. Applies block settings that aren't host parameters (e.g. a NAM file path).
+    // Returns false if the block can't be used with this config.
+    virtual bool configure(const nlohmann::json& /*config*/) { return true; }
+
+    // RT. `value` is the real value (already mapped through the ParamSpec).
+    virtual void setParam(int index, float value) = 0;
+
+    // RT. Processes in place. numChannels is 1 or 2.
+    virtual void process(float* const* io, uint32_t numChannels, uint32_t frames) = 0;
+
+    // Latency in samples this block adds. May only change across a configure()/prepare() call.
+    virtual uint32_t latency() const { return 0; }
+
+    // RT. Clears internal state (delay lines, tails).
+    virtual void reset() {}
+};
+
+struct BlockDescriptor {
+    const char* typeId;      // stored in presets and plugin state; never rename
+    const char* displayName;
+    Category category;
+    int numParams;
+    std::array<ParamSpec, kParamsPerSlot> params;
+    std::unique_ptr<Block> (*create)();
+};
+
+} // namespace namsayin

@@ -1,0 +1,125 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 singularity098
+
+#pragma once
+
+#include "engine/BlockRegistry.hpp"
+#include "engine/Params.hpp"
+#include "engine/SpscQueue.hpp"
+#include "engine/dsp/Limiter.hpp"
+#include "engine/dsp/Meter.hpp"
+#include "engine/dsp/Smoother.hpp"
+#include "engine/dsp/ToneStack.hpp"
+#include "state/ChainState.hpp"
+
+#include <array>
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <vector>
+
+namespace namsayin {
+
+// The audio engine: input stage, signal chain, tone stack, output stage, limiter and meters.
+//
+// Threads: process() runs on the audio thread and never allocates, locks or frees. setChain() and prepare()
+// run on other threads; a new chain is built there and handed to the audio thread lock-free, which swaps it in
+// with a short fade out/in. Blocks that didn't change are reused, so their state carries over.
+class Engine {
+public:
+    static constexpr double kSwapFadeSeconds = 0.005;   // each of fade-out and fade-in
+    static constexpr double kBypassRampSeconds = 0.005;
+
+    explicit Engine(const BlockRegistry& registry = BlockRegistry::builtin());
+    ~Engine();
+
+    Engine(const Engine&) = delete;
+    Engine& operator=(const Engine&) = delete;
+
+    // Non-RT, audio stopped
+    void prepare(double sampleRate, uint32_t maxFrames);
+
+    // Non-RT. Builds the chain and queues it for the audio thread. Blocks whose configure() fails are left out
+    // (audio passes through them); their slots are listed in `failedSlots`.
+    bool setChain(const ChainState& chain, std::string* error = nullptr, std::vector<int>* failedSlots = nullptr);
+
+    // Any thread. Index from Params.hpp; slot parameters are normalized 0..1.
+    void setParameter(uint32_t index, float value);
+    float getParameter(uint32_t index) const;
+
+    // RT. Two inputs and two outputs; they may alias.
+    void process(const float* const* inputs, float* const* outputs, uint32_t frames);
+
+    // Total latency of the active chain, in samples
+    uint32_t latency() const { return fLatency.load(std::memory_order_relaxed); }
+
+private:
+    struct Node {
+        std::shared_ptr<Block> block;
+        const BlockDescriptor* type;
+        int slot;
+    };
+
+    struct Graph {
+        std::vector<Node> nodes;
+        uint32_t latency = 0;
+    };
+
+    // What the non-RT side last built for each slot, so unchanged blocks can be reused
+    struct CachedBlock {
+        std::shared_ptr<Block> block;
+        std::string typeId;
+        std::string config;
+    };
+
+    // Audio-thread state per slot; slots outlive graphs
+    struct SlotState {
+        const Block* block = nullptr;
+        std::array<float, kParamsPerSlot> applied {};
+        float bypassMix = 0.0f; // 0 = active, 1 = bypassed
+    };
+
+    enum class Fade { Idle, Out, In };
+
+    void processChunk(const float* const* inputs, float* const* outputs, uint32_t frames);
+    void processChain(uint32_t numChannels, uint32_t frames);
+    void swapGraph();
+    void drainRetired();
+    float param(uint32_t index) const { return fParams[index].load(std::memory_order_relaxed); }
+
+    const BlockRegistry& fRegistry;
+    std::mutex fMutex; // non-RT callers only
+
+    double fSampleRate = 48000.0;
+    uint32_t fMaxFrames = 0;
+
+    std::array<std::atomic<float>, kParamCount> fParams;
+
+    // non-RT side
+    std::array<CachedBlock, kMaxBlocks> fCache;
+
+    // handover
+    std::atomic<Graph*> fPending { nullptr };
+    SpscQueue<Graph*, 8> fRetired;
+    std::atomic<uint32_t> fLatency { 0 };
+
+    // audio thread side
+    Graph* fActive = nullptr;
+    Graph* fNext = nullptr;
+    Fade fFade = Fade::Idle;
+    float fFadeGain = 1.0f;
+    float fFadeStep = 1.0f;
+    float fRampStep = 1.0f;
+    float fGlobalBypassMix = 0.0f;
+    std::array<SlotState, kMaxBlocks> fSlots {};
+
+    Smoother fInputGain, fOutputGain;
+    ToneStack fToneStack;
+    Limiter fLimiter;
+    Meter fInMeters[2], fOutMeters[2];
+
+    std::vector<float> fWork[2], fDry[2], fScratch[2];
+};
+
+} // namespace namsayin

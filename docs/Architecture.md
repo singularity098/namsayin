@@ -91,12 +91,14 @@ New effects are added by writing one class and one registry line. Removing an ef
 
 The audio thread never allocates, locks, or touches files.
 
-1. Edits (add/move/remove block, change model, split/merge) update the `ChainState` on a non-audio thread.
-2. A worker thread builds a new `ChainGraph`. NAM files are loaded and warmed up there, and blocks that didn't change are reused, so their state (delay tails, reverb tails) carries over.
-3. The finished graph is handed to the audio thread through a lock-free single-slot exchange. The audio thread picks it up at the start of a buffer and crossfades for ~10 ms to avoid clicks.
+1. Edits (add/move/remove block, change model, split/merge) update the `ChainState` in the UI, which sends it to the DSP as the `chain` plugin state.
+2. The DSP's `setState()` (always called off the audio thread) builds a new graph. NAM files are loaded and warmed up there, and blocks that didn't change are reused, so their state (delay tails, reverb tails) carries over.
+3. The finished graph is handed to the audio thread through a lock-free single-slot exchange. The audio thread picks it up at the start of a buffer, fades the chain output out over 5 ms, swaps, and fades back in over 5 ms. (A fade out/in rather than a crossfade, because reused blocks can't run in two graphs at once.)
 4. The old graph goes back through a lock-free queue and is deleted off the audio thread.
 
 Parameter changes (knobs, automation, MIDI) don't rebuild anything. They go straight to the block through its slot, with per-parameter smoothing.
+
+Parameter values live in the host. `ChainState` also stores each block's normalized values and bypass, but only for presets and undo: when one is loaded, the UI pushes those values to the host. The DSP always reads the host's values.
 
 ### 4.3 Parameter slots (DAW automation and MIDI)
 
