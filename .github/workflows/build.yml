@@ -9,8 +9,17 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+      # Submodules separately, with retries: Eigen (inside NAM Core) is hosted on GitLab, which sometimes refuses
+      # requests under load
+      - name: Fetch submodules
+        shell: bash
+        run: |
+          for attempt in 1 2 3 4; do
+            git submodule update --init --recursive --depth 1 && exit 0
+            echo "Submodule fetch failed (attempt $attempt), retrying in 30 s"
+            sleep 30
+          done
+          exit 1
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -34,8 +43,17 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+      # Submodules separately, with retries: Eigen (inside NAM Core) is hosted on GitLab, which sometimes refuses
+      # requests under load
+      - name: Fetch submodules
+        shell: bash
+        run: |
+          for attempt in 1 2 3 4; do
+            git submodule update --init --recursive --depth 1 && exit 0
+            echo "Submodule fetch failed (attempt $attempt), retrying in 30 s"
+            sleep 30
+          done
+          exit 1
       - name: Configure
         run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
       - name: Build
