@@ -8,7 +8,7 @@ NAMsayin is a guitar rig plugin (VST3 + LV2) in C++20, built with DPF (plugin fr
 
 - **Requirements**: `docs/Requirements.md` — the owner's feature list plus agreed decisions. Treat it as the source of truth; record new decisions there.
 - **Architecture and milestones**: `docs/Architecture.md` — design, v1 milestones (M0–M10) and decisions log.
-- **Current milestone**: M1 (engine core) and M2 (NAM block, minus resampling) done. Working on M4 (main UI) next, then M3 (delay/reverb). The owner asked for M2 then M4 to get a working prototype quickly.
+- **Current milestone**: M1, M2 (minus resampling) and an M4 prototype are done: the plugin loads local .nam files and has a working UI (chain tiles, add/remove/bypass/drag-reorder, block controls, global knobs, meters, clip lights). The owner asked for M2 then M4 to get a prototype quickly. Still to do for M4: the Add Block dialog with categories (the "+" opens a file browser for now), real block images, MIDI learn UI. Next: M3 (delay/reverb).
 
 ## Fixed decisions (don't revisit without the owner)
 
@@ -39,7 +39,7 @@ src/engine/           Audio engine, independent of DPF (static library `namsayin
   blocks/             Block implementations (NamBlock)
 src/state/            ChainState (the chain as plain data, JSON)
 src/plugin/           DistrhoPluginInfo.h + DSP side (Plugin subclass; thin wrapper around Engine)
-src/ui/               UI side (UI subclass, NanoVG)
+src/ui/               UI side (UI subclass, NanoVG). Immediate-mode: draw functions record hit areas, mouse handlers look them up
 tests/                doctest unit tests; TestSupport.hpp has a test block and an allocation counter
 docs/                 Requirements and architecture
 deps/khronos/         Vendored glext.h + khrplatform.h (MSVC has none; DPF's download is unreliable)
@@ -68,7 +68,16 @@ cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-f
 cmake --build build-tsan --target namsayin-tests && ./build-tsan/namsayin-tests
 ```
 
-`lv2apply` can't run the plugin (it doesn't support DPF's atom port), so end-to-end checks happen in Reaper.
+`lv2apply` can't run the plugin (it doesn't support DPF's atom port). To see and drive the UI headless:
+
+```sh
+apt-get install -y xvfb jalv jackd2 imagemagick xdotool
+Xvfb :99 -screen 0 1400x900x24 & jackd -d dummy -r 48000 -p 256 &
+DISPLAY=:99 LV2_PATH=$PWD/build/bin jalv.gtk3 https://github.com/singularity098/namsayin &
+DISPLAY=:99 import -window root shot.png        # screenshot; drive it with xdotool
+```
+
+The file browser opens in the host's working directory. Final checks happen in Reaper.
 
 ## Conventions
 

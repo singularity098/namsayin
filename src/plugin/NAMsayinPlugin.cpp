@@ -95,7 +95,8 @@ protected:
         case kStateIndexChain:
             state.key = kStateChain;
             state.defaultValue = "";
-            state.hints = kStateIsOnlyForDSP;
+            // Not DSP-only: the UI edits the chain and needs it back when it opens
+            state.hints = 0;
             break;
         }
     }

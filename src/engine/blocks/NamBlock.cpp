@@ -27,6 +27,8 @@ public:
             buffer.assign(maxFrames, 0.0f);
         fInputGain.prepare(sampleRate);
         fOutputGain.prepare(sampleRate);
+        // DC blocker: one-pole high-pass at ~5 Hz, as models can output a small DC offset
+        fDcCoef = static_cast<float>(std::exp(-2.0 * M_PI * 5.0 / sampleRate));
         fInputGain.snap(dbToGain(fInputDb));
         fOutputGain.snap(targetOutputGain());
         resetModels();
@@ -105,12 +107,23 @@ public:
             fModels[ch]->process(in, out, static_cast<int>(frames));
 
             const float* y = fOut[ch].data();
+            float dcIn = fDcIn[ch], dcOut = fDcOut[ch];
             for (uint32_t i = 0; i < frames; ++i)
-                x[i] = y[i] * fOutputGain.next();
+            {
+                dcOut = y[i] - dcIn + fDcCoef * dcOut;
+                dcIn = y[i];
+                x[i] = dcOut * fOutputGain.next();
+            }
+            fDcIn[ch] = dcIn;
+            fDcOut[ch] = dcOut;
         }
     }
 
-    void reset() override { resetModels(); }
+    void reset() override
+    {
+        resetModels();
+        fDcIn[0] = fDcIn[1] = fDcOut[0] = fDcOut[1] = 0.0f;
+    }
 
 private:
     float targetOutputGain() const
@@ -140,6 +153,8 @@ private:
     float fOutputDb = 0.0f;
     bool fNormalize = true;
     Smoother fInputGain, fOutputGain;
+    float fDcCoef = 0.9993f;
+    float fDcIn[2] {}, fDcOut[2] {};
 };
 
 } // namespace

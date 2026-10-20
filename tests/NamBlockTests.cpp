@@ -154,3 +154,20 @@ TEST_CASE("NAM block in the engine, including through the plugin's state format"
     }
     CHECK(energy > 0.0f);
 }
+
+TEST_CASE("NAM block removes DC from the model output")
+{
+    std::unique_ptr<Block> block = loadBlock(exampleModel("wavenet_a1_standard.nam"));
+    REQUIRE(block);
+    std::vector<float> silence(kBuffer, 0.0f);
+    float* io[2] = { silence.data(), silence.data() };
+    for (int b = 0; b < 2000; ++b) // ~5 s
+    {
+        std::fill(silence.begin(), silence.end(), 0.0f);
+        block->process(io, 1, kBuffer);
+    }
+    double mean = 0.0;
+    for (float v : silence)
+        mean += v;
+    CHECK(std::fabs(mean / kBuffer) < 1e-4);
+}

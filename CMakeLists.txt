@@ -63,6 +63,7 @@ target_compile_options(namsayin-engine PRIVATE ${NAMSAYIN_WARNINGS})
 
 dpf_add_plugin(namsayin
   TARGETS lv2 vst3
+  USE_FILE_BROWSER
   FILES_DSP
     src/plugin/NAMsayinPlugin.cpp
   FILES_UI
