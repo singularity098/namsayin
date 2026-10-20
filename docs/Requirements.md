@@ -1,0 +1,51 @@
+### NAMsayin
+- An LV2/VST3 plugin written in C++ using DPF and NeuralAmpModelerCore
+- The plugin is ultra-light, fast, and snappy
+- It introduces minimal plugin delay compensation (PDC) to the DAW
+- Natively runs on Linux, Windows, MacOS
+- Beautiful interface with a dark theme
+- The interface can be resized and scales for high DPI displays
+- Free, open source software
+- Supports NAM A1 and A2
+- Supports an IR cab loader
+- Settings panel where the user can:
+    - Specify the directory for NAM files and separately for IR files, with refresh/rescan button
+    - Select NAM A2 size, lite or full
+    - Add per-block NAM A2 size, if desired
+    - Turn on per-block volume normalization
+    - Multi-core processing
+- The scanner for NAM and IR files is able to see inside of zip files and load those files as if they were already extracted
+- Allows user to star/favorite NAM files in the interface
+- Has a built-in very high performance and high accuracy tuner, with traditional or strobe modes. The tuner can be toggled on with a button in the top-right of the window.  The guitar sound is by default muted when the tuner is engaged, but the mute also can be toggled on or off
+- Also has a built-in metronome which can be toggled on and off from a button next to the tuner. It is modeled to have the same features as the one in the other application that you've built for me, Fretbored
+- Has a linear signal chain which runs from left to right, where users can add as many NAM, IR, or built-in effects as they like
+- Near the metronome and tuner is another button which links to my other free application Fretbored: https://singularity098.github.io/fretbored/
+- The signal chain may be split into 2 at any point, and then merged back into 1 at any other point, allowing for effects to run in parallel, or multiple NAM simultaneously
+- The blocks in the signal chain are square shaped, and we will use provided images
+- When a local NAM file or IR is selected which does not have a corresponding image, we will use a generic image. In the beginning, we can use a very crude mockup and I will provide higher quality images later
+- Blocks can be easily reordered by dragging and dropping. They can also be temporarily disabled/bypassed, or removed
+- Codebase is designed such that effects are modular and easy to add or remove from the program as we get new ideas
+- Has completely optional Tone3000.com integration for NAM, following closely all of Tone3000's API guidelines
+- To add a new block, the user will click on a "+" box in the signal chain and it will bring up an Add Block dialog which has categories which can be selected on the left-hand side, and then the user selects:
+    - Tone3000 Amp Head
+    - Tone3000 Amp + Cab
+    - Tone3000 Cab
+    - Local NAM
+    - Local IR
+    - Distortion
+    - Dynamics
+    - EQ
+    - Modulation
+    - Reverb
+    - Pitch/Synth
+    - Filter
+    - Wah
+- There is also a button to load a Tone3000 NAM from the clipboard when adding a block
+- A menu is present at the top of the application to save and load presets
+- At the bottom of the applicaiton, we have turnable knobs for:
+    - Input mode (mono/stereo)
+    - Input (level)
+    - Bass
+    - Middle
+    - Treble
+    - Output (level)
