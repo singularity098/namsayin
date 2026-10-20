@@ -1,0 +1,46 @@
+name: build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libgl1-mesa-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev libdbus-1-dev lilv-utils
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build
+      - name: Check LV2 bundle
+        run: LV2_PATH=$PWD/build/bin lv2info https://github.com/singularity098/namsayin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: namsayin-linux-x86_64
+          path: |
+            build/bin/namsayin.lv2
+            build/bin/namsayin.vst3
+
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Configure
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+      - name: Build
+        run: cmake --build build --config Release -j 2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: namsayin-windows-x86_64
+          path: |
+            build/bin/namsayin.lv2
+            build/bin/namsayin.vst3

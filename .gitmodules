@@ -1,0 +1,6 @@
+[submodule "deps/DPF"]
+	path = deps/DPF
+	url = https://github.com/DISTRHO/DPF
+[submodule "deps/NeuralAmpModelerCore"]
+	path = deps/NeuralAmpModelerCore
+	url = https://github.com/sdatkinson/NeuralAmpModelerCore

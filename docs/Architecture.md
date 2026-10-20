@@ -123,7 +123,7 @@ Each block is assigned a free slot when it is created and keeps it for its whole
 
 ### 4.6 The NAM block
 
-- Loads A1 and A2 files through NeuralAmpModelerCore. **To verify at M2**: the minimum Core version with A2 support, and how Full/Lite is selected through its API.
+- Loads A1 and A2 files through NeuralAmpModelerCore (pinned to v0.6.0, which includes the A2 fast path). Full/Lite is selected with `nam::SlimmableModel::SetSlimmableSize` (1.0 = Full, 0.0 = Lite); it isn't real-time safe, so it's applied off the audio thread.
 - A2 size: global default from Settings, with a per-block override.
 - Normalization (per-block toggle): uses the loudness value stored in the `.nam` metadata to bring models to a common level. Models with no loudness value are left as they are, with a badge saying so.
 - Block parameters: input gain, output gain, normalization on/off, A2 size (Full/Lite).
