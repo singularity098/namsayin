@@ -25,11 +25,16 @@ constexpr GlobalParamSpec kGlobalParams[kGlobalParamCount] = {
     { "Limiter Reduction", "limiter_gr",  "dB", 0.0f,   24.0f,  0.0f, kParamFlagOutput },
 };
 
+constexpr GlobalParamSpec kLaterParams[kParamCount - kFirstLaterParam] = {
+    { "Running Slots 1-16",  "running_lo", "", 0.0f, 65535.0f, 0.0f, kParamFlagOutput | kParamFlagInteger },
+    { "Running Slots 17-32", "running_hi", "", 0.0f, 65535.0f, 0.0f, kParamFlagOutput | kParamFlagInteger },
+};
+
 } // namespace
 
 const GlobalParamSpec& globalParamSpec(uint32_t index)
 {
-    return kGlobalParams[index];
+    return index >= kFirstLaterParam ? kLaterParams[index - kFirstLaterParam] : kGlobalParams[index];
 }
 
 } // namespace namsayin

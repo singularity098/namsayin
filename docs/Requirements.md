@@ -3,7 +3,8 @@
 - The plugin is ultra-light, fast, and snappy
 - Zero latency by default: latency (plugin delay compensation, PDC) is only introduced by blocks that require it, and is reported to the host
 - Natively runs on Linux and Windows, x86-64 only, and requires a CPU with AVX2/FMA (macOS and ARM are not supported for now)
-- Beautiful interface with a dark theme, drawn with NanoVG
+- Beautiful interface with a very dark theme, drawn with NanoVG: the background fades from a very dark gray at the top to pure black at the bottom, and boxes, banners and panels are a very dark, almost translucent gray
+    - The highlight colour is purple for now, and will be configurable
 - The interface can be resized and scales for high DPI displays
 - Free, open source software under the MIT license
 - Supports NAM A1 and A2

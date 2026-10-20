@@ -46,7 +46,7 @@ protected:
 
     void initParameter(const uint32_t index, Parameter& parameter) override
     {
-        if (index < kGlobalParamCount)
+        if (!isSlotParam(index))
         {
             const GlobalParamSpec& spec = globalParamSpec(index);
             parameter.name = spec.name;
@@ -58,6 +58,8 @@ protected:
             parameter.hints = (spec.flags & kParamFlagOutput) ? kParameterIsOutput : kParameterIsAutomatable;
             if (spec.flags & kParamFlagToggle)
                 parameter.hints |= kParameterIsBoolean | kParameterIsInteger;
+            if (spec.flags & kParamFlagInteger)
+                parameter.hints |= kParameterIsInteger;
             if (index == kParamBypass)
                 parameter.designation = kParameterDesignationBypass;
             return;

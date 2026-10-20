@@ -244,3 +244,16 @@ TEST_CASE("chain edits on another thread while audio runs")
     rig.run();
     CHECK(std::isfinite(rig.left()));
 }
+
+TEST_CASE("the engine reports which slots are running")
+{
+    Rig rig;
+    rig.run(1);
+    CHECK(rig.engine.getParameter(kParamRunningSlotsLow) == 0.0f);
+    ChainState chain = gainChain(3);
+    chain.blocks.push_back({ "test.gain", 20 });
+    REQUIRE(rig.engine.setChain(chain));
+    rig.run();
+    CHECK(rig.engine.getParameter(kParamRunningSlotsLow) == static_cast<float>(1u << 3));
+    CHECK(rig.engine.getParameter(kParamRunningSlotsHigh) == static_cast<float>(1u << 4));
+}

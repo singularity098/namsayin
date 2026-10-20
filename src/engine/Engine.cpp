@@ -25,8 +25,11 @@ Engine::Engine(const BlockRegistry& registry)
 {
     for (uint32_t i = 0; i < kParamCount; ++i)
         fParams[i].store(0.0f, std::memory_order_relaxed);
-    for (uint32_t i = 0; i < kGlobalParamCount; ++i)
-        fParams[i].store(globalParamSpec(i).def, std::memory_order_relaxed);
+    for (uint32_t i = 0; i < kParamCount; ++i)
+    {
+        if (!isSlotParam(i))
+            fParams[i].store(globalParamSpec(i).def, std::memory_order_relaxed);
+    }
 
     fActive = new Graph();
     prepare(fSampleRate, kDefaultMaxFrames);
@@ -184,6 +187,11 @@ void Engine::process(const float* const* inputs, float* const* outputs, uint32_t
     fParams[kParamOutPeakR].store(clampDb(gainToDb(fOutMeters[1].level())), std::memory_order_relaxed);
     fParams[kParamInClip].store(fInMeters[0].clipping() || fInMeters[1].clipping() ? 1.0f : 0.0f,
                                 std::memory_order_relaxed);
+    uint32_t running = 0;
+    for (const Node& node : fActive->nodes)
+        running |= 1u << node.slot;
+    fParams[kParamRunningSlotsLow].store(static_cast<float>(running & 0xffffu), std::memory_order_relaxed);
+    fParams[kParamRunningSlotsHigh].store(static_cast<float>(running >> 16), std::memory_order_relaxed);
     fParams[kParamOutClip].store(fOutMeters[0].clipping() || fOutMeters[1].clipping() ? 1.0f : 0.0f,
                                  std::memory_order_relaxed);
 }

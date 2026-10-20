@@ -37,7 +37,15 @@ enum GlobalParam : uint32_t {
 
 constexpr uint32_t kSlotParamBase = kGlobalParamCount;
 constexpr uint32_t kFirstLaterParam = kSlotParamBase + kMaxBlocks * kSlotParamCount;
-constexpr uint32_t kParamCount = kFirstLaterParam;
+
+// Parameters added after the slot block. Append only.
+enum LaterParam : uint32_t {
+    // outputs: which slots have a block running in the audio engine, as two 16-bit masks (floats hold these exactly)
+    kParamRunningSlotsLow = kFirstLaterParam,
+    kParamRunningSlotsHigh,
+
+    kParamCount
+};
 
 constexpr uint32_t slotBypassParam(int slot)
 {
@@ -69,6 +77,7 @@ struct GlobalParamSpec {
     uint32_t flags;
 };
 
+// Spec for any parameter that isn't a slot parameter (globals and later parameters)
 const GlobalParamSpec& globalParamSpec(uint32_t index);
 
 } // namespace namsayin

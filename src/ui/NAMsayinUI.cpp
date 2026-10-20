@@ -9,6 +9,7 @@
 #include "state/ChainState.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cctype>
@@ -23,20 +24,24 @@ using namespace namsayin;
 
 namespace {
 
-// Theme tokens (dark)
+// Theme tokens. Very dark: the window fades from near-black at the top to pure black at the bottom, and every
+// surface is a faint translucent white over it.
 namespace theme {
-const Color background(0x16, 0x17, 0x1c);
-const Color bar(0x1f, 0x21, 0x28);
-const Color panel(0x23, 0x25, 0x2d);
-const Color tile(0x2c, 0x2f, 0x39);
-const Color tileHover(0x35, 0x39, 0x45);
-const Color border(0x3a, 0x3e, 0x4a);
-const Color text(0xe8, 0xea, 0xf0);
-const Color textDim(0x8a, 0x8f, 0x9c);
-const Color accent(0xf5, 0xa6, 0x23);
+const Color backgroundTop(0x14, 0x14, 0x17);
+const Color backgroundBottom(0x00, 0x00, 0x00);
+const Color bar(255, 255, 255, 0.025f);
+const Color panel(255, 255, 255, 0.035f);
+const Color tile(255, 255, 255, 0.05f);
+const Color tileHover(255, 255, 255, 0.08f);
+const Color inset(0, 0, 0, 0.45f);
+const Color border(255, 255, 255, 0.10f);
+const Color text(0xe6, 0xe6, 0xea);
+const Color textDim(0x78, 0x78, 0x82);
 const Color good(0x4c, 0xc9, 0x7a);
 const Color warn(0xf0, 0xc0, 0x40);
 const Color bad(0xe5, 0x48, 0x4d);
+// Highlight colour. Will be user-configurable (Settings); purple for now.
+Color accent(0x9b, 0x5c, 0xff);
 } // namespace theme
 
 constexpr float kTopBarHeight = 48.0f;
@@ -46,6 +51,8 @@ constexpr float kTileGap = 16.0f;
 constexpr float kChainTop = kTopBarHeight + 24.0f;
 constexpr float kKnobRadius = 22.0f;
 constexpr uint kDoubleClickMs = 350;
+// How long the audio engine gets to start a changed chain before the UI reports blocks that aren't running
+constexpr auto kStatusGrace = std::chrono::milliseconds(2500);
 
 struct Rect {
     float x = 0, y = 0, w = 0, h = 0;
@@ -95,8 +102,11 @@ public:
     {
         loadSharedResources();
 
-        for (uint32_t i = 0; i < kGlobalParamCount; ++i)
-            fParams[i] = globalParamSpec(i).def;
+        for (uint32_t i = 0; i < kParamCount; ++i)
+        {
+            if (!isSlotParam(i))
+                fParams[i] = globalParamSpec(i).def;
+        }
 
         const double scaleFactor = getScaleFactor();
         setGeometryConstraints(NAMSAYIN_UI_MIN_WIDTH * scaleFactor, NAMSAYIN_UI_MIN_HEIGHT * scaleFactor, false);
@@ -127,6 +137,7 @@ protected:
         if (std::optional<ChainState> chain = ChainState::fromJson(value))
         {
             fChain = std::move(*chain);
+            chainChanged();
             if (fSelected >= static_cast<int>(fChain.blocks.size()))
                 fSelected = fChain.blocks.empty() ? -1 : 0;
             repaint();
@@ -174,7 +185,10 @@ protected:
         this->scale(scale, scale);
         fontSize(14.0f);
 
-        fillRect(0, 0, fWidth, fHeight, theme::background);
+        beginPath();
+        rect(0, 0, fWidth, fHeight);
+        fillPaint(linearGradient(0, 0, 0, fHeight, theme::backgroundTop, theme::backgroundBottom));
+        fill();
         drawTopBar();
         drawChain();
         drawSelectedPanel();
@@ -311,6 +325,16 @@ protected:
         return true;
     }
 
+    void uiIdle() override
+    {
+        // redraw once the grace period ends, so blocks that didn't start get marked
+        if (fStatusPending && statusSettled())
+        {
+            fStatusPending = false;
+            repaint();
+        }
+    }
+
 private:
     // ---------------------------------------------------------------------------------------------------------------
     // Parameters
@@ -420,7 +444,24 @@ private:
     void sendChain()
     {
         setState("chain", fChain.toJson().c_str());
+        chainChanged();
         repaint();
+    }
+
+    void chainChanged()
+    {
+        fChainChangedAt = std::chrono::steady_clock::now();
+        fStatusPending = true;
+    }
+
+    bool statusSettled() const { return std::chrono::steady_clock::now() - fChainChangedAt > kStatusGrace; }
+
+    // Whether the audio engine reports a block running in this slot
+    bool slotRunning(int slot) const
+    {
+        const uint32_t low = static_cast<uint32_t>(fParams[kParamRunningSlotsLow]);
+        const uint32_t high = static_cast<uint32_t>(fParams[kParamRunningSlotsHigh]);
+        return ((low | (high << 16)) >> slot) & 1u;
     }
 
     bool onRelease(float x)
@@ -491,7 +532,7 @@ private:
     void drawButton(const Rect& r, const char* str, bool on, const Color& onColor, Hit kind, int index)
     {
         fillRect(r.x, r.y, r.w, r.h, on ? onColor : theme::tile, 6.0f);
-        label(r.x + r.w / 2, r.y + r.h / 2, str, on ? theme::background : theme::text, 13.0f,
+        label(r.x + r.w / 2, r.y + r.h / 2, str, on ? Color(255, 255, 255) : theme::text, 13.0f,
               ALIGN_CENTER | ALIGN_MIDDLE);
         fHits.push_back({ r, kind, index });
     }
@@ -542,7 +583,7 @@ private:
         for (int ch = 0; ch < 2; ++ch)
         {
             const float bx = x + ch * (barWidth + 3.0f);
-            fillRect(bx, y, barWidth, h, theme::tile, 2.0f);
+            fillRect(bx, y, barWidth, h, theme::inset, 2.0f);
             const float db = fParams[ch == 0 ? left : right];
             const float level = std::clamp((db + 60.0f) / 66.0f, 0.0f, 1.0f); // -60..+6 dB
             const Color color = db > -0.5f ? theme::bad : (db > -12.0f ? theme::warn : theme::good);
@@ -562,7 +603,7 @@ private:
     {
         fillRect(0, 0, fWidth, kTopBarHeight, theme::bar);
         label(16.0f, kTopBarHeight / 2, "NAMsayin", theme::text, 20.0f, ALIGN_LEFT | ALIGN_MIDDLE);
-        drawButton({ fWidth - 96.0f, 10.0f, 80.0f, 28.0f }, "Bypass", fParams[kParamBypass] >= 0.5f, theme::warn,
+        drawButton({ fWidth - 96.0f, 10.0f, 80.0f, 28.0f }, "Bypass", fParams[kParamBypass] >= 0.5f, theme::accent,
                    Hit::Toggle, kParamBypass);
     }
 
@@ -600,6 +641,15 @@ private:
         if (count == 0)
             label(16.0f + kTileSize + 32.0f, y + kTileSize / 2, "Click + to add a NAM model", theme::textDim,
                   14.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+
+        bool anyRunning = false;
+        for (const BlockState& block : fChain.blocks)
+            anyRunning |= slotRunning(block.slot);
+        if (count > 0 && !anyRunning && statusSettled())
+            label(16.0f, y + kTileSize + 14.0f,
+                  "The audio engine hasn't started this chain. The host may not pass the plugin's UI messages "
+                  "to it (some LV2 hosts don't); try the VST3 version.",
+                  theme::bad, 12.0f, ALIGN_LEFT | ALIGN_MIDDLE);
     }
 
     void drawAddTile(float x, float y)
@@ -621,6 +671,7 @@ private:
         const bool missing = !path.empty() && !std::filesystem::exists(
             std::filesystem::path(reinterpret_cast<const char8_t*>(path.c_str())));
         const bool bypassed = fParams[slotBypassParam(block.slot)] >= 0.5f;
+        const bool notRunning = !missing && statusSettled() && !slotRunning(block.slot);
         const bool hover = Rect { x, y, kTileSize, kTileSize }.contains(fMouseX, fMouseY);
 
         fillRect(x, y, kTileSize, kTileSize, hover ? theme::tileHover : theme::tile, 10.0f);
@@ -634,8 +685,8 @@ private:
         }
 
         // generic amp image: a speaker grille (placeholder until real images)
-        globalAlpha(bypassed || missing ? 0.35f : 1.0f);
-        fillRect(x + 18, y + 24, kTileSize - 36, 52, theme::panel, 6.0f);
+        globalAlpha(bypassed || missing || notRunning ? 0.35f : 1.0f);
+        fillRect(x + 18, y + 24, kTileSize - 36, 52, theme::inset, 6.0f);
         for (int row = 0; row < 5; ++row)
         {
             beginPath();
@@ -645,10 +696,10 @@ private:
             strokeWidth(2.0f);
             stroke();
         }
-        std::string name = missing ? "Missing file" : fileStem(path);
+        std::string name = missing ? "Missing file" : (notRunning ? "Not running" : fileStem(path));
         if (name.size() > 16)
             name = name.substr(0, 15) + "…";
-        label(x + kTileSize / 2, y + 94, name.c_str(), missing ? theme::bad : theme::text, 12.0f,
+        label(x + kTileSize / 2, y + 94, name.c_str(), missing || notRunning ? theme::bad : theme::text, 12.0f,
               ALIGN_CENTER | ALIGN_MIDDLE);
         globalAlpha(1.0f);
 
@@ -776,6 +827,9 @@ private:
 
     bool fInClipLatched = false;
     bool fOutClipLatched = false;
+
+    std::chrono::steady_clock::time_point fChainChangedAt = std::chrono::steady_clock::now();
+    bool fStatusPending = true;
 
     DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NAMsayinUI)
 };

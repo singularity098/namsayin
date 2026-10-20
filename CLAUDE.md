@@ -15,7 +15,7 @@ NAMsayin is a guitar rig plugin (VST3 + LV2) in C++20, built with DPF (plugin fr
 - Formats: VST3 and LV2 only. No standalone app, no CLAP, no AU.
 - Platforms: Linux and Windows, x86-64 only, AVX2/FMA required. No macOS, no ARM.
 - License: MIT. New source files start with `// SPDX-License-Identifier: MIT` and `// Copyright (c) 2026 singularity098`.
-- UI: DPF's NanoVG, dark theme. Draw in logical pixels and scale by `getScaleFactor()`.
+- UI: DPF's NanoVG, very dark theme (gradient from near-black at the top to black at the bottom, translucent surfaces, purple accent that will become configurable). Theme tokens are at the top of `src/ui/NAMsayinUI.cpp`. Draw in logical pixels and scale by `getScaleFactor()`.
 - Zero latency by default; only blocks that need latency add it, and it's reported to the host.
 - Max 32 blocks; each block keeps a fixed parameter slot for its lifetime (automation/MIDI follow the block).
 - One split at a time; branch B may run on a second core.
@@ -100,6 +100,7 @@ The file browser opens in the host's working directory. Final checks happen in R
 - NAM Core is linked as a whole archive: it registers model architectures from static initializers, which a normal static link drops.
 - NAM Core is built with `NAM_SAMPLE_FLOAT`, so models process `float` directly.
 - NAM tests use the models in `deps/NeuralAmpModelerCore/example_models` (`NAMSAYIN_EXAMPLE_MODELS`).
+- The engine reports running slots through two output parameters (`kParamRunningSlotsLow/High`); the UI marks blocks that haven't started 2.5 s after a chain change, and shows a banner if none have. Added because the owner's first test (LV2 in Reaper) heard no change: in jalv the chain reaches the DSP, so the suspicion is that Reaper's LV2 hosting doesn't deliver the UI's state message. Unconfirmed.
 - Not done yet in the NAM block: resampling when the host rate differs from the model's training rate.
 - NAM A2 Full/Lite: `nam::SlimmableModel::SetSlimmableSize(1.0)` = Full, `0.0` = Lite (`NAM/slimmable.h`). Not real-time safe — call it off the audio thread.
 - Fretbored (the owner's other app, https://github.com/singularity098/fretbored) is the reference for the metronome and tuner features.
