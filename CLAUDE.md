@@ -81,6 +81,7 @@ cmake --build build-tsan --target namsayin-tests && ./build-tsan/namsayin-tests
 - Parameter values live in the host. `ChainState.params`/`bypass` are only for presets and undo; the UI pushes them to the host.
 - The chain reaches the DSP as the `chain` state string (JSON). `setState()` runs off the audio thread and builds the new graph there.
 - New audio-path code gets a test, including the no-allocation check (`testing::AllocationGuard`).
+- No fast-math (`-ffast-math`, `/fp:fast`) and no NaN sentinels: compilers may assume NaN never occurs. A Windows-only test failure came from exactly this. To check, build the tests with `-DCMAKE_CXX_FLAGS=-ffast-math` and run them.
 
 ## Notes
 

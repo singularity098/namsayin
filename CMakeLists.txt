@@ -16,9 +16,10 @@ if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
   message(FATAL_ERROR "NAMsayin only supports x86-64 (found ${CMAKE_SYSTEM_PROCESSOR})")
 endif()
 
-# AVX2/FMA is a hard requirement (see docs/Requirements.md)
+# AVX2/FMA is a hard requirement (see docs/Requirements.md). No fast-math on any platform: the engine relies on
+# IEEE behaviour, and both platforms should compute the same results.
 if(MSVC)
-  add_compile_options(/arch:AVX2 /fp:fast /utf-8)
+  add_compile_options(/arch:AVX2 /utf-8)
   add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN _USE_MATH_DEFINES)
 else()
   add_compile_options(-mavx2 -mfma)

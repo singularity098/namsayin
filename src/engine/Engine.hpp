@@ -77,6 +77,7 @@ private:
     struct SlotState {
         const Block* block = nullptr;
         std::array<float, kParamsPerSlot> applied {};
+        bool applyAll = true;   // push every parameter on the next buffer (new block in this slot)
         float bypassMix = 0.0f; // 0 = active, 1 = bypassed
     };
 

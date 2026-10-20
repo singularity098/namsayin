@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <cstring>
-#include <limits>
 #include <unordered_set>
 
 namespace namsayin {
@@ -85,7 +84,7 @@ void Engine::prepare(double sampleRate, uint32_t maxFrames)
     {
         SlotState& slot = fSlots[node.slot];
         slot.block = node.block.get();
-        slot.applied.fill(std::numeric_limits<float>::quiet_NaN());
+        slot.applyAll = true;
         slot.bypassMix = param(slotBypassParam(node.slot)) >= 0.5f ? 1.0f : 0.0f;
     }
 
@@ -278,7 +277,15 @@ void Engine::processChunk(const float* const* inputs, float* const* outputs, uin
             fGlobalBypassMix = std::max(bypassTarget, fGlobalBypassMix - fRampStep);
 
         for (int ch = 0; ch < 2; ++ch)
-            outputs[ch][i] = fWork[ch][i] + (fDry[ch][i] - fWork[ch][i]) * fGlobalBypassMix;
+        {
+            // exact at the ends, so fully bypassed really is the untouched input
+            if (fGlobalBypassMix == 0.0f)
+                outputs[ch][i] = fWork[ch][i];
+            else if (fGlobalBypassMix == 1.0f)
+                outputs[ch][i] = fDry[ch][i];
+            else
+                outputs[ch][i] = fWork[ch][i] + (fDry[ch][i] - fWork[ch][i]) * fGlobalBypassMix;
+        }
     }
 
     fOutMeters[0].process(outputs[0], frames);
@@ -298,12 +305,13 @@ void Engine::processChain(uint32_t numChannels, uint32_t frames)
         for (int p = 0; p < node.type->numParams; ++p)
         {
             const float normalized = param(slotParam(node.slot, p));
-            if (!(normalized == slot.applied[p]))
+            if (slot.applyAll || normalized != slot.applied[p])
             {
                 block.setParam(p, node.type->params[p].toValue(normalized));
                 slot.applied[p] = normalized;
             }
         }
+        slot.applyAll = false;
 
         const float bypassTarget = param(slotBypassParam(node.slot)) >= 0.5f ? 1.0f : 0.0f;
         if (slot.bypassMix == bypassTarget)
@@ -343,7 +351,7 @@ void Engine::swapGraph()
         {
             // A new block in this slot: apply all its parameters and start at its bypass state, no ramp
             slot.block = node.block.get();
-            slot.applied.fill(std::numeric_limits<float>::quiet_NaN());
+            slot.applyAll = true;
             slot.bypassMix = param(slotBypassParam(node.slot)) >= 0.5f ? 1.0f : 0.0f;
         }
     }
