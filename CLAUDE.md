@@ -44,6 +44,7 @@ tests/                doctest unit tests; TestSupport.hpp has a test block and a
 docs/                 Requirements and architecture
 deps/khronos/         Vendored glext.h + khrplatform.h (MSVC has none; DPF's download is unreliable)
 .github/workflows/    CI: Linux (Ninja) and Windows (MSVC) builds + tests
+.github/scripts/      CI helper scripts
 ```
 
 Planned layout for later milestones is in `docs/Architecture.md` section 2.
@@ -95,6 +96,7 @@ The file browser opens in the host's working directory. Final checks happen in R
 
 ## Notes
 
+- CI fetches submodules with `.github/scripts/fetch-submodules.sh` (retries; skips NAM Core's unused AudioDSPTools) and caches them, because Eigen is hosted on GitLab, which sometimes refuses requests under load.
 - NAM Core is linked as a whole archive: it registers model architectures from static initializers, which a normal static link drops.
 - NAM Core is built with `NAM_SAMPLE_FLOAT`, so models process `float` directly.
 - NAM tests use the models in `deps/NeuralAmpModelerCore/example_models` (`NAMSAYIN_EXAMPLE_MODELS`).

@@ -9,17 +9,23 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      # Submodules separately, with retries: Eigen (inside NAM Core) is hosted on GitLab, which sometimes refuses
-      # requests under load
+      # Submodules are cached (keyed on their pinned commits) so GitLab, which hosts Eigen and is sometimes
+      # overloaded, is only contacted when a submodule changes
+      - name: Submodule cache key
+        id: submodules
+        shell: bash
+        run: echo "key=$(git ls-tree HEAD deps | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .git/modules
+            deps/DPF
+            deps/NeuralAmpModelerCore
+            deps/doctest
+          key: submodules-${{ runner.os }}-${{ steps.submodules.outputs.key }}
       - name: Fetch submodules
         shell: bash
-        run: |
-          for attempt in 1 2 3 4; do
-            git submodule update --init --recursive --depth 1 && exit 0
-            echo "Submodule fetch failed (attempt $attempt), retrying in 30 s"
-            sleep 30
-          done
-          exit 1
+        run: .github/scripts/fetch-submodules.sh
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -43,17 +49,23 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
-      # Submodules separately, with retries: Eigen (inside NAM Core) is hosted on GitLab, which sometimes refuses
-      # requests under load
+      # Submodules are cached (keyed on their pinned commits) so GitLab, which hosts Eigen and is sometimes
+      # overloaded, is only contacted when a submodule changes
+      - name: Submodule cache key
+        id: submodules
+        shell: bash
+        run: echo "key=$(git ls-tree HEAD deps | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .git/modules
+            deps/DPF
+            deps/NeuralAmpModelerCore
+            deps/doctest
+          key: submodules-${{ runner.os }}-${{ steps.submodules.outputs.key }}
       - name: Fetch submodules
         shell: bash
-        run: |
-          for attempt in 1 2 3 4; do
-            git submodule update --init --recursive --depth 1 && exit 0
-            echo "Submodule fetch failed (attempt $attempt), retrying in 30 s"
-            sleep 30
-          done
-          exit 1
+        run: .github/scripts/fetch-submodules.sh
       - name: Configure
         run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
       - name: Build
