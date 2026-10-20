@@ -1,9 +1,8 @@
 ### NAMsayin
-- An LV2/VST3 plugin written in C++ using DPF and NeuralAmpModelerCore
-  - Also builds as a standalone JACK application
+- An LV2/VST3 plugin written in C++ using DPF and NeuralAmpModelerCore (no standalone application for now)
 - The plugin is ultra-light, fast, and snappy
 - Zero latency by default: latency (plugin delay compensation, PDC) is only introduced by blocks that require it, and is reported to the host
-- Natively runs on Linux and Windows, x86-64 only (macOS and ARM are not supported for now)
+- Natively runs on Linux and Windows, x86-64 only, and requires a CPU with AVX2/FMA (macOS and ARM are not supported for now)
 - Beautiful interface with a dark theme, drawn with NanoVG
 - The interface can be resized and scales for high DPI displays
 - Free, open source software under the MIT license
@@ -81,5 +80,5 @@
 ### Version 1 scope
 - Local NAM blocks
 - Delay block (with stereo delay)
-- Reverb block
+- Reverb block (room, hall and plate types)
 - Everything else in this document (Tone3000 integration, IR loader, other effect categories, etc.) follows in later versions, but the architecture must allow for it

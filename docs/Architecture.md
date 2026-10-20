@@ -6,7 +6,7 @@ This plan covers version 1 as scoped in [Requirements.md](Requirements.md): loca
 
 | Area | Choice | License |
 | --- | --- | --- |
-| Plugin framework | [DPF](https://github.com/DISTRHO/DPF) — VST3, LV2, standalone JACK | ISC |
+| Plugin framework | [DPF](https://github.com/DISTRHO/DPF) — VST3 and LV2 | ISC |
 | NAM | [NeuralAmpModelerCore](https://github.com/sdatkinson/NeuralAmpModelerCore) (brings Eigen and nlohmann/json) | MIT / MPL2 / MIT |
 | UI | DPF's DGL with NanoVG | ISC / zlib |
 | Zip reading | miniz | MIT |
@@ -15,7 +15,7 @@ This plan covers version 1 as scoped in [Requirements.md](Requirements.md): loca
 | Font | Inter | OFL |
 | Build | CMake (DPF's `dpf_add_plugin`), dependencies as git submodules under `deps/` | — |
 
-Targets: Linux and Windows, x86-64. Compilers: GCC/Clang on Linux, MSVC on Windows.
+Targets: Linux and Windows, x86-64 with AVX2/FMA required (`-mavx2 -mfma` / `/arch:AVX2`). VST3 and LV2 only; no standalone app for now. Compilers: GCC/Clang on Linux, MSVC on Windows.
 
 ## 2. Repository layout
 
@@ -107,7 +107,7 @@ The host sees a fixed parameter list:
 
 Each block is assigned a free slot when it is created and keeps it for its whole life, so dragging a block to a new position doesn't break automation. Host-facing names are generic ("Slot 05 · P2"). The UI shows real names, and the slot number on each block tile so users can find it in their DAW.
 
-**MIDI learn**: right-click any control → "MIDI Learn", then move a controller. The mapping (CC → parameter) is stored in the plugin state, and incoming CCs are applied in `run()`. This works the same in VST3, LV2 and standalone.
+**MIDI learn**: right-click any control → "MIDI Learn", then move a controller. The mapping (CC → parameter) is stored in the plugin state, and incoming CCs are applied in `run()`. This works the same in VST3 and LV2.
 
 ### 4.4 Split, merge and the second core
 
@@ -186,7 +186,7 @@ An algorithmic reverb written in-house (Dattorro-style plate/hall network). Para
 ## 8. Build, test and release
 
 - **CI** (GitHub Actions):
-  - Linux and Windows builds of VST3, LV2 and standalone on every push
+  - Linux and Windows builds of VST3 and LV2 on every push
   - unit tests
   - plugin validation with pluginval (VST3) and lv2lint (LV2)
 - **Unit tests**:
@@ -198,7 +198,7 @@ An algorithmic reverb written in-house (Dattorro-style plate/hall network). Para
   - zip scanning
   - undo/redo
 - **Real-time check**: a test build that fails if the audio thread allocates memory.
-- **Manual DAW testing**: Reaper, Ardour, Bitwig and Carla on Linux; Reaper and one other host on Windows.
+- **Manual DAW testing**: Reaper first, on Linux and Windows (it's the DAW the project owner uses); Ardour and Carla on Linux as secondary checks.
 - **Releases**: zip files per platform attached to GitHub Releases.
 
 ## 9. Performance targets
@@ -215,7 +215,7 @@ Each milestone ends with a working build, passing tests and a short demo.
 
 | # | Milestone | Done when |
 | --- | --- | --- |
-| M0 | **Project skeleton** | CMake + submodules; a pass-through plugin builds as VST3, LV2 and standalone on Linux and Windows in CI; an empty resizable HiDPI NanoVG window; MIT license headers |
+| M0 | **Project skeleton** | CMake + submodules; a pass-through plugin builds as VST3 and LV2 on Linux and Windows in CI; an empty resizable HiDPI NanoVG window; MIT license headers |
 | M1 | **Engine core** | Block interface and registry; ChainGraph with real-time-safe swap; parameter slots; state save/restore; input/tone stack/output/limiter/meters; global bypass; mono/stereo |
 | M2 | **NAM block** | A1 and A2 loading on a background thread; Full/Lite global and per block; normalization; sample-rate handling with latency reporting |
 | M3 | **Delay and reverb** | Both blocks with their parameters, stereo delay and tempo sync |
@@ -229,9 +229,9 @@ Each milestone ends with a working build, passing tests and a short demo.
 
 M2–M3 and M4 can overlap, as can M8 and M9.
 
-## 11. Open questions
+## 11. Decisions log
 
-1. **CPU baseline**: require AVX2/FMA (most x86-64 CPUs since ~2015, noticeably faster NAM), or keep a plain x86-64 build for older machines? Recommendation: AVX2.
-2. **Standalone on Windows**: JACK is rare on Windows. To be checked at M0: DPF's standalone target can fall back to native audio when JACK isn't installed. If it can't, should the Windows standalone be dropped from v1?
-3. **Reverb types**: are room / hall / plate the right three?
-4. **Test DAWs**: which DAWs do you use, so they're tested first?
+1. **CPU baseline**: AVX2/FMA is required.
+2. **Standalone app**: dropped for now; VST3 and LV2 only.
+3. **Reverb types**: room, hall and plate.
+4. **Test DAW**: Reaper is the primary host.
