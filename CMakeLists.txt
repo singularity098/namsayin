@@ -49,6 +49,7 @@ add_library(namsayin-engine STATIC
   src/engine/blocks/NamBlock.cpp
   src/engine/Engine.cpp
   src/engine/Params.cpp
+  src/state/ChainExchange.cpp
   src/state/ChainState.cpp)
 target_include_directories(namsayin-engine PUBLIC src)
 # Whole archive: NAM Core registers its model architectures from static initializers, which the linker would

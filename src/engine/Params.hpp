@@ -44,6 +44,10 @@ enum LaterParam : uint32_t {
     kParamRunningSlotsLow = kFirstLaterParam,
     kParamRunningSlotsHigh,
 
+    // chain exchange for hosts that don't deliver UI state (see state/ChainExchange.hpp)
+    kParamInstanceId,       // output: this plugin instance's random ID
+    kParamChainRevision,    // input, hidden: bumped by the UI after writing the exchange file
+
     kParamCount
 };
 
@@ -67,6 +71,7 @@ enum ParamFlags : uint32_t {
     kParamFlagOutput  = 1 << 0,
     kParamFlagToggle  = 1 << 1,
     kParamFlagInteger = 1 << 2,
+    kParamFlagHidden  = 1 << 3,
 };
 
 struct GlobalParamSpec {

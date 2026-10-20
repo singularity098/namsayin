@@ -4,10 +4,17 @@
 #include "DistrhoPlugin.hpp"
 
 #include "engine/Engine.hpp"
+#include "state/ChainExchange.hpp"
 
+#include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <optional>
+#include <random>
+#include <string>
+#include <thread>
 
 START_NAMESPACE_DISTRHO
 
@@ -28,6 +35,19 @@ public:
         : Plugin(kParamCount, 0, kStateCount)
     {
         fEngine.prepare(getSampleRate(), getBufferSize());
+
+        std::random_device random;
+        fInstanceId = 1 + random() % kMaxExchangeValue;
+        fEngine.setParameter(kParamInstanceId, static_cast<float>(fInstanceId));
+        fExchangeThread = std::thread([this] { watchExchange(); });
+    }
+
+    ~NAMsayinPlugin() override
+    {
+        fStopExchange = true;
+        if (fExchangeThread.joinable())
+            fExchangeThread.join();
+        std::remove(chainExchangePath(fInstanceId).c_str());
     }
 
 protected:
@@ -60,6 +80,8 @@ protected:
                 parameter.hints |= kParameterIsBoolean | kParameterIsInteger;
             if (spec.flags & kParamFlagInteger)
                 parameter.hints |= kParameterIsInteger;
+            if (spec.flags & kParamFlagHidden)
+                parameter.hints = (parameter.hints & ~kParameterIsAutomatable) | kParameterIsHidden;
             if (index == kParamBypass)
                 parameter.designation = kParameterDesignationBypass;
             return;
@@ -110,18 +132,23 @@ protected:
 
     void setParameterValue(const uint32_t index, const float value) override
     {
+        if (index == kParamInstanceId)
+            return; // output, owned by the plugin
         fEngine.setParameter(index, value);
     }
 
     void setState(const char* const key, const char* const value) override
     {
-        if (std::strcmp(key, kStateChain) != 0)
-            return;
+        if (std::strcmp(key, kStateChain) == 0)
+            applyChain(value);
+    }
 
-        std::string error;
-        const std::optional<ChainState> chain = ChainState::fromJson(value, &error);
-        if (!chain || !fEngine.setChain(*chain, &error))
-            d_stderr2("NAMsayin: ignoring invalid chain state: %s", error.c_str());
+    String getState(const char* const key) const override
+    {
+        if (std::strcmp(key, kStateChain) != 0)
+            return String();
+        const std::lock_guard<std::mutex> lock(fChainMutex);
+        return String(fChainJson.c_str());
     }
 
     void activate() override
@@ -142,8 +169,53 @@ protected:
     }
 
 private:
+    // Non-RT. Builds the chain and keeps its JSON for getState() and the exchange file.
+    void applyChain(const char* const json)
+    {
+        {
+            // the same chain often arrives twice (state message and exchange file)
+            const std::lock_guard<std::mutex> lock(fChainMutex);
+            if (fChainJson == json)
+                return;
+        }
+        std::string error;
+        const std::optional<ChainState> chain = ChainState::fromJson(json, &error);
+        if (!chain || !fEngine.setChain(*chain, &error))
+        {
+            d_stderr2("NAMsayin: ignoring invalid chain state: %s", error.c_str());
+            return;
+        }
+        {
+            const std::lock_guard<std::mutex> lock(fChainMutex);
+            fChainJson = json;
+        }
+        writeChainExchange(fInstanceId, json);
+    }
+
+    // Picks up chains the UI sent through the exchange file (see state/ChainExchange.hpp)
+    void watchExchange()
+    {
+        uint32_t seenRevision = 0;
+        while (!fStopExchange)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(30));
+            const auto revision = static_cast<uint32_t>(fEngine.getParameter(kParamChainRevision));
+            if (revision == seenRevision)
+                continue;
+            seenRevision = revision;
+            if (const std::optional<std::string> json = readChainExchange(fInstanceId))
+                applyChain(json->c_str());
+        }
+    }
+
     Engine fEngine;
     uint32_t fReportedLatency = 0;
+
+    uint32_t fInstanceId = 0;
+    mutable std::mutex fChainMutex;
+    std::string fChainJson;
+    std::atomic<bool> fStopExchange { false };
+    std::thread fExchangeThread;
 
     DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NAMsayinPlugin)
 };

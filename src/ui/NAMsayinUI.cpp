@@ -6,6 +6,7 @@
 #include "engine/BlockRegistry.hpp"
 #include "engine/Params.hpp"
 #include "engine/blocks/NamBlock.hpp"
+#include "state/ChainExchange.hpp"
 #include "state/ChainState.hpp"
 
 #include <algorithm>
@@ -123,6 +124,13 @@ protected:
         if (index >= kParamCount)
             return;
         fParams[index] = value;
+        if (index == kParamInstanceId && value >= 1.0f)
+        {
+            fInstanceId = static_cast<uint32_t>(value);
+            // The host may not have sent us the chain (Reaper's LV2 doesn't): read the DSP's copy
+            if (!fGotChainState)
+                loadExchangeChain();
+        }
         if (index == kParamInClip && value >= 0.5f)
             fInClipLatched = true;
         if (index == kParamOutClip && value >= 0.5f)
@@ -136,6 +144,7 @@ protected:
             return;
         if (std::optional<ChainState> chain = ChainState::fromJson(value))
         {
+            fGotChainState = true;
             fChain = std::move(*chain);
             chainChanged();
             if (fSelected >= static_cast<int>(fChain.blocks.size()))
@@ -443,9 +452,34 @@ private:
 
     void sendChain()
     {
-        setState("chain", fChain.toJson().c_str());
+        const std::string json = fChain.toJson();
+#ifndef NAMSAYIN_TEST_NO_STATE_MESSAGE // test builds only: behave like a host that drops state messages
+        setState("chain", json.c_str());
+#endif
+
+        // Second route for hosts that drop the state message (see state/ChainExchange.hpp)
+        if (fInstanceId != 0 && writeChainExchange(fInstanceId, json))
+        {
+            const uint32_t revision = (static_cast<uint32_t>(fParams[kParamChainRevision]) % kMaxExchangeValue) + 1;
+            setHostParameter(kParamChainRevision, static_cast<float>(revision));
+        }
+
         chainChanged();
         repaint();
+    }
+
+    void loadExchangeChain()
+    {
+        const std::optional<std::string> json = readChainExchange(fInstanceId);
+        if (!json)
+            return;
+        if (std::optional<ChainState> chain = ChainState::fromJson(*json))
+        {
+            fChain = std::move(*chain);
+            if (fSelected >= static_cast<int>(fChain.blocks.size()))
+                fSelected = fChain.blocks.empty() ? -1 : 0;
+            repaint();
+        }
     }
 
     void chainChanged()
@@ -827,6 +861,9 @@ private:
 
     bool fInClipLatched = false;
     bool fOutClipLatched = false;
+
+    uint32_t fInstanceId = 0;
+    bool fGotChainState = false;
 
     std::chrono::steady_clock::time_point fChainChangedAt = std::chrono::steady_clock::now();
     bool fStatusPending = true;
