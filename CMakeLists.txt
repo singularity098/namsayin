@@ -65,6 +65,11 @@ dpf_add_plugin(namsayin
     src/ui/NAMsayinUI.cpp)
 
 target_include_directories(namsayin PUBLIC src src/plugin)
+
+# MSVC has no glext.h; use our copy instead of the one DPF downloads at configure time
+if(MSVC)
+  target_include_directories(dgl-system-libs-definitions BEFORE INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/deps/khronos)
+endif()
 target_link_libraries(namsayin PUBLIC namsayin-engine)
 
 # ---------------------------------------------------------------------------------------------------------------------

@@ -41,7 +41,8 @@ src/plugin/           DistrhoPluginInfo.h + DSP side (Plugin subclass; thin wrap
 src/ui/               UI side (UI subclass, NanoVG)
 tests/                doctest unit tests; TestSupport.hpp has a test block and an allocation counter
 docs/                 Requirements and architecture
-.github/workflows/    CI: Linux (Ninja) and Windows (MSVC) builds
+deps/khronos/         Vendored glext.h + khrplatform.h (MSVC has none; DPF's download is unreliable)
+.github/workflows/    CI: Linux (Ninja) and Windows (MSVC) builds + tests
 ```
 
 Planned layout for later milestones is in `docs/Architecture.md` section 2.
