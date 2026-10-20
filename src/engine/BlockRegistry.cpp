@@ -3,6 +3,8 @@
 
 #include "engine/BlockRegistry.hpp"
 
+#include "engine/blocks/NamBlock.hpp"
+
 namespace namsayin {
 
 BlockRegistry::BlockRegistry(std::vector<const BlockDescriptor*> types)
@@ -12,8 +14,9 @@ BlockRegistry::BlockRegistry(std::vector<const BlockDescriptor*> types)
 
 const BlockRegistry& BlockRegistry::builtin()
 {
-    // One line per block type. The NAM, delay and reverb blocks are added in M2 and M3.
+    // One line per block type, in Add Block dialog order within each category
     static const BlockRegistry registry({
+        &kNamBlockDescriptor,
     });
     return registry;
 }

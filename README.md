@@ -15,7 +15,7 @@ cmake --build build
 
 Plugins are written to `build/bin/` (`namsayin.lv2`, `namsayin.vst3`).
 
-Linux needs: a C++20 compiler, CMake 3.22+, and the OpenGL/X11 development packages
+Linux needs: a C++20 compiler, CMake 3.24+, and the OpenGL/X11 development packages
 (`libgl1-mesa-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev libdbus-1-dev` on Debian/Ubuntu).
 
 Windows: Visual Studio 2022 — `cmake -S . -B build -G "Visual Studio 17 2022" -A x64` then `cmake --build build --config Release`.

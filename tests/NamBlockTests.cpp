@@ -1,0 +1,156 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 singularity098
+
+#include <doctest/doctest.h>
+
+#include "TestSupport.hpp"
+#include "engine/Engine.hpp"
+#include "engine/blocks/NamBlock.hpp"
+
+#include <cmath>
+#include <string>
+#include <vector>
+
+using namespace namsayin;
+
+namespace {
+
+constexpr double kRate = 48000.0;
+constexpr uint32_t kBuffer = 128;
+
+std::string exampleModel(const char* name)
+{
+    return std::string(NAMSAYIN_EXAMPLE_MODELS) + "/" + name;
+}
+
+// Processes a 220 Hz sine through the block and returns the output. If `allocations` is given, it receives the
+// number of heap allocations made inside process().
+std::vector<float> render(Block& block, uint32_t buffers = 40, int* allocations = nullptr)
+{
+    std::vector<float> out;
+    out.reserve(static_cast<size_t>(buffers) * kBuffer); // so only the block's own allocations are counted
+    std::vector<float> buf(kBuffer);
+    uint32_t t = 0;
+    for (uint32_t b = 0; b < buffers; ++b)
+    {
+        for (uint32_t i = 0; i < kBuffer; ++i, ++t)
+            buf[i] = 0.3f * static_cast<float>(std::sin(2.0 * M_PI * 220.0 * t / kRate));
+        float* io[2] = { buf.data(), buf.data() };
+        {
+            testing::AllocationGuard guard;
+            block.process(io, 1, kBuffer);
+            if (allocations)
+                *allocations += guard.count();
+        }
+        out.insert(out.end(), buf.begin(), buf.end());
+    }
+    return out;
+}
+
+float rms(const std::vector<float>& x, size_t from)
+{
+    double sum = 0.0;
+    for (size_t i = from; i < x.size(); ++i)
+        sum += static_cast<double>(x[i]) * x[i];
+    return static_cast<float>(std::sqrt(sum / static_cast<double>(x.size() - from)));
+}
+
+std::unique_ptr<Block> loadBlock(const std::string& path, double a2Size = 1.0)
+{
+    std::unique_ptr<Block> block = kNamBlockDescriptor.create();
+    block->prepare(kRate, kBuffer);
+    if (!block->configure({ { "path", path }, { "a2Size", a2Size } }))
+        return nullptr;
+    for (int p = 0; p < kNamBlockDescriptor.numParams; ++p)
+        block->setParam(p, kNamBlockDescriptor.params[p].def);
+    return block;
+}
+
+} // namespace
+
+TEST_CASE("NAM block loads A1 and A2 models and processes audio without allocating")
+{
+    for (const char* name : { "wavenet_a1_standard.nam", "A2.nam", "lstm.nam" })
+    {
+        CAPTURE(name);
+        std::unique_ptr<Block> block = loadBlock(exampleModel(name));
+        REQUIRE(block);
+
+        int allocations = 0;
+        const std::vector<float> out = render(*block, 40, &allocations);
+        CHECK(allocations == 0);
+
+        bool finite = true;
+        for (float v : out)
+            finite &= std::isfinite(v);
+        CHECK(finite);
+        CHECK(rms(out, out.size() / 2) > 1e-4f);
+    }
+}
+
+TEST_CASE("NAM block switches an A2 model between Full and Lite")
+{
+    std::unique_ptr<Block> full = loadBlock(exampleModel("slimmable_wavenet.nam"), 1.0);
+    std::unique_ptr<Block> lite = loadBlock(exampleModel("slimmable_wavenet.nam"), 0.0);
+    REQUIRE(full);
+    REQUIRE(lite);
+    const std::vector<float> a = render(*full);
+    const std::vector<float> b = render(*lite);
+    CHECK(a != b);
+}
+
+TEST_CASE("NAM block rejects missing and invalid files")
+{
+    CHECK_FALSE(loadBlock(exampleModel("does-not-exist.nam")));
+    CHECK_FALSE(loadBlock(""));
+    CHECK_FALSE(loadBlock(std::string(NAMSAYIN_EXAMPLE_MODELS) + "/../README.md"));
+}
+
+TEST_CASE("NAM block output level follows its parameters")
+{
+    std::unique_ptr<Block> block = loadBlock(exampleModel("wavenet_a1_standard.nam"));
+    REQUIRE(block);
+    block->setParam(kNamParamNormalize, 0.0f);
+    // long enough for the 20 ms gain smoothing to settle
+    const float base = rms(render(*block, 200), 12800);
+    block->setParam(kNamParamOutput, -6.0f);
+    const float quieter = rms(render(*block, 200), 12800);
+    CHECK(20.0f * std::log10(quieter / base) == doctest::Approx(-6.0f).epsilon(0.02));
+}
+
+TEST_CASE("NAM block in the engine, including through the plugin's state format")
+{
+    Engine engine;
+    engine.prepare(kRate, kBuffer);
+    ChainState chain;
+    BlockState block;
+    block.typeId = "nam";
+    block.slot = 0;
+    block.config = { { "path", exampleModel("A2.nam") } };
+    chain.blocks.push_back(block);
+    for (int p = 0; p < kNamBlockDescriptor.numParams; ++p)
+        engine.setParameter(slotParam(0, p), kNamBlockDescriptor.params[p].toNormalized(kNamBlockDescriptor.params[p].def));
+
+    const std::optional<ChainState> parsed = ChainState::fromJson(chain.toJson());
+    REQUIRE(parsed);
+    std::vector<int> failed;
+    REQUIRE(engine.setChain(*parsed, nullptr, &failed));
+    CHECK(failed.empty());
+
+    std::vector<float> in(kBuffer, 0.0f), out(kBuffer, 0.0f);
+    for (uint32_t i = 0; i < kBuffer; ++i)
+        in[i] = 0.3f * static_cast<float>(std::sin(2.0 * M_PI * 220.0 * i / kRate));
+    const float* ins[2] = { in.data(), in.data() };
+    float* outs[2] = { out.data(), out.data() };
+    float energy = 0.0f;
+    {
+        testing::AllocationGuard guard;
+        for (int b = 0; b < 50; ++b)
+        {
+            engine.process(ins, outs, kBuffer);
+            energy += std::fabs(out[kBuffer / 2]);
+        }
+        CHECK(guard.count() == 0);
+    }
+    CHECK(energy > 0.0f);
+}

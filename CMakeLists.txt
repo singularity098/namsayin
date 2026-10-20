@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.22)
+cmake_minimum_required(VERSION 3.24)
 
 project(NAMsayin VERSION 0.1.0 LANGUAGES C CXX)
 
@@ -39,18 +39,21 @@ target_include_directories(nam SYSTEM PUBLIC
   ${NAM_DIR}/Dependencies             # <nlohmann/json.hpp>
   ${NAM_DIR}/Dependencies/eigen
   ${NAM_DIR}/Dependencies/nlohmann)   # NAM includes "json.hpp"
-target_compile_definitions(nam PUBLIC NAM_ENABLE_A2_FAST)
+target_compile_definitions(nam PUBLIC NAM_ENABLE_A2_FAST NAM_SAMPLE_FLOAT)
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Engine (DSP and state, independent of DPF so it can be unit tested)
 
 add_library(namsayin-engine STATIC
   src/engine/BlockRegistry.cpp
+  src/engine/blocks/NamBlock.cpp
   src/engine/Engine.cpp
   src/engine/Params.cpp
   src/state/ChainState.cpp)
 target_include_directories(namsayin-engine PUBLIC src)
-target_link_libraries(namsayin-engine PUBLIC nam)
+# Whole archive: NAM Core registers its model architectures from static initializers, which the linker would
+# otherwise drop ("No config parser registered for architecture")
+target_link_libraries(namsayin-engine PUBLIC "$<LINK_LIBRARY:WHOLE_ARCHIVE,nam>")
 
 set(NAMSAYIN_WARNINGS $<IF:$<CXX_COMPILER_ID:MSVC>,/W4,-Wall -Wextra -Wpedantic>)
 target_compile_options(namsayin-engine PRIVATE ${NAMSAYIN_WARNINGS})
@@ -83,9 +86,11 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/TestMain.cpp
     tests/ChainStateTests.cpp
     tests/DspTests.cpp
-    tests/EngineTests.cpp)
+    tests/EngineTests.cpp
+    tests/NamBlockTests.cpp)
   target_include_directories(namsayin-tests PRIVATE tests deps/doctest)
   target_link_libraries(namsayin-tests PRIVATE namsayin-engine)
   target_compile_options(namsayin-tests PRIVATE ${NAMSAYIN_WARNINGS})
+  target_compile_definitions(namsayin-tests PRIVATE NAMSAYIN_EXAMPLE_MODELS="${NAM_DIR}/example_models")
   add_test(NAME namsayin-tests COMMAND namsayin-tests)
 endif()

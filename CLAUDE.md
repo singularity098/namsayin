@@ -8,7 +8,7 @@ NAMsayin is a guitar rig plugin (VST3 + LV2) in C++20, built with DPF (plugin fr
 
 - **Requirements**: `docs/Requirements.md` — the owner's feature list plus agreed decisions. Treat it as the source of truth; record new decisions there.
 - **Architecture and milestones**: `docs/Architecture.md` — design, v1 milestones (M0–M10) and decisions log.
-- **Current milestone**: M1 (engine core) done — block interface and registry, chain state, lock-free chain swaps, parameter slots, input/tone stack/output/limiter/meters, global and slot bypass, mono/stereo, unit tests. Next: M2 (NAM block).
+- **Current milestone**: M1 (engine core) and M2 (NAM block, minus resampling) done. Working on M4 (main UI) next, then M3 (delay/reverb). The owner asked for M2 then M4 to get a working prototype quickly.
 
 ## Fixed decisions (don't revisit without the owner)
 
@@ -36,6 +36,7 @@ src/engine/           Audio engine, independent of DPF (static library `namsayin
   Engine.*            Input stage, chain, tone stack, output, limiter, meters; lock-free chain swaps
   SpscQueue.hpp       Lock-free queue (retired graphs go back to the non-RT side through it)
   dsp/                Smoother, Biquad, ToneStack, Limiter, Meter
+  blocks/             Block implementations (NamBlock)
 src/state/            ChainState (the chain as plain data, JSON)
 src/plugin/           DistrhoPluginInfo.h + DSP side (Plugin subclass; thin wrapper around Engine)
 src/ui/               UI side (UI subclass, NanoVG)
@@ -85,6 +86,10 @@ cmake --build build-tsan --target namsayin-tests && ./build-tsan/namsayin-tests
 
 ## Notes
 
+- NAM Core is linked as a whole archive: it registers model architectures from static initializers, which a normal static link drops.
+- NAM Core is built with `NAM_SAMPLE_FLOAT`, so models process `float` directly.
+- NAM tests use the models in `deps/NeuralAmpModelerCore/example_models` (`NAMSAYIN_EXAMPLE_MODELS`).
+- Not done yet in the NAM block: resampling when the host rate differs from the model's training rate.
 - NAM A2 Full/Lite: `nam::SlimmableModel::SetSlimmableSize(1.0)` = Full, `0.0` = Lite (`NAM/slimmable.h`). Not real-time safe — call it off the audio thread.
 - Fretbored (the owner's other app, https://github.com/singularity098/fretbored) is the reference for the metronome and tuner features.
 - Tone3000's site is blocked by this cloud environment's network policy, so its API docs can't be fetched here.
