@@ -42,10 +42,23 @@
     - Wah
 - There is also a button to load a Tone3000 NAM from the clipboard when adding a block
 - A menu is present at the top of the application to save and load presets
-- At the bottom of the applicaiton, we have turnable knobs for:
+- At the bottom of the application, we have turnable knobs for:
     - Input mode (mono/stereo)
     - Input (level)
     - Bass
     - Middle
     - Treble
     - Output (level)
+
+### Decisions
+- Maximum of 32 blocks in the signal chain. Each block occupies a fixed slot with a fixed set of host parameters, so every block parameter can be automated by the DAW and controlled by MIDI (MIDI learn). A block keeps its slot when it is reordered, so automation and MIDI mappings follow the block, not its position
+- Zero latency by default; latency is only introduced by blocks that require it, and is reported to the host for PDC
+- Multi-core processing is limited to running the two parallel branches of a split on separate cores
+- NAM A2 is the 2026 NAM architecture; one A2 file can run in Full or Lite (lower CPU) mode. The Settings panel sets the global default, and each block may override it
+- Metronome matches Fretbored's metronome feature set (tempo 20–300 BPM, tap tempo, meter and beat grouping, per-beat accents, subdivisions, sounds, step/gradual trainer, gap trainer, sample-accurate timing)
+
+### Version 1 scope
+- Local NAM blocks
+- Delay block
+- Reverb block
+- Everything else in this document (Tone3000 integration, IR loader, other effect categories, etc.) follows in later versions, but the architecture must allow for it
