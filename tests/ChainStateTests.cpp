@@ -72,3 +72,32 @@ TEST_CASE("freeSlot finds the lowest unused slot")
         full.blocks.push_back({ "test.gain", i });
     CHECK(full.freeSlot() == -1);
 }
+
+TEST_CASE("MIDI mappings and the preset name round-trip and validate")
+{
+    ChainState chain;
+    chain.blocks.push_back({ "test.gain", 0 });
+    chain.preset = "/presets/Clean.namsayin";
+    chain.setMidiMapping({ 0, 7, slotParam(0, 0) });
+    chain.setMidiMapping({ 2, 11, kParamOutput });
+    REQUIRE(chain.midi.size() == 2);
+
+    const std::optional<ChainState> back = ChainState::fromJson(chain.toJson());
+    REQUIRE(back);
+    CHECK(*back == chain);
+    CHECK(back->validate(testing::testRegistry()));
+
+    // one mapping per CC and per parameter
+    chain.setMidiMapping({ 0, 7, kParamInput });
+    CHECK(chain.midi.size() == 2);
+    CHECK(chain.midiMappingFor(slotParam(0, 0)) == nullptr);
+    chain.setMidiMapping({ 5, 5, kParamInput });
+    CHECK(chain.midi.size() == 2);
+    CHECK(chain.midiMappingFor(kParamInput)->cc == 5);
+    chain.clearMidiMappings(kParamInput);
+    CHECK(chain.midiMappingFor(kParamInput) == nullptr);
+
+    // outputs can't be mapped
+    chain.midi.push_back({ 0, 1, kParamOutPeakL });
+    CHECK_FALSE(chain.validate(testing::testRegistry()));
+}

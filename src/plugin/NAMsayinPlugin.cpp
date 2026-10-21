@@ -132,8 +132,9 @@ protected:
 
     void setParameterValue(const uint32_t index, const float value) override
     {
-        if (index == kParamInstanceId)
-            return; // output, owned by the plugin
+        if (index == kParamInstanceId || index == kParamMidiLastCc || index == kParamMidiCcCount
+            || index == kParamMidiLastValue)
+            return; // outputs, owned by the plugin
         fEngine.setParameter(index, value);
     }
 
@@ -156,8 +157,20 @@ protected:
         fEngine.prepare(getSampleRate(), getBufferSize());
     }
 
-    void run(const float** const inputs, float** const outputs, const uint32_t frames) override
+    void run(const float** const inputs, float** const outputs, const uint32_t frames,
+             const MidiEvent* const midiEvents, const uint32_t midiEventCount) override
     {
+        // MIDI CCs (learn and mapped controls), applied at the start of the buffer
+        for (uint32_t i = 0; i < midiEventCount; ++i)
+        {
+            const MidiEvent& event = midiEvents[i];
+            if (event.size != 3 || (event.data[0] & 0xf0) != 0xb0)
+                continue;
+            const Engine::CcResult result = fEngine.midiCc(event.data[0] & 0x0f, event.data[1], event.data[2]);
+            if (result.param >= 0)
+                requestParameterValueChange(static_cast<uint32_t>(result.param), result.value);
+        }
+
         const TimePosition& time = getTimePosition();
         if (time.bbt.valid)
             fEngine.setTempo(time.bbt.beatsPerMinute);

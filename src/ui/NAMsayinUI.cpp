@@ -14,7 +14,9 @@
 #include "state/Library.hpp"
 #include "state/LibraryScanner.hpp"
 #include "state/Paths.hpp"
+#include "state/Preset.hpp"
 #include "state/Settings.hpp"
+#include "state/UndoStack.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -118,6 +120,34 @@ enum class Hit {
     SettingsNormalize,
     SettingsParallel,
     SettingsAccent, // index = accent
+    PresetMenu,
+    Undo,
+    Redo,
+    MenuItem,       // index = position in fMenu
+    Locate,         // index = position in the chain
+    UseLibraryMatch, // index = position in the chain
+};
+
+// What a context or preset menu item does
+enum class MenuAction {
+    None, // separator / label
+    MidiLearn,
+    MidiClear,
+    ResetParam,
+    ToggleBypass,
+    RemoveBlock,
+    PresetNew,
+    PresetOpen,
+    PresetSave,
+    PresetSaveAs,
+    PresetEmbed,
+    PresetRecent, // arg = index in the recent list
+};
+
+struct MenuEntry {
+    std::string label;
+    MenuAction action;
+    int arg = 0;
 };
 
 // Editable text fields
@@ -128,10 +158,10 @@ enum Field {
     kFieldCount
 };
 
-enum class Dialog { None, AddBlock, Settings };
+enum class Dialog { None, AddBlock, Settings, Menu };
 
 // What a file picked in the file browser is for
-enum class BrowseTarget { AddBlock, NamDir, IrDir };
+enum class BrowseTarget { AddBlock, NamDir, IrDir, OpenPreset, SavePreset, Locate };
 
 struct HitArea {
     Rect rect;
@@ -263,6 +293,9 @@ protected:
         if (index >= kParamCount)
             return;
         fParams[index] = value;
+        // automation and MIDI change values in the host; presets and undo need them too
+        if (isSlotParam(index))
+            syncChainValue(index, value);
         if (index == kParamInstanceId && value >= 1.0f)
         {
             fInstanceId = static_cast<uint32_t>(value);
@@ -270,6 +303,10 @@ protected:
             if (!fGotChainState)
                 loadExchangeChain();
         }
+        if (index == kParamMidiCcCount && fLearnParam >= 0 && value != fLearnCcCount)
+            finishMidiLearn();
+        else if (index == kParamMidiCcCount && fLearnParam < 0)
+            forwardMidiCc();
         if (index == kParamInClip && value >= 0.5f)
             fInClipLatched = true;
         if (index == kParamOutClip && value >= 0.5f)
@@ -285,6 +322,8 @@ protected:
         {
             fGotChainState = true;
             fChain = std::move(*chain);
+            fSavedChain = fChain; // the host's state: nothing to mark as modified, nothing to undo
+            fUndo.clear();
             chainChanged();
             if (fSelected >= static_cast<int>(fChain.blocks.size()))
                 fSelected = fChain.blocks.empty() ? -1 : 0;
@@ -296,6 +335,24 @@ protected:
     {
         if (filename == nullptr)
             return;
+        switch (fBrowseTarget)
+        {
+        case BrowseTarget::OpenPreset:
+            openPreset(filename);
+            return;
+        case BrowseTarget::SavePreset: {
+            std::string path = filename;
+            if (!lowerCase(path).ends_with(Preset::kExtension))
+                path += Preset::kExtension;
+            savePreset(path);
+            return;
+        }
+        case BrowseTarget::Locate:
+            locateFile(fLocateIndex, filename);
+            return;
+        default:
+            break;
+        }
         if (fBrowseTarget == BrowseTarget::NamDir || fBrowseTarget == BrowseTarget::IrDir)
         {
             // DPF's browser picks files, so the folder is the one the picked file is in
@@ -332,10 +389,13 @@ protected:
         drawChain();
         drawSelectedPanel();
         drawBottomBar();
+        drawToast();
         if (fDialog == Dialog::AddBlock)
             drawAddDialog();
         else if (fDialog == Dialog::Settings)
             drawSettingsDialog();
+        else if (fDialog == Dialog::Menu)
+            drawMenu();
 
         restore();
     }
@@ -354,6 +414,8 @@ protected:
                 return onRelease(x);
             return false;
         }
+        if (ev.button == kMouseButtonRight)
+            return onRightClick(x, y);
         if (ev.button != kMouseButtonLeft)
             return false;
 
@@ -372,6 +434,8 @@ protected:
         switch (hit->kind)
         {
         case Hit::Knob:
+            if (isSlot(hit->index))
+                beginEdit(); // one undo step per gesture
             if (doubleClick)
             {
                 setNormalized(hit->index, defaultNormalized(hit->index), true);
@@ -384,6 +448,8 @@ protected:
             return true;
 
         case Hit::Toggle:
+            if (isSlot(hit->index))
+                beginEdit();
             setNormalized(hit->index, normalized(hit->index) >= 0.5f ? 0.0f : 1.0f, true);
             syncBypassToChain(hit->index);
             return true;
@@ -397,6 +463,7 @@ protected:
             return true;
 
         case Hit::TileBypass: {
+            beginEdit();
             const uint32_t index = slotBypassParam(fChain.blocks[hit->index].slot);
             setNormalized(index, normalized(index) >= 0.5f ? 0.0f : 1.0f, true);
             syncBypassToChain(index);
@@ -404,10 +471,7 @@ protected:
         }
 
         case Hit::TileRemove:
-            fChain.blocks.erase(fChain.blocks.begin() + hit->index);
-            if (fSelected >= static_cast<int>(fChain.blocks.size()))
-                fSelected = static_cast<int>(fChain.blocks.size()) - 1;
-            sendChain();
+            removeBlock(hit->index);
             return true;
 
         case Hit::AddBlock:
@@ -421,6 +485,7 @@ protected:
             const int steps = static_cast<int>(spec->max - spec->min);
             const int current = static_cast<int>(spec->toValue(normalized(hit->index)) - spec->min);
             const int next = (current + 1) % (steps + 1);
+            beginEdit();
             setNormalized(hit->index, spec->toNormalized(spec->min + next), true);
             return true;
         }
@@ -527,7 +592,37 @@ protected:
             updateSettings([accent = hit->index](Settings& settings) { settings.accent = accent; });
             return true;
 
+        case Hit::PresetMenu:
+            openPresetMenu();
+            return true;
+
+        case Hit::Undo:
+            undo();
+            return true;
+
+        case Hit::Redo:
+            redo();
+            return true;
+
+        case Hit::MenuItem:
+            runMenu(hit->index);
+            return true;
+
+        case Hit::Locate:
+            fLocateIndex = hit->index;
+            browse(BrowseTarget::Locate, "Locate the missing file",
+                   fChain.blocks[hit->index].typeId == kIrBlockDescriptor.typeId ? fSettings.irDir : fSettings.namDir);
+            return true;
+
+        case Hit::UseLibraryMatch: {
+            const LibraryEntry* match = libraryMatch(fChain.blocks[hit->index]);
+            if (match)
+                locateFile(hit->index, match->path);
+            return true;
+        }
+
         case Hit::A2Size: {
+            beginEdit();
             nlohmann::json& config = fChain.blocks[hit->index].config;
             config["a2Size"] = config.value("a2Size", 1.0) >= 0.5 ? 0.0 : 1.0;
             sendChain();
@@ -598,9 +693,27 @@ protected:
             return true;
         }
 
+        if (ev.key == kKeyEscape && fLearnParam >= 0)
+        {
+            cancelMidiLearn();
+            return true;
+        }
         if (ev.key == kKeyEscape && fDialog != Dialog::None)
         {
             closeDialog();
+            return true;
+        }
+        if ((ev.mod & kModifierControl) && (ev.key == 'z' || ev.key == 'Z'))
+        {
+            if (ev.mod & kModifierShift)
+                redo();
+            else
+                undo();
+            return true;
+        }
+        if ((ev.mod & kModifierControl) && (ev.key == 'y' || ev.key == 'Y'))
+        {
+            redo();
             return true;
         }
         return false;
@@ -640,6 +753,8 @@ protected:
 
     void uiIdle() override
     {
+        if (!fToast.empty() && std::chrono::steady_clock::now() - fToastAt > std::chrono::seconds(5))
+            repaint();
         if (std::optional<LibraryScanner::Result> result = fScanner.poll())
         {
             fNamLibrary = std::move(result->nam);
@@ -747,19 +862,26 @@ private:
         if (gesture)
             editParameter(index, false);
 
-        // keep the chain's copy (for presets and undo later) in step
         if (isSlot(index))
-        {
-            const uint32_t offset = index - kSlotParamBase;
-            const int slot = static_cast<int>(offset / kSlotParamCount);
-            const int param = static_cast<int>(offset % kSlotParamCount) - 1;
-            for (BlockState& block : fChain.blocks)
-            {
-                if (block.slot == slot && param >= 0)
-                    block.params[param] = n;
-            }
-        }
+            syncChainValue(index, n);
         repaint();
+    }
+
+    // Keeps the chain's copy of a slot parameter (for presets and undo) in step with the host's value
+    void syncChainValue(uint32_t index, float value)
+    {
+        const uint32_t offset = index - kSlotParamBase;
+        const int slot = static_cast<int>(offset / kSlotParamCount);
+        const int param = static_cast<int>(offset % kSlotParamCount) - 1;
+        for (BlockState& block : fChain.blocks)
+        {
+            if (block.slot != slot)
+                continue;
+            if (param < 0)
+                block.bypass = value >= 0.5f;
+            else
+                block.params[param] = value;
+        }
     }
 
     void setHostParameter(uint32_t index, float value)
@@ -816,6 +938,381 @@ private:
         const GlobalParamSpec& spec = globalParamSpec(index);
         std::snprintf(buf, sizeof(buf), "%+.1f %s", fParams[index], spec.unit);
         return buf;
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Undo/redo, presets, MIDI learn, menus
+
+    // Call before changing fChain, so the change can be undone
+    void beginEdit() { fUndo.push(fChain); }
+
+    // Replaces the chain (undo, redo, presets): the host gets every block's values back
+    void applyChain(ChainState chain)
+    {
+        fChain = std::move(chain);
+        for (const BlockState& block : fChain.blocks)
+        {
+            setHostParameter(slotBypassParam(block.slot), block.bypass ? 1.0f : 0.0f);
+            for (int p = 0; p < kParamsPerSlot; ++p)
+                setHostParameter(slotParam(block.slot, p), block.params[p]);
+        }
+        if (fSelected >= static_cast<int>(fChain.blocks.size()))
+            fSelected = static_cast<int>(fChain.blocks.size()) - 1;
+        if (fSelected < 0 && !fChain.blocks.empty())
+            fSelected = 0;
+        sendChain();
+    }
+
+    void undo()
+    {
+        if (std::optional<ChainState> state = fUndo.undo(fChain))
+            applyChain(std::move(*state));
+    }
+
+    void redo()
+    {
+        if (std::optional<ChainState> state = fUndo.redo(fChain))
+            applyChain(std::move(*state));
+    }
+
+    void removeBlock(int index)
+    {
+        beginEdit();
+        const int slot = fChain.blocks[index].slot;
+        fChain.blocks.erase(fChain.blocks.begin() + index);
+        // MIDI mappings follow the block, so they go with it
+        fChain.clearMidiMappings(slotBypassParam(slot));
+        for (int p = 0; p < kParamsPerSlot; ++p)
+            fChain.clearMidiMappings(slotParam(slot, p));
+        if (fSelected >= static_cast<int>(fChain.blocks.size()))
+            fSelected = static_cast<int>(fChain.blocks.size()) - 1;
+        sendChain();
+    }
+
+    void showToast(std::string message)
+    {
+        fToast = std::move(message);
+        fToastAt = std::chrono::steady_clock::now();
+        repaint();
+    }
+
+    std::string presetName() const
+    {
+        return fChain.preset.empty() ? "Untitled" : fileStem(fChain.preset);
+    }
+
+    bool presetModified() const { return fChain != fSavedChain; }
+
+    Preset currentPreset() const
+    {
+        Preset preset;
+        preset.chain = fChain;
+        for (uint32_t index : presetGlobalParams())
+            preset.globals[globalParamSpec(index).symbol] = fParams[index];
+        return preset;
+    }
+
+    void savePreset(const std::string& path)
+    {
+        std::string error;
+        if (!savePresetFile(path, currentPreset(), fSettings.embedFiles, &error))
+        {
+            showToast("Couldn't save the preset: " + error);
+            return;
+        }
+        fChain.preset = path;
+        fSavedChain = fChain;
+        updateSettings([&path](Settings& settings) { settings.addRecentPreset(path); });
+        sendChain();
+        showToast("Saved " + fileStem(path));
+    }
+
+    void openPreset(const std::string& path)
+    {
+        std::string error;
+        const std::optional<LoadedPreset> loaded = loadPresetFile(path, [this](const std::string& hash) {
+            for (const auto* library : { &fNamLibrary, &fIrLibrary })
+            {
+                for (const LibraryEntry& entry : *library)
+                {
+                    if (entry.hash == hash)
+                        return entry.path;
+                }
+            }
+            return std::string();
+        }, &error);
+        if (!loaded || !loaded->preset.chain.validate(BlockRegistry::builtin(), &error))
+        {
+            showToast("Couldn't open the preset: " + error);
+            return;
+        }
+
+        beginEdit();
+        for (uint32_t index : presetGlobalParams())
+        {
+            const auto it = loaded->preset.globals.find(globalParamSpec(index).symbol);
+            if (it != loaded->preset.globals.end())
+                setHostParameter(index, it->second);
+        }
+        fSelected = loaded->preset.chain.blocks.empty() ? -1 : 0;
+        applyChain(loaded->preset.chain);
+        fSavedChain = fChain;
+        updateSettings([&path](Settings& settings) { settings.addRecentPreset(path); });
+
+        const auto missing = std::count(loaded->sources.begin(), loaded->sources.end(), FileSource::Missing);
+        if (missing > 0)
+            showToast(std::to_string(missing) + (missing == 1 ? " file is" : " files are")
+                      + " missing. Select the grayed-out block to locate it.");
+        else
+            showToast("Opened " + presetName());
+    }
+
+    void newPreset()
+    {
+        beginEdit();
+        for (uint32_t index : presetGlobalParams())
+            setHostParameter(index, globalParamSpec(index).def);
+        ChainState empty;
+        applyChain(empty);
+        fSavedChain = fChain;
+        fSelected = -1;
+    }
+
+    // A library file with the same content as a block's (missing) file
+    const LibraryEntry* libraryMatch(const BlockState& block) const
+    {
+        const std::string hash = block.config.value("hash", std::string());
+        if (hash.empty())
+            return nullptr;
+        const std::vector<LibraryEntry>& library =
+            block.typeId == kIrBlockDescriptor.typeId ? fIrLibrary : fNamLibrary;
+        for (const LibraryEntry& entry : library)
+        {
+            if (entry.hash == hash)
+                return &entry;
+        }
+        return nullptr;
+    }
+
+    void locateFile(int index, const std::string& path)
+    {
+        if (index < 0 || index >= static_cast<int>(fChain.blocks.size()))
+            return;
+        beginEdit();
+        nlohmann::json& config = fChain.blocks[index].config;
+        config["path"] = path;
+        if (const std::optional<std::string> hash = hashLibraryFile(path))
+            config["hash"] = *hash;
+        fSidecars.erase(path);
+        sendChain();
+    }
+
+    // MIDI learn: the next CC the DSP reports is mapped to the parameter
+    void startMidiLearn(uint32_t param)
+    {
+        fLearnParam = static_cast<int>(param);
+        fLearnCcCount = fParams[kParamMidiCcCount];
+        setHostParameter(kParamMidiLearn, 1.0f);
+        repaint();
+    }
+
+    void finishMidiLearn()
+    {
+        const int value = static_cast<int>(fParams[kParamMidiLastCc]);
+        beginEdit();
+        fChain.setMidiMapping({ value / 128, value % 128, static_cast<uint32_t>(fLearnParam) });
+        cancelMidiLearn();
+        sendChain();
+    }
+
+    // The DSP already applied a mapped CC, but not every format lets it tell the host (LV2 mostly doesn't), so the
+    // UI sets the host's value too. That also keeps the knob on screen in step.
+    void forwardMidiCc()
+    {
+        const int cc = static_cast<int>(fParams[kParamMidiLastCc]);
+        for (const MidiMapping& mapping : fChain.midi)
+        {
+            if (mapping.channel * 128 + mapping.cc == cc)
+            {
+                const float value = midiCcToValue(mapping.param, static_cast<int>(fParams[kParamMidiLastValue]));
+                setHostParameter(mapping.param, value);
+                if (isSlot(mapping.param))
+                    syncChainValue(mapping.param, value);
+                repaint();
+                return;
+            }
+        }
+    }
+
+    void cancelMidiLearn()
+    {
+        fLearnParam = -1;
+        setHostParameter(kParamMidiLearn, 0.0f);
+        repaint();
+    }
+
+    std::string paramName(uint32_t index) const
+    {
+        if (!isSlot(index))
+            return globalParamSpec(index).name;
+        const uint32_t offset = index - kSlotParamBase;
+        const int slot = static_cast<int>(offset / kSlotParamCount);
+        const int param = static_cast<int>(offset % kSlotParamCount) - 1;
+        const BlockState* block = blockInSlot(slot);
+        const BlockDescriptor* type = block ? BlockRegistry::builtin().find(block->typeId) : nullptr;
+        std::string name = type ? type->displayName : "Slot";
+        if (block && !block->config.value("path", std::string()).empty())
+            name = fileStem(block->config.value("path", std::string()));
+        return name + " " + (param < 0 ? "Bypass" : (type && param < type->numParams ? type->params[param].name : "?"));
+    }
+
+    static std::string ccText(const MidiMapping& mapping)
+    {
+        return "CC " + std::to_string(mapping.cc) + " (ch " + std::to_string(mapping.channel + 1) + ")";
+    }
+
+    void openMenu(float x, float y, std::vector<MenuEntry> entries)
+    {
+        fMenu = std::move(entries);
+        fMenuX = x;
+        fMenuY = y;
+        openDialog(Dialog::Menu);
+    }
+
+    bool onRightClick(float x, float y)
+    {
+        const HitArea* hit = hitAt(x, y);
+        if (hit == nullptr || fDialog != Dialog::None)
+            return false;
+
+        if (hit->kind == Hit::Knob || hit->kind == Hit::Toggle || hit->kind == Hit::Choice)
+        {
+            const auto param = static_cast<uint32_t>(hit->index);
+            if (!isMidiMappable(param))
+                return false;
+            fMenuParam = param;
+            std::vector<MenuEntry> entries { { paramName(param), MenuAction::None } };
+            entries.push_back({ "MIDI Learn", MenuAction::MidiLearn });
+            if (const MidiMapping* mapping = fChain.midiMappingFor(param))
+                entries.push_back({ "Clear MIDI " + ccText(*mapping), MenuAction::MidiClear });
+            if (hit->kind == Hit::Knob)
+                entries.push_back({ "Reset to default", MenuAction::ResetParam });
+            openMenu(x, y, std::move(entries));
+            return true;
+        }
+        if (hit->kind == Hit::Tile)
+        {
+            fMenuTile = hit->index;
+            fSelected = hit->index;
+            const bool bypassed = fParams[slotBypassParam(fChain.blocks[hit->index].slot)] >= 0.5f;
+            fMenuParam = slotBypassParam(fChain.blocks[hit->index].slot);
+            std::vector<MenuEntry> entries {
+                { bypassed ? "Enable" : "Bypass", MenuAction::ToggleBypass },
+                { "MIDI Learn bypass", MenuAction::MidiLearn },
+            };
+            if (const MidiMapping* mapping = fChain.midiMappingFor(fMenuParam))
+                entries.push_back({ "Clear MIDI " + ccText(*mapping), MenuAction::MidiClear });
+            entries.push_back({ "Remove", MenuAction::RemoveBlock });
+            openMenu(x, y, std::move(entries));
+            return true;
+        }
+        return false;
+    }
+
+    void openPresetMenu()
+    {
+        fMenuParam = kNoParam;
+        std::vector<MenuEntry> entries {
+            { "New", MenuAction::PresetNew },
+            { "Open…", MenuAction::PresetOpen },
+            { "Save", MenuAction::PresetSave },
+            { "Save As…", MenuAction::PresetSaveAs },
+            { std::string("Embed files when saving: ") + (fSettings.embedFiles ? "On" : "Off"), MenuAction::PresetEmbed },
+        };
+        if (!fSettings.recentPresets.empty())
+        {
+            entries.push_back({ "Recent", MenuAction::None });
+            for (size_t i = 0; i < fSettings.recentPresets.size(); ++i)
+                entries.push_back({ fileStem(fSettings.recentPresets[i]), MenuAction::PresetRecent, static_cast<int>(i) });
+        }
+        openMenu(140.0f, kTopBarHeight - 6.0f, std::move(entries));
+    }
+
+    void runMenu(int index)
+    {
+        if (index < 0 || index >= static_cast<int>(fMenu.size()))
+            return;
+        const MenuEntry entry = fMenu[index];
+        closeDialog();
+        switch (entry.action)
+        {
+        case MenuAction::None:
+            break;
+        case MenuAction::MidiLearn:
+            startMidiLearn(fMenuParam);
+            break;
+        case MenuAction::MidiClear:
+            beginEdit();
+            fChain.clearMidiMappings(fMenuParam);
+            sendChain();
+            break;
+        case MenuAction::ResetParam:
+            if (isSlot(fMenuParam))
+                beginEdit();
+            setNormalized(fMenuParam, defaultNormalized(fMenuParam), true);
+            break;
+        case MenuAction::ToggleBypass:
+            beginEdit();
+            setNormalized(fMenuParam, normalized(fMenuParam) >= 0.5f ? 0.0f : 1.0f, true);
+            syncBypassToChain(fMenuParam);
+            break;
+        case MenuAction::RemoveBlock:
+            if (fMenuTile >= 0 && fMenuTile < static_cast<int>(fChain.blocks.size()))
+                removeBlock(fMenuTile);
+            break;
+        case MenuAction::PresetNew:
+            newPreset();
+            break;
+        case MenuAction::PresetOpen:
+            browse(BrowseTarget::OpenPreset, "Open a NAMsayin preset (.namsayin)", presetDir());
+            break;
+        case MenuAction::PresetSave:
+            if (!fChain.preset.empty())
+            {
+                savePreset(fChain.preset);
+                break;
+            }
+            [[fallthrough]];
+        case MenuAction::PresetSaveAs: {
+            fBrowseTarget = BrowseTarget::SavePreset;
+            FileBrowserOptions options;
+            options.saving = true;
+            options.title = "Save the preset";
+            const std::string name = presetName() + Preset::kExtension;
+            options.defaultName = name.c_str();
+            const std::string dir = presetDir();
+            if (!dir.empty())
+                options.startDir = dir.c_str();
+            openFileBrowser(options);
+            break;
+        }
+        case MenuAction::PresetEmbed:
+            updateSettings([](Settings& settings) { settings.embedFiles = !settings.embedFiles; });
+            break;
+        case MenuAction::PresetRecent:
+            if (entry.arg < static_cast<int>(fSettings.recentPresets.size()))
+                openPreset(fSettings.recentPresets[entry.arg]);
+            break;
+        }
+    }
+
+    // Where preset browsers start: the current preset's folder, else the last one used
+    std::string presetDir() const
+    {
+        const std::string path = !fChain.preset.empty() ? fChain.preset
+                               : !fSettings.recentPresets.empty() ? fSettings.recentPresets.front()
+                               : std::string();
+        return path.empty() ? std::string() : pathToUtf8(pathFromUtf8(path).parent_path());
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -975,6 +1472,7 @@ private:
         const int slot = fChain.freeSlot();
         if (slot < 0)
             return;
+        beginEdit();
 
         BlockState block;
         block.typeId = type->typeId;
@@ -1031,6 +1529,8 @@ private:
         if (std::optional<ChainState> chain = ChainState::fromJson(*json))
         {
             fChain = std::move(*chain);
+            fSavedChain = fChain;
+            fUndo.clear();
             if (fSelected >= static_cast<int>(fChain.blocks.size()))
                 fSelected = fChain.blocks.empty() ? -1 : 0;
             repaint();
@@ -1070,6 +1570,7 @@ private:
                 const int target = std::clamp(static_cast<int>(std::floor(pos)), 0, count - 1);
                 if (target != fPressTile)
                 {
+                    beginEdit();
                     BlockState moved = std::move(fChain.blocks[fPressTile]);
                     fChain.blocks.erase(fChain.blocks.begin() + fPressTile);
                     fChain.blocks.insert(fChain.blocks.begin() + target, std::move(moved));
@@ -1112,6 +1613,8 @@ private:
 
     void label(float x, float y, const char* str, const Color& color, float size, int align)
     {
+        if (str == nullptr || str[0] == '\0')
+            return;
         fontSize(size);
         fillColor(color);
         textAlign(align);
@@ -1156,6 +1659,15 @@ private:
         strokeColor(theme::text);
         strokeWidth(2.5f);
         stroke();
+
+        if (fLearnParam == static_cast<int>(index))
+        {
+            beginPath();
+            circle(cx, cy, kKnobRadius + 9.0f);
+            strokeColor(theme::accent);
+            strokeWidth(1.5f);
+            stroke();
+        }
 
         label(cx, cy + kKnobRadius + 16.0f, name, theme::textDim, 12.0f, ALIGN_CENTER | ALIGN_MIDDLE);
         label(cx, cy + kKnobRadius + 31.0f, valueText(index).c_str(), theme::text, 12.0f,
@@ -1339,6 +1851,23 @@ private:
     {
         fillRect(0, 0, fWidth, kTopBarHeight, theme::bar);
         label(16.0f, kTopBarHeight / 2, "NAMsayin", theme::text, 20.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+
+        // preset menu with the preset's name (• when changed since it was saved or opened)
+        const std::string preset = presetName() + (presetModified() ? " •" : "") + "  ▾";
+        drawButton({ 140.0f, 10.0f, 220.0f, 28.0f }, preset.c_str(), fDialog == Dialog::Menu && fMenuParam == kNoParam,
+                   theme::accent, Hit::PresetMenu, 0);
+        drawButton({ 368.0f, 10.0f, 56.0f, 28.0f }, "Undo", false, theme::accent, Hit::Undo, 0);
+        drawButton({ 430.0f, 10.0f, 56.0f, 28.0f }, "Redo", false, theme::accent, Hit::Redo, 0);
+        if (!fUndo.canUndo())
+            fillRect(368.0f, 10.0f, 56.0f, 28.0f, theme::bar.withAlpha(0.6f), 6.0f);
+        if (!fUndo.canRedo())
+            fillRect(430.0f, 10.0f, 56.0f, 28.0f, theme::bar.withAlpha(0.6f), 6.0f);
+
+        if (fLearnParam >= 0)
+        {
+            const std::string text = "MIDI learn: move a controller for " + paramName(fLearnParam) + "  (Esc cancels)";
+            label(500.0f, kTopBarHeight / 2, text.c_str(), theme::accent, 13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        }
         drawButton({ fWidth - 96.0f, 10.0f, 80.0f, 28.0f }, "Bypass", fParams[kParamBypass] >= 0.5f, theme::accent,
                    Hit::Toggle, kParamBypass);
         drawButton({ fWidth - 192.0f, 10.0f, 84.0f, 28.0f }, "Settings", fDialog == Dialog::Settings, theme::accent,
@@ -1535,6 +2064,21 @@ private:
               ALIGN_LEFT | ALIGN_MIDDLE);
         label(textX, top + 46.0f, path.empty() ? categoryName(type->category) : path.c_str(), theme::textDim, 11.0f,
               ALIGN_LEFT | ALIGN_MIDDLE);
+
+        if (!path.empty() && !fileExists(path))
+        {
+            label(textX, top + 70.0f, "File not found. The block passes audio through until it's located.", theme::bad,
+                  12.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+            float bx = textX;
+            if (const LibraryEntry* match = libraryMatch(block))
+            {
+                const std::string text = "Use " + match->name + " from the library";
+                drawButton({ bx, top + 86.0f, 260.0f, 28.0f }, text.c_str(), true, theme::accent, Hit::UseLibraryMatch,
+                           fSelected);
+                bx += 268.0f;
+            }
+            drawButton({ bx, top + 86.0f, 96.0f, 28.0f }, "Locate…", false, theme::accent, Hit::Locate, fSelected);
+        }
 
         const float gridRight = left + width - kPanelMargin;
         const float gridTop = top + kHeaderHeight + std::max(0.0f, (rowsSpace - rows * kCellHeight) / 2);
@@ -1770,6 +2314,56 @@ private:
         label(x + w, y + h + 2.0f, count, theme::textDim, 10.0f, ALIGN_RIGHT | ALIGN_BOTTOM);
     }
 
+    void drawMenu()
+    {
+        fHits.push_back({ { 0, 0, fWidth, fHeight }, Hit::DialogBackdrop, 0 });
+        constexpr float itemH = 28.0f, menuW = 260.0f;
+        const float h = fMenu.size() * itemH + 8.0f;
+        const float x = std::min(fMenuX, fWidth - menuW - 8.0f);
+        const float y = std::min(fMenuY, fHeight - h - 8.0f);
+        fillRect(x, y, menuW, h, theme::dialog, 8.0f);
+        beginPath();
+        roundedRect(x, y, menuW, h, 8.0f);
+        strokeColor(theme::border);
+        strokeWidth(1.0f);
+        stroke();
+        fHits.push_back({ { x, y, menuW, h }, Hit::DialogPanel, 0 });
+
+        for (size_t i = 0; i < fMenu.size(); ++i)
+        {
+            const Rect r { x + 4.0f, y + 4.0f + i * itemH, menuW - 8.0f, itemH };
+            const bool heading = fMenu[i].action == MenuAction::None;
+            if (!heading && r.contains(fMouseX, fMouseY))
+                fillRect(r.x, r.y, r.w, r.h, theme::accent.withAlpha(0.3f), 5.0f);
+            label(r.x + 10.0f, r.y + r.h / 2, fMenu[i].label.c_str(), heading ? theme::textDim : theme::text,
+                  heading ? 11.0f : 13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+            if (!heading)
+                fHits.push_back({ r, Hit::MenuItem, static_cast<int>(i) });
+        }
+    }
+
+    void drawToast()
+    {
+        if (fToast.empty())
+            return;
+        if (std::chrono::steady_clock::now() - fToastAt > std::chrono::seconds(5))
+        {
+            fToast.clear();
+            return;
+        }
+        fontSize(13.0f);
+        Rectangle<float> bounds;
+        const float w = textBounds(0, 0, fToast.c_str(), nullptr, bounds) + 32.0f;
+        const float x = (fWidth - w) / 2, y = fHeight - kBottomBarHeight - 52.0f;
+        fillRect(x, y, w, 32.0f, theme::dialog, 8.0f);
+        beginPath();
+        roundedRect(x, y, w, 32.0f, 8.0f);
+        strokeColor(theme::accent.withAlpha(0.6f));
+        strokeWidth(1.0f);
+        stroke();
+        label(fWidth / 2, y + 16.0f, fToast.c_str(), theme::text, 13.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+    }
+
     void drawSettingsDialog()
     {
         fHits.push_back({ { 0, 0, fWidth, fHeight }, Hit::DialogBackdrop, 0 });
@@ -1922,7 +2516,21 @@ private:
     float fPressX = 0.0f;
     bool fDraggingTile = false;
 
+    static constexpr uint32_t kNoParam = 0xffffffffu;
+
     Dialog fDialog = Dialog::None;
+    std::vector<MenuEntry> fMenu;
+    float fMenuX = 0.0f, fMenuY = 0.0f;
+    uint32_t fMenuParam = kNoParam; // the parameter a context menu is for
+    int fMenuTile = -1;
+
+    UndoStack fUndo;
+    ChainState fSavedChain; // the chain as last saved or opened, for the modified mark
+    int fLocateIndex = -1;
+    int fLearnParam = -1;
+    float fLearnCcCount = 0.0f;
+    std::string fToast;
+    std::chrono::steady_clock::time_point fToastAt;
     Category fDialogCategory = Category::LocalNam;
     float fListScroll = 0.0f;
     bool fFavoritesOnly = false;

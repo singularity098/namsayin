@@ -22,6 +22,8 @@ std::string Settings::toJson() const
         { "parallel", parallel },
         { "accent", accent },
         { "favorites", favorites },
+        { "embedFiles", embedFiles },
+        { "recentPresets", recentPresets },
     }.dump(2);
 }
 
@@ -52,11 +54,21 @@ Settings Settings::fromJson(std::string_view text)
         get("parallel", settings.parallel);
         get("accent", settings.accent);
         get("favorites", settings.favorites);
+        get("embedFiles", settings.embedFiles);
+        get("recentPresets", settings.recentPresets);
     }
     catch (const json::exception&)
     {
     }
     return settings;
+}
+
+void Settings::addRecentPreset(const std::string& path)
+{
+    std::erase(recentPresets, path);
+    recentPresets.insert(recentPresets.begin(), path);
+    if (recentPresets.size() > kMaxRecentPresets)
+        recentPresets.resize(kMaxRecentPresets);
 }
 
 std::filesystem::path Settings::defaultPath()

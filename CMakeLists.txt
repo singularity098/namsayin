@@ -83,6 +83,7 @@ add_library(namsayin-engine STATIC
   src/state/Library.cpp
   src/state/LibraryScanner.cpp
   src/state/Paths.cpp
+  src/state/Preset.cpp
   src/state/Settings.cpp)
 target_include_directories(namsayin-engine PUBLIC src)
 # Whole archive: NAM Core registers its model architectures from static initializers, which the linker would
@@ -127,8 +128,10 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/IrBlockTests.cpp
     tests/LibraryTests.cpp
     tests/NamBlockTests.cpp
+    tests/PresetTests.cpp
     tests/ReverbBlockTests.cpp
-    tests/SettingsTests.cpp)
+    tests/SettingsTests.cpp
+    tests/UndoStackTests.cpp)
   target_include_directories(namsayin-tests PRIVATE tests deps/doctest)
   target_link_libraries(namsayin-tests PRIVATE namsayin-engine)
   target_compile_options(namsayin-tests PRIVATE ${NAMSAYIN_WARNINGS})

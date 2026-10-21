@@ -268,3 +268,38 @@ TEST_CASE("blocks get the host tempo, and their meters reach the slot meter para
     rig.run(2);
     CHECK(rig.engine.getParameter(slotMeterParam(7)) == doctest::Approx(93.5f));
 }
+
+TEST_CASE("MIDI CCs move mapped parameters and are reported for MIDI learn")
+{
+    Rig rig;
+    ChainState chain = gainChain(2);
+    chain.midi.push_back({ 0, 7, slotParam(2, 0) });   // CC 7 on channel 1 -> the block's gain
+    chain.midi.push_back({ 3, 20, kParamOutput });      // CC 20 on channel 4 -> output level (-24..24 dB)
+    chain.midi.push_back({ 0, 64, slotBypassParam(2) });
+    REQUIRE(rig.engine.setChain(chain));
+    rig.run(2);
+
+    testing::AllocationGuard guard;
+    Engine::CcResult result = rig.engine.midiCc(0, 7, 127);
+    CHECK(result.param == static_cast<int>(slotParam(2, 0)));
+    CHECK(rig.engine.getParameter(slotParam(2, 0)) == doctest::Approx(1.0f));
+
+    result = rig.engine.midiCc(3, 20, 0);
+    CHECK(result.param == static_cast<int>(kParamOutput));
+    CHECK(rig.engine.getParameter(kParamOutput) == doctest::Approx(-24.0f));
+
+    rig.engine.midiCc(0, 64, 100);
+    CHECK(rig.engine.getParameter(slotBypassParam(2)) == 1.0f);
+
+    // unmapped, or another channel: nothing moves, but it's reported
+    CHECK(rig.engine.midiCc(1, 7, 0).param == -1);
+    CHECK(rig.engine.getParameter(kParamMidiLastCc) == 1 * 128 + 7);
+    const float count = rig.engine.getParameter(kParamMidiCcCount);
+
+    // while learning, CCs only report
+    rig.engine.setParameter(kParamMidiLearn, 1.0f);
+    CHECK(rig.engine.midiCc(0, 7, 0).param == -1);
+    CHECK(rig.engine.getParameter(slotParam(2, 0)) == doctest::Approx(1.0f));
+    CHECK(rig.engine.getParameter(kParamMidiCcCount) == count + 1);
+    CHECK(guard.count() == 0);
+}

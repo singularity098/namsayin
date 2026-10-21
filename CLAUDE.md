@@ -8,7 +8,7 @@ NAMsayin is a guitar rig plugin (VST3 + LV2) in C++20, built with DPF (plugin fr
 
 - **Requirements**: `docs/Requirements.md` — the owner's feature list plus agreed decisions. Treat it as the source of truth; record new decisions there.
 - **Architecture and milestones**: `docs/Architecture.md` — design, v1 milestones (M0–M10) and decisions log.
-- **Current milestone**: M1, M2 (minus resampling), M3 (delay, reverb, compressor) and M5 (library, settings) are done, and M4 is done except real block images (the owner will provide them) and the MIDI learn UI (part of M7). The IR loader (local .wav cab IRs) is also done, at the owner's request. Agreed order from here: M7 (presets, undo/redo, MIDI learn); then M6, M8, M9.
+- **Current milestone**: M1, M2 (minus resampling), M3 (delay, reverb, compressor), M5 (library, settings) and M7 (presets, undo/redo, MIDI learn) are done, and M4 is done except real block images (the owner will provide them). The IR loader (local .wav cab IRs) is also done, at the owner's request. Next: M6 (split/merge), then M8 (tuner) and M9 (metronome).
 
 ## Fixed decisions (don't revisit without the owner)
 
@@ -49,6 +49,8 @@ src/state/            Plain data shared by DSP and UI, no DPF:
   Settings            global settings and favorites (one JSON file per user)
   Library             folder/zip scanning, index cache, hashes, sidecar images, zip extraction
   LibraryScanner      background scan thread used by the UI
+  Preset              .namsayin preset files (zip: preset.json + embedded files), missing-file resolution
+  UndoStack           undo/redo of chain snapshots
 src/plugin/           DistrhoPluginInfo.h + DSP side (Plugin subclass; thin wrapper around Engine)
 src/ui/               UI side (UI subclass, NanoVG). Immediate-mode: draw functions record hit areas, mouse handlers look them up
 tests/                doctest unit tests; TestSupport.hpp has a test block and an allocation counter
@@ -121,5 +123,9 @@ The file browser opens in the host's working directory. Final checks happen in R
 - Sidecar images must be 8-bit PNG or JPEG: DPF's bundled stb_image can't decode 16-bit PNG.
 - Settings live in `~/.config/namsayin/settings.json` (Windows: `%APPDATA%\NAMsayin`); the library index caches are in `~/.cache/namsayin` (`%LOCALAPPDATA%\NAMsayin\Cache`). Every UI polls the settings file once a second, so instances stay in sync. Change settings with `updateSettings()` in the UI, which reloads before saving.
 - Text fields (search, folders) need keyboard focus. Some hosts keep keys for themselves; in Reaper, check that typing in the plugin window works (FX window option "Send all keyboard input to plugin" if not).
+- MIDI learn: the map (CC → host parameter) is part of the chain state, so it travels like the chain and is in undo and presets. The DSP applies mapped CCs at the start of each buffer and reports every CC (`kParamMidiLastCc/LastValue/CcCount`); the UI learns from those, and also writes mapped values to the host, because LV2 hosts mostly can't take parameter changes from the DSP (VST3 can: `requestParameterValueChange`). The host must route MIDI to the plugin's track.
+- Undo covers the chain (blocks, block values, bypass, MIDI map), not the global knobs. Call `beginEdit()` before changing `fChain` in the UI. The UI mirrors host slot values into `fChain` (`syncChainValue`), so presets save automated values too.
+- Presets store the global sound controls (input mode, input, bass, middle, treble, output, limiter) by parameter symbol. Embedded files live under `files/<hash>/` in the zip and are extracted to `cache/presets/<hash>/` with their sidecar images.
+- DPF's file browser doesn't open in the headless test setup (no desktop portal), so presets were tested there through the Recent list; check Open/Save As in Reaper.
 - Fretbored (the owner's other app, https://github.com/singularity098/fretbored) is the reference for the metronome and tuner features.
 - Tone3000's site is blocked by this cloud environment's network policy, so its API docs can't be fetched here.

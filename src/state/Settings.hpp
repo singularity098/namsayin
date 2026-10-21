@@ -7,6 +7,7 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace namsayin {
 
@@ -22,6 +23,11 @@ struct Settings {
     bool parallel = true;        // run split branch B on a second core
     int accent = 0;              // index into the UI's accent colours
     std::set<std::string> favorites; // content hashes (XXH3-128, hex)
+    bool embedFiles = true;      // presets are saved with the files they use
+    std::vector<std::string> recentPresets; // most recent first
+
+    static constexpr size_t kMaxRecentPresets = 8;
+    void addRecentPreset(const std::string& path);
 
     std::string toJson() const;
     // Missing or invalid fields keep their defaults

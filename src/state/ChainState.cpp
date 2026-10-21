@@ -22,7 +22,15 @@ std::string ChainState::toJson() const
             { "bypass", block.bypass },
         });
     }
-    return json { { "version", kVersion }, { "blocks", blocksJson } }.dump();
+    json midiJson = json::array();
+    for (const MidiMapping& mapping : midi)
+        midiJson.push_back({ { "channel", mapping.channel }, { "cc", mapping.cc }, { "param", mapping.param } });
+    json root { { "version", kVersion }, { "blocks", blocksJson } };
+    if (!midi.empty())
+        root["midi"] = midiJson;
+    if (!preset.empty())
+        root["preset"] = preset;
+    return root.dump();
 }
 
 std::optional<ChainState> ChainState::fromJson(std::string_view text, std::string* error)
@@ -57,6 +65,15 @@ std::optional<ChainState> ChainState::fromJson(std::string_view text, std::strin
             }
             state.blocks.push_back(std::move(block));
         }
+        if (const auto midi = root.find("midi"); midi != root.end())
+        {
+            for (const json& item : *midi)
+            {
+                state.midi.push_back({ item.at("channel").get<int>(), item.at("cc").get<int>(),
+                                       item.at("param").get<uint32_t>() });
+            }
+        }
+        state.preset = root.value("preset", std::string());
         return state;
     }
     catch (const json::exception& e)
@@ -89,7 +106,37 @@ bool ChainState::validate(const BlockRegistry& registry, std::string* error) con
         if (registry.find(block.typeId) == nullptr)
             return fail("unknown block type: " + block.typeId);
     }
+    for (const MidiMapping& mapping : midi)
+    {
+        if (mapping.channel < 0 || mapping.channel > 15 || mapping.cc < 0 || mapping.cc > 127)
+            return fail("invalid MIDI mapping");
+        if (mapping.param >= kParamCount || !isMidiMappable(mapping.param))
+            return fail("MIDI mapping to a parameter that can't be mapped: " + std::to_string(mapping.param));
+    }
     return true;
+}
+
+void ChainState::setMidiMapping(MidiMapping mapping)
+{
+    std::erase_if(midi, [&mapping](const MidiMapping& m) {
+        return (m.channel == mapping.channel && m.cc == mapping.cc) || m.param == mapping.param;
+    });
+    midi.push_back(mapping);
+}
+
+void ChainState::clearMidiMappings(uint32_t param)
+{
+    std::erase_if(midi, [param](const MidiMapping& m) { return m.param == param; });
+}
+
+const MidiMapping* ChainState::midiMappingFor(uint32_t param) const
+{
+    for (const MidiMapping& mapping : midi)
+    {
+        if (mapping.param == param)
+            return &mapping;
+    }
+    return nullptr;
 }
 
 int ChainState::freeSlot() const

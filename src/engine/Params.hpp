@@ -52,7 +52,15 @@ enum LaterParam : uint32_t {
     kParamSlotMeterBase,
     kParamSlotMeterEnd = kParamSlotMeterBase + kMaxBlocks,
 
-    kParamCount = kParamSlotMeterEnd
+    // MIDI learn: the UI asks for learning by setting kParamMidiLearn to 1; the DSP reports every CC it receives
+    // as channel * 128 + cc in kParamMidiLastCc (value in kParamMidiLastValue) and bumps kParamMidiCcCount, so the
+    // UI can map it, and can pass mapped values on to the host in formats where the DSP can't
+    kParamMidiLearn = kParamSlotMeterEnd, // input, hidden
+    kParamMidiLastCc,                     // output, hidden
+    kParamMidiCcCount,                    // output, hidden
+    kParamMidiLastValue,                  // output, hidden: 0..127
+
+    kParamCount
 };
 
 constexpr uint32_t slotBypassParam(int slot)
@@ -73,6 +81,15 @@ constexpr uint32_t slotMeterParam(int slot)
 constexpr bool isSlotParam(uint32_t index)
 {
     return index >= kSlotParamBase && index < kFirstLaterParam;
+}
+
+// The value (as the host sees it) a CC value 0..127 sets a mapped parameter to
+float midiCcToValue(uint32_t index, int ccValue);
+
+// Parameters a MIDI controller can be mapped to: the user-facing inputs (globals and slots)
+constexpr bool isMidiMappable(uint32_t index)
+{
+    return index < kParamInPeakL || isSlotParam(index);
 }
 
 enum ParamFlags : uint32_t {

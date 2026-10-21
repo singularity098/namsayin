@@ -113,7 +113,7 @@ The host sees a fixed parameter list:
 
 Each block is assigned a free slot when it is created and keeps it for its whole life, so dragging a block to a new position doesn't break automation. Host-facing names are generic ("Slot 05 · P2"). The UI shows real names, and the slot number on each block tile so users can find it in their DAW.
 
-**MIDI learn**: right-click any control → "MIDI Learn", then move a controller. The mapping (CC → parameter) is stored in the plugin state, and incoming CCs are applied in `run()`. This works the same in VST3 and LV2.
+**MIDI learn**: right-click any control (or a block tile, for its bypass) → "MIDI Learn", then move a controller. The mapping (CC + channel → host parameter) is stored in the chain state, so it is saved with the project, in presets and in undo, and reaches the DSP by the same routes as the chain. Incoming CCs are applied at the start of each buffer in `run()`. The DSP reports each CC through hidden output parameters: the UI learns from them, and writes mapped values to the host, since LV2 hosts mostly can't take parameter changes from the DSP (in VST3 the DSP also reports them itself). Right-click → "Clear MIDI" removes a mapping; removing a block removes its mappings.
 
 ### 4.4 Split, merge and the second core
 
@@ -175,11 +175,11 @@ Added to v1 at the owner's request. Studio style, feed-forward: stereo-linked pe
 ## 5. Plugin state, presets and settings
 
 - **Plugin state** (saved by the DAW with the project): a JSON string through DPF's state API, holding the chain, slots, split, block settings, MIDI mappings and metronome settings. File references store the path and the content hash.
-- **Preset files** (`.namsayin`): a zip containing `preset.json` and, if "embed files" is ticked when saving, the NAM files and images it uses. The top menu has New, Open, Save, Save As and a recent-presets list.
-- **Missing files**: the block is created grayed out (passes audio through) with a "Locate…" button. If a library file with the same content hash exists, it is offered first.
+- **Preset files** (`.namsayin`): a zip containing `preset.json` (the chain, its MIDI map and the global sound controls) and, if "embed files" is on (Settings, default on), the NAM files, IRs and sidecar images it uses, under `files/<content hash>/`. The top menu has New, Open, Save, Save As, the embed option and the 8 most recent presets. The preset name shows in the top bar, with a dot when the chain has changed since it was saved or opened.
+- **Missing files**: on load, each block's file is looked for at its original path, then as an embedded copy (extracted to the cache), then in the library by content hash. If none is found, the block is created grayed out (passes audio through) with "Locate…", and "Use … from the library" when a library file with the same hash appears later.
 - **Settings and favorites**: one JSON file per user — `~/.config/namsayin/settings.json` on Linux, `%APPDATA%\NAMsayin\settings.json` on Windows. It's written atomically, and every open instance reloads it when it changes (the UI checks its modification time once a second; a change re-reads the file before saving, so instances don't overwrite each other's changes). Fields: NAM folder, IR folder, default A2 size, normalization default for new blocks, multi-core splits, accent colour, favorites.
 - **Favorites** are stored by content hash (XXH3-128 of the file bytes).
-- **Undo/redo**: a stack of `ChainState` snapshots (small, so snapshots are cheap). Consecutive moves of one knob are merged into one step. Ctrl+Z / Ctrl+Shift+Z while the window has focus.
+- **Undo/redo**: a stack of `ChainState` snapshots (small, so snapshots are cheap), up to 200 steps. One knob gesture is one step. It covers blocks, block values, bypass, the MIDI map and preset loads, not the global knobs. Undo/Redo buttons in the top bar; Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y while the window has focus.
 
 ## 6. Library
 
@@ -260,4 +260,5 @@ M2–M3 and M4 can overlap, as can M8 and M9.
 5. **Compressor**: added to M3, studio style (owner's choice over a simple pedal-style one).
 6. **Theme**: no gradient; pure black window, flat near-black gray surfaces.
 7. **Block panel**: large block image on the left, generic knobs right-justified.
+9. **MIDI map in the chain state** rather than a separate plugin state, so it follows the chain's routes (including the exchange file for Reaper's LV2) and is covered by undo and presets.
 8. **Folder choice**: DPF's file browser can't pick folders, so "Choose…" takes the folder of any file picked in it; the path can also be typed or pasted.

@@ -6,6 +6,7 @@
 #include "state/Paths.hpp"
 #include "state/Settings.hpp"
 
+#include <algorithm>
 #include <filesystem>
 
 using namespace namsayin;
@@ -20,6 +21,8 @@ TEST_CASE("settings round-trip through JSON and a file")
     settings.parallel = false;
     settings.accent = 3;
     settings.favorites = { "00112233445566778899aabbccddeeff", "ffeeddccbbaa99887766554433221100" };
+    settings.embedFiles = false;
+    settings.recentPresets = { "/a.namsayin", "/b.namsayin" };
 
     CHECK(Settings::fromJson(settings.toJson()) == settings);
 
@@ -47,4 +50,16 @@ TEST_CASE("paths convert to and from UTF-8")
 {
     const std::string text = "/tmp/ämp — 1.nam";
     CHECK(pathToUtf8(pathFromUtf8(text)) == text);
+}
+
+TEST_CASE("recent presets: most recent first, no duplicates, bounded")
+{
+    Settings settings;
+    for (int i = 0; i < 12; ++i)
+        settings.addRecentPreset("/p" + std::to_string(i));
+    settings.addRecentPreset("/p5");
+    REQUIRE(settings.recentPresets.size() == Settings::kMaxRecentPresets);
+    CHECK(settings.recentPresets[0] == "/p5");
+    CHECK(settings.recentPresets[1] == "/p11");
+    CHECK(std::count(settings.recentPresets.begin(), settings.recentPresets.end(), "/p5") == 1);
 }

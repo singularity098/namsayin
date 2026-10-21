@@ -152,6 +152,8 @@ bool Engine::setChain(const ChainState& chain, std::string* error, std::vector<i
     }
 
     fCache = std::move(cache);
+    for (const MidiMapping& mapping : chain.midi)
+        graph->midiMap[mapping.channel * 128 + mapping.cc] = static_cast<int16_t>(mapping.param);
 
     // A graph still pending was never seen by the audio thread, so it can be deleted here
     delete fPending.exchange(graph.release(), std::memory_order_acq_rel);
@@ -167,6 +169,34 @@ void Engine::setParameter(uint32_t index, float value)
 float Engine::getParameter(uint32_t index) const
 {
     return index < kParamCount ? param(index) : 0.0f;
+}
+
+Engine::CcResult Engine::midiCc(int channel, int cc, int value)
+{
+    CcResult result;
+    if (channel < 0 || channel > 15 || cc < 0 || cc > 127)
+        return result;
+
+    fCcCount = (fCcCount + 1) % (1u << 24);
+    fParams[kParamMidiLastCc].store(static_cast<float>(channel * 128 + cc), std::memory_order_relaxed);
+    fParams[kParamMidiLastValue].store(static_cast<float>(std::clamp(value, 0, 127)), std::memory_order_relaxed);
+    fParams[kParamMidiCcCount].store(static_cast<float>(fCcCount), std::memory_order_relaxed);
+
+    // While learning, the CC only teaches; it doesn't move whatever it was mapped to before
+    if (param(kParamMidiLearn) >= 0.5f)
+        return result;
+
+    // the graph about to be swapped in already has the newest map
+    const Graph* graph = fNext ? fNext : fActive;
+    const int index = graph->midiMap[channel * 128 + cc];
+    if (index < 0)
+        return result;
+
+    const float v = midiCcToValue(static_cast<uint32_t>(index), value);
+    fParams[index].store(v, std::memory_order_relaxed);
+    result.param = index;
+    result.value = v;
+    return result;
 }
 
 void Engine::process(const float* const* inputs, float* const* outputs, uint32_t frames)
