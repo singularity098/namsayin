@@ -1,6 +1,6 @@
 # NAMsayin v1 — Architecture and Milestones
 
-This plan covers version 1 as scoped in [Requirements.md](Requirements.md): local NAM blocks, a delay block and a reverb block, plus everything around them (chain, split/merge, tuner, metronome, presets, settings). Later features (Tone3000, IR loader, other effect categories) are not built in v1, but the design leaves room for them.
+This plan covers version 1 as scoped in [Requirements.md](Requirements.md): local NAM blocks, local IR blocks, a delay block, a reverb block and a compressor block, plus everything around them (chain, split/merge, tuner, metronome, presets, settings). Later features (Tone3000, IR loader, other effect categories) are not built in v1, but the design leaves room for them.
 
 ## 1. Tech stack
 
@@ -9,8 +9,8 @@ This plan covers version 1 as scoped in [Requirements.md](Requirements.md): loca
 | Plugin framework | [DPF](https://github.com/DISTRHO/DPF) — VST3 and LV2 | ISC |
 | NAM | [NeuralAmpModelerCore](https://github.com/sdatkinson/NeuralAmpModelerCore) (brings Eigen and nlohmann/json) | MIT / MPL2 / MIT |
 | UI | DPF's DGL with NanoVG | ISC / zlib |
-| Zip reading | miniz | MIT |
-| Content hash | xxHash (XXH3-128) | BSD-2 |
+| Zip reading | miniz 3.1.0 | MIT |
+| Content hash | xxHash 0.8.3 (XXH3-128) | BSD-2 |
 | Tests | doctest | MIT |
 | Font | Inter | OFL |
 | Build | CMake (DPF's `dpf_add_plugin`), dependencies as git submodules under `deps/` | — |
@@ -29,7 +29,7 @@ src/
     ChainGraph        Immutable processing graph built from a ChainState
     Block             Base class for every block
     BlockRegistry     Table of available block types (the "modular effects" hook)
-    blocks/           NamBlock, DelayBlock, ReverbBlock
+    blocks/           NamBlock, IrBlock, DelayBlock, ReverbBlock, CompressorBlock
     global/           InputStage, ToneStack (Bass/Mid/Treble), Limiter, Meters
     Tuner, Metronome
     ParallelWorker    Second-core thread for split branch B
@@ -82,8 +82,12 @@ public:
     virtual void setParam(int index, float value) = 0;
     virtual uint32_t latency() const { return 0; }
     virtual void reset() = 0;
+    virtual void setTempo(double bpm) {}            // host tempo, before every process()
+    virtual float meter() const { return 0; }       // a level the UI shows, e.g. gain reduction
 };
 ```
+
+A block's `meter()` reaches the UI through one output parameter per slot (`kParamSlotMeterBase + slot`).
 
 New effects are added by writing one class and one registry line. Removing an effect is deleting both. The Add Block dialog, parameter names and preset loader all read from the registry.
 
@@ -109,7 +113,7 @@ The host sees a fixed parameter list:
 
 Each block is assigned a free slot when it is created and keeps it for its whole life, so dragging a block to a new position doesn't break automation. Host-facing names are generic ("Slot 05 · P2"). The UI shows real names, and the slot number on each block tile so users can find it in their DAW.
 
-**MIDI learn**: right-click any control → "MIDI Learn", then move a controller. The mapping (CC → parameter) is stored in the plugin state, and incoming CCs are applied in `run()`. This works the same in VST3 and LV2.
+**MIDI learn**: right-click any control (or a block tile, for its bypass) → "MIDI Learn", then move a controller. The mapping (CC + channel → host parameter) is stored in the chain state, so it is saved with the project, in presets and in undo, and reaches the DSP by the same routes as the chain. Incoming CCs are applied at the start of each buffer in `run()`. The DSP reports each CC through hidden output parameters: the UI learns from them, and writes mapped values to the host, since LV2 hosts mostly can't take parameter changes from the DSP (in VST3 the DSP also reports them itself). Right-click → "Clear MIDI" removes a mapping; removing a block removes its mappings.
 
 ### 4.4 Split, merge and the second core
 
@@ -134,9 +138,23 @@ Each block is assigned a free slot when it is created and keeps it for its whole
 
 Parameters: time (ms, or a note value when synced), tempo sync on/off, feedback, mix, tone (low-pass in the feedback path), mode (mono / stereo / ping-pong), stereo spread, modulation depth. In stereo mode, left and right have separate lines, offset by the spread setting.
 
+- Time changes glide (a smoothed, fractionally read delay time), like a tape or analog delay, instead of clicking.
+- Synced, the Time knob picks from 14 note values (1/1 down to 1/32, with dotted and triplet values); the host tempo comes from DPF's `TimePosition`, 120 BPM when the host doesn't report one. Max delay is 4 s.
+- The feedback path has a fixed 40 Hz high-pass, the Tone low-pass and a soft limit above half scale, so 100% feedback stays bounded.
+- Ping-pong: the input (summed to mono) enters on the left, repeats alternate left and right.
+- Mix: the dry signal stays at full level up to 50%, and the wet signal reaches full level at 50% (also used by the reverb).
+
 ### 4.8 Reverb block
 
 An algorithmic reverb written in-house (Dattorro-style plate/hall network). Parameters: type (room / hall / plate), decay, pre-delay, damping, low cut, high cut, width, mix. Mono input gives a stereo-wide tail when the plugin is in stereo mode.
+
+- One figure-eight tank (Dattorro 1997) voiced three ways: Plate is the original sizes; Hall scales the tank by 1.45 with deeper, slower modulation; Room scales it to 0.42 with less diffusion and adds early reflections tapped from the pre-delay line.
+- Decay is the RT60 in seconds; the tank's decay gain is computed from it and the tank's loop time, so the set time holds for every type and sample rate (tested).
+- Buffers are sized for the largest voicing in `prepare()`, so changing type on the audio thread only changes read positions.
+
+### 4.8b Compressor block
+
+Added to v1 at the owner's request. Studio style, feed-forward: stereo-linked peak detector, soft-knee gain computer, attack/release smoothing of the gain in dB, then makeup gain and a dry/wet mix for parallel compression. Parameters: threshold, ratio, attack, release, knee, makeup, mix. Its gain reduction is shown in the block panel through the block meter.
 
 ### 4.9 Tuner
 
@@ -157,17 +175,19 @@ An algorithmic reverb written in-house (Dattorro-style plate/hall network). Para
 ## 5. Plugin state, presets and settings
 
 - **Plugin state** (saved by the DAW with the project): a JSON string through DPF's state API, holding the chain, slots, split, block settings, MIDI mappings and metronome settings. File references store the path and the content hash.
-- **Preset files** (`.namsayin`): a zip containing `preset.json` and, if "embed files" is ticked when saving, the NAM files and images it uses. The top menu has New, Open, Save, Save As and a recent-presets list.
-- **Missing files**: the block is created grayed out (passes audio through) with a "Locate…" button. If a library file with the same content hash exists, it is offered first.
-- **Settings and favorites**: one JSON file per user — `~/.config/namsayin/settings.json` on Linux, `%APPDATA%\NAMsayin\settings.json` on Windows. It's written atomically, and every open instance reloads it when it changes.
+- **Preset files** (`.namsayin`): a zip containing `preset.json` (the chain, its MIDI map and the global sound controls) and, if "embed files" is on (Settings, default on), the NAM files, IRs and sidecar images it uses, under `files/<content hash>/`. The top menu has New, Open, Save, Save As, the embed option and the 8 most recent presets. The preset name shows in the top bar, with a dot when the chain has changed since it was saved or opened.
+- **Missing files**: on load, each block's file is looked for at its original path, then as an embedded copy (extracted to the cache), then in the library by content hash. If none is found, the block is created grayed out (passes audio through) with "Locate…", and "Use … from the library" when a library file with the same hash appears later.
+- **Settings and favorites**: one JSON file per user — `~/.config/namsayin/settings.json` on Linux, `%APPDATA%\NAMsayin\settings.json` on Windows. It's written atomically, and every open instance reloads it when it changes (the UI checks its modification time once a second; a change re-reads the file before saving, so instances don't overwrite each other's changes). Fields: NAM folder, IR folder, default A2 size, normalization default for new blocks, multi-core splits, accent colour, favorites.
 - **Favorites** are stored by content hash (XXH3-128 of the file bytes).
-- **Undo/redo**: a stack of `ChainState` snapshots (small, so snapshots are cheap). Consecutive moves of one knob are merged into one step. Ctrl+Z / Ctrl+Shift+Z while the window has focus.
+- **Undo/redo**: a stack of `ChainState` snapshots (small, so snapshots are cheap), up to 200 steps. One knob gesture is one step. It covers blocks, block values, bypass, the MIDI map and preset loads, not the global knobs. Undo/Redo buttons in the top bar; Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y while the window has focus.
 
 ## 6. Library
 
-- Scans the NAM directory (and later the IR directory) on a background thread, including inside `.zip` files. Files inside zips are addressed as `archive.zip!/folder/model.nam`.
-- An index cache (path, size, modification time, hash, metadata) keeps rescans fast. Only new or changed files are hashed.
-- **Sidecar images**: for `My Amp.nam`, it looks for `My Amp.png` and then `My Amp.jpg` next to it (inside zips too). Otherwise it uses the generic image.
+- Scans the NAM directory and the IR directory on a background thread (`LibraryScanner`), including inside `.zip` files. Files inside zips are addressed as `archive.zip!/folder/model.nam`. When a block uses one, the file is extracted to the cache directory (`cache/extracted/`) off the audio thread and loaded from there.
+- An index cache per kind (path, size, modification time, hash, metadata) keeps rescans fast. Only new or changed files are read and hashed. A rescan runs when the UI opens, when a folder changes, and from the Rescan button.
+- NAM metadata (gear make/model/type) is shown under each model in the list.
+- **Sidecar images**: for `My Amp.nam`, it looks for `My Amp.png`, then `.jpg`, then `.jpeg` next to it (inside zips too). They're shown on the tile and in the block panel; otherwise the placeholder art. 8-bit PNG or JPEG only (DPF's stb_image doesn't decode 16-bit PNG).
+- **Add Block → Local NAM / Local IR** lists the library: search (all words must match name, folder or metadata), a favorites filter, a star per file, and Browse… for a file outside the library.
 
 ## 7. User interface
 
@@ -175,14 +195,14 @@ An algorithmic reverb written in-house (Dattorro-style plate/hall network). Para
 - Layout:
   - **Top bar**: preset menu and preset name, undo/redo, global bypass; on the right, the Fretbored link, metronome and tuner buttons.
   - **Middle**: the chain, left to right, with square block tiles and "+" boxes. A split shows as two rows that rejoin at the merge.
-  - **Below the chain**: the selected block's controls.
+  - **Below the chain**: the selected block's panel: a large block image on the left (placeholder art until real pedal/amp/cab images exist), the name and file above the controls, and the generic controls right-justified in one or more rows. The generic knobs may later go away in favour of turning knobs on the image itself.
   - **Bottom bar**: mono/stereo toggle, input, bass, middle, treble and output knobs, input/output meters with clip lights (click to reset), limiter on/off.
 - **Interactions**:
   - Drag a block to move it; drop indicators show where it lands.
   - Right-click a block: bypass, remove, MIDI learn.
   - Double-click a knob to reset it; Shift-drag for fine control.
 - **Dialogs**: Add Block (categories on the left), Settings, and the Tuner and Metronome panels (overlays).
-- A dark theme defined as colour tokens in one file, so it can be restyled.
+- A dark theme defined as colour tokens in one file, so it can be restyled: pure black window, flat near-black gray bars and panels.
 - The Fretbored link opens the browser through a small platform helper (`xdg-open` / `ShellExecute`).
 
 ## 8. Build, test and release
@@ -220,7 +240,7 @@ Each milestone ends with a working build, passing tests and a short demo.
 | M0 | **Project skeleton** | CMake + submodules; a pass-through plugin builds as VST3 and LV2 on Linux and Windows in CI; an empty resizable HiDPI NanoVG window; MIT license headers |
 | M1 | **Engine core** | Block interface and registry; ChainGraph with real-time-safe swap; parameter slots; state save/restore; input/tone stack/output/limiter/meters; global bypass; mono/stereo |
 | M2 | **NAM block** | A1 and A2 loading on a background thread; Full/Lite global and per block; normalization; sample-rate handling with latency reporting |
-| M3 | **Delay and reverb** | Both blocks with their parameters, stereo delay and tempo sync |
+| M3 | **Delay, reverb and compressor** | The three blocks with their parameters, stereo delay and tempo sync |
 | M4 | **Main UI** | Chain view with tiles, drag-and-drop, "+" and the Add Block dialog, block controls, bottom bar with knobs and meters, generic images, dark theme |
 | M5 | **Library and settings** | Settings panel; NAM directory scanning with zip support, rescan button, index cache; hashing and favorites; sidecar images |
 | M6 | **Split and merge** | One split with merge controls, latency alignment, branch B on a second core |
@@ -237,3 +257,8 @@ M2–M3 and M4 can overlap, as can M8 and M9.
 2. **Standalone app**: dropped for now; VST3 and LV2 only.
 3. **Reverb types**: room, hall and plate.
 4. **Test DAW**: Reaper is the primary host.
+5. **Compressor**: added to M3, studio style (owner's choice over a simple pedal-style one).
+6. **Theme**: no gradient; pure black window, flat near-black gray surfaces.
+7. **Block panel**: large block image on the left, generic knobs right-justified.
+9. **MIDI map in the chain state** rather than a separate plugin state, so it follows the chain's routes (including the exchange file for Reaper's LV2) and is covered by undo and presets.
+8. **Folder choice**: DPF's file browser can't pick folders, so "Choose…" takes the folder of any file picked in it; the path can also be typed or pasted.

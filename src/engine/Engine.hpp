@@ -48,6 +48,17 @@ public:
     void setParameter(uint32_t index, float value);
     float getParameter(uint32_t index) const;
 
+    // RT. The host tempo for tempo-synced blocks; call before process() when the host reports one.
+    void setTempo(double bpm) { fTempo = bpm > 0.0 ? bpm : 120.0; }
+
+    // RT. Applies a MIDI CC through the active chain's MIDI map, and reports it for MIDI learn. Returns the host
+    // parameter it changed (with its new value), or -1.
+    struct CcResult {
+        int param = -1;
+        float value = 0.0f;
+    };
+    CcResult midiCc(int channel, int cc, int value);
+
     // RT. Two inputs and two outputs; they may alias.
     void process(const float* const* inputs, float* const* outputs, uint32_t frames);
 
@@ -64,6 +75,9 @@ private:
     struct Graph {
         std::vector<Node> nodes;
         uint32_t latency = 0;
+        std::array<int16_t, 16 * 128> midiMap; // channel * 128 + cc -> host parameter, -1 if unmapped
+
+        Graph() { midiMap.fill(-1); }
     };
 
     // What the non-RT side last built for each slot, so unchanged blocks can be reused
@@ -113,6 +127,8 @@ private:
     float fFadeStep = 1.0f;
     float fRampStep = 1.0f;
     float fGlobalBypassMix = 0.0f;
+    double fTempo = 120.0;
+    uint32_t fCcCount = 0;
     std::array<SlotState, kMaxBlocks> fSlots {};
 
     Smoother fInputGain, fOutputGain;

@@ -4,6 +4,8 @@
 #include "engine/blocks/NamBlock.hpp"
 
 #include "engine/dsp/Smoother.hpp"
+#include "state/Library.hpp"
+#include "state/Paths.hpp"
 
 #include "NAM/dsp.h"
 #include "NAM/get_dsp.h"
@@ -40,13 +42,20 @@ public:
         const double a2Size = config.value("a2Size", 1.0);
         if (path.empty())
             return false;
+        // a file inside a zip is extracted to the cache first
+        const std::optional<std::string> file = materializeLibraryFile(path);
+        if (!file)
+        {
+            std::fprintf(stderr, "NAMsayin: can't open %s\n", path.c_str());
+            return false;
+        }
 
         try
         {
             // One model per channel, because models keep state. In mono mode only the first runs.
             for (auto& model : fModels)
             {
-                model = nam::get_dsp(std::filesystem::path(reinterpret_cast<const char8_t*>(path.c_str())));
+                model = nam::get_dsp(pathFromUtf8(*file));
                 if (!model || model->NumInputChannels() != 1 || model->NumOutputChannels() != 1)
                     return false;
                 if (auto* slimmable = dynamic_cast<nam::SlimmableModel*>(model.get()))
