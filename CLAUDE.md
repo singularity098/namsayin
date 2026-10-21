@@ -8,7 +8,7 @@ NAMsayin is a guitar rig plugin (VST3 + LV2) in C++20, built with DPF (plugin fr
 
 - **Requirements**: `docs/Requirements.md` — the owner's feature list plus agreed decisions. Treat it as the source of truth; record new decisions there.
 - **Architecture and milestones**: `docs/Architecture.md` — design, v1 milestones (M0–M10) and decisions log.
-- **Current milestone**: M1, M2 (minus resampling) and M3 (delay, reverb, compressor) are done, and M4 is done except real block images (the owner will provide them) and the MIDI learn UI (part of M7). The IR loader (local .wav cab IRs) is also done, at the owner's request. Agreed order from here: M5 (library, settings) then M7 (presets, undo/redo, MIDI learn); then M6, M8, M9.
+- **Current milestone**: M1, M2 (minus resampling), M3 (delay, reverb, compressor) and M5 (library, settings) are done, and M4 is done except real block images (the owner will provide them) and the MIDI learn UI (part of M7). The IR loader (local .wav cab IRs) is also done, at the owner's request. Agreed order from here: M7 (presets, undo/redo, MIDI learn); then M6, M8, M9.
 
 ## Fixed decisions (don't revisit without the owner)
 
@@ -31,6 +31,8 @@ deps/DPF              Submodule (DPF main)
 deps/NeuralAmpModelerCore  Submodule, pinned to tag v0.6.0
 deps/doctest          Submodule, pinned to v2.4.12 (unit tests)
 deps/FFTConvolver     Submodule (MIT): zero-latency partitioned convolution for the IR block
+deps/miniz            Submodule, pinned to 3.1.0 (MIT): reading zip files in the library
+deps/xxHash           Submodule, pinned to v0.8.3 (BSD-2): XXH3-128 content hashes
 src/engine/           Audio engine, independent of DPF (static library `namsayin-engine`)
   Params.*            Host parameter indices and global parameter specs
   Block.hpp           Block base class, ParamSpec, BlockDescriptor, Category
@@ -40,7 +42,13 @@ src/engine/           Audio engine, independent of DPF (static library `namsayin
   dsp/                Smoother, Biquad, ToneStack, Limiter, Meter
   dsp/DelayLine.hpp   Delay line with Hermite reads, sine LFO, dry/wet mix law
   blocks/             Block implementations (NamBlock, IrBlock, DelayBlock, ReverbBlock, CompressorBlock)
-src/state/            ChainState (the chain as plain data, JSON)
+src/state/            Plain data shared by DSP and UI, no DPF:
+  ChainState          the chain (JSON)
+  ChainExchange       chain file route for hosts that drop UI state messages
+  Paths               per-user config/cache dirs, UTF-8 path conversion, atomic file writes
+  Settings            global settings and favorites (one JSON file per user)
+  Library             folder/zip scanning, index cache, hashes, sidecar images, zip extraction
+  LibraryScanner      background scan thread used by the UI
 src/plugin/           DistrhoPluginInfo.h + DSP side (Plugin subclass; thin wrapper around Engine)
 src/ui/               UI side (UI subclass, NanoVG). Immediate-mode: draw functions record hit areas, mouse handlers look them up
 tests/                doctest unit tests; TestSupport.hpp has a test block and an allocation counter
@@ -109,5 +117,9 @@ The file browser opens in the host's working directory. Final checks happen in R
 - Not done yet in the NAM block: resampling when the host rate differs from the model's training rate.
 - IR block: WAV files via NAM Core's `nam::detail::load_wav_ir` (PCM 16/24/32, float 32; channels stored contiguously), linearly resampled to the host rate, energy-normalized, convolved with FFTConvolver's `TwoStageFFTConvolver` (head 64, tail 2048; zero latency). Low/High Cut are off at the ends of their ranges.
 - NAM A2 Full/Lite: `nam::SlimmableModel::SetSlimmableSize(1.0)` = Full, `0.0` = Lite (`NAM/slimmable.h`). Not real-time safe — call it off the audio thread.
+- Library paths: a file inside a zip is `archive.zip!/inner/path`. Blocks accept these directly: `materializeLibraryFile()` extracts to the cache dir on the non-RT thread. Block configs store `path` and `hash` (XXH3-128).
+- Sidecar images must be 8-bit PNG or JPEG: DPF's bundled stb_image can't decode 16-bit PNG.
+- Settings live in `~/.config/namsayin/settings.json` (Windows: `%APPDATA%\NAMsayin`); the library index caches are in `~/.cache/namsayin` (`%LOCALAPPDATA%\NAMsayin\Cache`). Every UI polls the settings file once a second, so instances stay in sync. Change settings with `updateSettings()` in the UI, which reloads before saving.
+- Text fields (search, folders) need keyboard focus. Some hosts keep keys for themselves; in Reaper, check that typing in the plugin window works (FX window option "Send all keyboard input to plugin" if not).
 - Fretbored (the owner's other app, https://github.com/singularity098/fretbored) is the reference for the metronome and tuner features.
 - Tone3000's site is blocked by this cloud environment's network policy, so its API docs can't be fetched here.

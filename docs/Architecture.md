@@ -9,8 +9,8 @@ This plan covers version 1 as scoped in [Requirements.md](Requirements.md): loca
 | Plugin framework | [DPF](https://github.com/DISTRHO/DPF) — VST3 and LV2 | ISC |
 | NAM | [NeuralAmpModelerCore](https://github.com/sdatkinson/NeuralAmpModelerCore) (brings Eigen and nlohmann/json) | MIT / MPL2 / MIT |
 | UI | DPF's DGL with NanoVG | ISC / zlib |
-| Zip reading | miniz | MIT |
-| Content hash | xxHash (XXH3-128) | BSD-2 |
+| Zip reading | miniz 3.1.0 | MIT |
+| Content hash | xxHash 0.8.3 (XXH3-128) | BSD-2 |
 | Tests | doctest | MIT |
 | Font | Inter | OFL |
 | Build | CMake (DPF's `dpf_add_plugin`), dependencies as git submodules under `deps/` | — |
@@ -177,15 +177,17 @@ Added to v1 at the owner's request. Studio style, feed-forward: stereo-linked pe
 - **Plugin state** (saved by the DAW with the project): a JSON string through DPF's state API, holding the chain, slots, split, block settings, MIDI mappings and metronome settings. File references store the path and the content hash.
 - **Preset files** (`.namsayin`): a zip containing `preset.json` and, if "embed files" is ticked when saving, the NAM files and images it uses. The top menu has New, Open, Save, Save As and a recent-presets list.
 - **Missing files**: the block is created grayed out (passes audio through) with a "Locate…" button. If a library file with the same content hash exists, it is offered first.
-- **Settings and favorites**: one JSON file per user — `~/.config/namsayin/settings.json` on Linux, `%APPDATA%\NAMsayin\settings.json` on Windows. It's written atomically, and every open instance reloads it when it changes.
+- **Settings and favorites**: one JSON file per user — `~/.config/namsayin/settings.json` on Linux, `%APPDATA%\NAMsayin\settings.json` on Windows. It's written atomically, and every open instance reloads it when it changes (the UI checks its modification time once a second; a change re-reads the file before saving, so instances don't overwrite each other's changes). Fields: NAM folder, IR folder, default A2 size, normalization default for new blocks, multi-core splits, accent colour, favorites.
 - **Favorites** are stored by content hash (XXH3-128 of the file bytes).
 - **Undo/redo**: a stack of `ChainState` snapshots (small, so snapshots are cheap). Consecutive moves of one knob are merged into one step. Ctrl+Z / Ctrl+Shift+Z while the window has focus.
 
 ## 6. Library
 
-- Scans the NAM directory (and later the IR directory) on a background thread, including inside `.zip` files. Files inside zips are addressed as `archive.zip!/folder/model.nam`.
-- An index cache (path, size, modification time, hash, metadata) keeps rescans fast. Only new or changed files are hashed.
-- **Sidecar images**: for `My Amp.nam`, it looks for `My Amp.png` and then `My Amp.jpg` next to it (inside zips too). Otherwise it uses the generic image.
+- Scans the NAM directory and the IR directory on a background thread (`LibraryScanner`), including inside `.zip` files. Files inside zips are addressed as `archive.zip!/folder/model.nam`. When a block uses one, the file is extracted to the cache directory (`cache/extracted/`) off the audio thread and loaded from there.
+- An index cache per kind (path, size, modification time, hash, metadata) keeps rescans fast. Only new or changed files are read and hashed. A rescan runs when the UI opens, when a folder changes, and from the Rescan button.
+- NAM metadata (gear make/model/type) is shown under each model in the list.
+- **Sidecar images**: for `My Amp.nam`, it looks for `My Amp.png`, then `.jpg`, then `.jpeg` next to it (inside zips too). They're shown on the tile and in the block panel; otherwise the placeholder art. 8-bit PNG or JPEG only (DPF's stb_image doesn't decode 16-bit PNG).
+- **Add Block → Local NAM / Local IR** lists the library: search (all words must match name, folder or metadata), a favorites filter, a star per file, and Browse… for a file outside the library.
 
 ## 7. User interface
 
@@ -258,3 +260,4 @@ M2–M3 and M4 can overlap, as can M8 and M9.
 5. **Compressor**: added to M3, studio style (owner's choice over a simple pedal-style one).
 6. **Theme**: no gradient; pure black window, flat near-black gray surfaces.
 7. **Block panel**: large block image on the left, generic knobs right-justified.
+8. **Folder choice**: DPF's file browser can't pick folders, so "Choose…" takes the folder of any file picked in it; the path can also be typed or pasted.

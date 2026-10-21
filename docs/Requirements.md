@@ -44,6 +44,7 @@
 - The blocks in the signal chain are square shaped, and we will use provided images (later possibly as small thumbnails on the tiles)
 - The panel below the chain shows the selected block: a large, high-quality image of the pedal/amp/cab on the left of the panel, and the block's generic knobs right-justified next to it. Until real images exist, a drawn placeholder (pedal, amp head or cab) is shown. Later the generic knobs may be removed so knobs are turned on the image itself (needs images prepared by the owner first)
 - A local NAM file or IR uses an image sidecar file with the same name (e.g. `My Amp.nam` → `My Amp.png`). When there is no sidecar image, we will use a generic image. In the beginning, we can use a very crude mockup and I will provide higher quality images later
+    - Sidecar images can be 8-bit PNG or JPEG (16-bit PNG isn't supported by the UI's image decoder)
 - Blocks can be easily reordered by dragging and dropping. They can also be temporarily disabled/bypassed, or removed
 - Undo/redo for all edits to the signal chain and block settings
 - Codebase is designed such that effects are modular and easy to add or remove from the program as we get new ideas

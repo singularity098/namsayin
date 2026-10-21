@@ -50,6 +50,22 @@ add_library(fftconvolver STATIC
   ${FFTCONVOLVER_DIR}/Utilities.cpp)
 target_include_directories(fftconvolver SYSTEM PUBLIC ${FFTCONVOLVER_DIR})
 
+# miniz: reading zip files in the library. Its CMake generates miniz_export.h; we only need an empty export macro.
+set(MINIZ_DIR ${CMAKE_CURRENT_SOURCE_DIR}/deps/miniz)
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/miniz/miniz_export.h "#pragma once\n#define MINIZ_EXPORT\n")
+add_library(miniz STATIC
+  ${MINIZ_DIR}/miniz.c
+  ${MINIZ_DIR}/miniz_tdef.c
+  ${MINIZ_DIR}/miniz_tinfl.c
+  ${MINIZ_DIR}/miniz_zip.c)
+target_include_directories(miniz SYSTEM PUBLIC ${MINIZ_DIR} ${CMAKE_CURRENT_BINARY_DIR}/miniz)
+# 64-bit file offsets, so large archives work
+target_compile_definitions(miniz PUBLIC MINIZ_NO_ZLIB_COMPATIBLE_NAMES _LARGEFILE64_SOURCE)
+
+# xxHash: content hashes (XXH3-128) for favorites and missing-file matching; header-only
+add_library(xxhash INTERFACE)
+target_include_directories(xxhash SYSTEM INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/deps/xxHash)
+
 # ---------------------------------------------------------------------------------------------------------------------
 # Engine (DSP and state, independent of DPF so it can be unit tested)
 
@@ -63,11 +79,15 @@ add_library(namsayin-engine STATIC
   src/engine/Engine.cpp
   src/engine/Params.cpp
   src/state/ChainExchange.cpp
-  src/state/ChainState.cpp)
+  src/state/ChainState.cpp
+  src/state/Library.cpp
+  src/state/LibraryScanner.cpp
+  src/state/Paths.cpp
+  src/state/Settings.cpp)
 target_include_directories(namsayin-engine PUBLIC src)
 # Whole archive: NAM Core registers its model architectures from static initializers, which the linker would
 # otherwise drop ("No config parser registered for architecture")
-target_link_libraries(namsayin-engine PUBLIC "$<LINK_LIBRARY:WHOLE_ARCHIVE,nam>" fftconvolver)
+target_link_libraries(namsayin-engine PUBLIC "$<LINK_LIBRARY:WHOLE_ARCHIVE,nam>" fftconvolver miniz xxhash)
 
 set(NAMSAYIN_WARNINGS $<IF:$<CXX_COMPILER_ID:MSVC>,/W4,-Wall -Wextra -Wpedantic>)
 target_compile_options(namsayin-engine PRIVATE ${NAMSAYIN_WARNINGS})
@@ -105,8 +125,10 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/DspTests.cpp
     tests/EngineTests.cpp
     tests/IrBlockTests.cpp
+    tests/LibraryTests.cpp
     tests/NamBlockTests.cpp
-    tests/ReverbBlockTests.cpp)
+    tests/ReverbBlockTests.cpp
+    tests/SettingsTests.cpp)
   target_include_directories(namsayin-tests PRIVATE tests deps/doctest)
   target_link_libraries(namsayin-tests PRIVATE namsayin-engine)
   target_compile_options(namsayin-tests PRIVATE ${NAMSAYIN_WARNINGS})

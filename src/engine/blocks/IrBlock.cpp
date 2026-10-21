@@ -5,6 +5,8 @@
 
 #include "engine/dsp/Biquad.hpp"
 #include "engine/dsp/Smoother.hpp"
+#include "state/Library.hpp"
+#include "state/Paths.hpp"
 
 #include "NAM/wav.h"
 #include "TwoStageFFTConvolver.h"
@@ -64,13 +66,18 @@ public:
         const std::string path = config.value("path", std::string());
         if (path.empty())
             return false;
+        // a file inside a zip is extracted to the cache first
+        const std::optional<std::string> file = materializeLibraryFile(path);
+        if (!file)
+        {
+            std::fprintf(stderr, "NAMsayin: can't open IR %s\n", path.c_str());
+            return false;
+        }
 
         try
         {
             int channels = 0;
-            const std::vector<float> data =
-                nam::detail::load_wav_ir(std::filesystem::path(reinterpret_cast<const char8_t*>(path.c_str())),
-                                         fFileRate, channels);
+            const std::vector<float> data = nam::detail::load_wav_ir(pathFromUtf8(*file), fFileRate, channels);
             if (channels < 1 || data.empty())
                 return false;
 

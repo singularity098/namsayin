@@ -11,6 +11,10 @@
 #include "engine/blocks/NamBlock.hpp"
 #include "state/ChainExchange.hpp"
 #include "state/ChainState.hpp"
+#include "state/Library.hpp"
+#include "state/LibraryScanner.hpp"
+#include "state/Paths.hpp"
+#include "state/Settings.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -19,6 +23,8 @@
 #include <cctype>
 #include <cstring>
 #include <filesystem>
+#include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -44,8 +50,18 @@ const Color textDim(0x78, 0x78, 0x82);
 const Color good(0x4c, 0xc9, 0x7a);
 const Color warn(0xf0, 0xc0, 0x40);
 const Color bad(0xe5, 0x48, 0x4d);
-// Highlight colour. Will be user-configurable (Settings); purple for now.
-Color accent(0x9b, 0x5c, 0xff);
+// Highlight colour, chosen in Settings from these
+const Color accents[] = {
+    Color(0x9b, 0x5c, 0xff), // purple (default)
+    Color(0x4c, 0x8d, 0xff), // blue
+    Color(0x2f, 0xbf, 0xa8), // teal
+    Color(0x4c, 0xc9, 0x7a), // green
+    Color(0xf0, 0xa0, 0x30), // amber
+    Color(0xe5, 0x48, 0x4d), // red
+    Color(0xe0, 0x5c, 0xb0), // pink
+};
+constexpr int accentCount = sizeof(accents) / sizeof(accents[0]);
+Color accent = accents[0];
 // Placeholder block art, by kind of block
 const Color amp(0x8a, 0x5a, 0x3a);
 const Color cab(0x4a, 0x4a, 0x52);
@@ -90,7 +106,32 @@ enum class Hit {
     DialogClose,
     DialogCategory, // index = Category
     DialogItem,     // index = position in the current category's item list
+    LibraryItem,    // index = row in the visible library list
+    LibraryStar,    // index = row in the visible library list
+    LibraryFavorites,
+    LibraryBrowse,
+    TextField,      // index = Field
+    OpenSettings,
+    SettingsChoose, // index = Field (the folder field it fills)
+    SettingsRescan,
+    SettingsA2,     // index = 1 for Lite
+    SettingsNormalize,
+    SettingsParallel,
+    SettingsAccent, // index = accent
 };
+
+// Editable text fields
+enum Field {
+    kFieldSearch,
+    kFieldNamDir,
+    kFieldIrDir,
+    kFieldCount
+};
+
+enum class Dialog { None, AddBlock, Settings };
+
+// What a file picked in the file browser is for
+enum class BrowseTarget { AddBlock, NamDir, IrDir };
 
 struct HitArea {
     Rect rect;
@@ -100,7 +141,51 @@ struct HitArea {
 
 std::string fileStem(const std::string& path)
 {
-    return std::filesystem::path(reinterpret_cast<const char8_t*>(path.c_str())).stem().string();
+    return pathToUtf8(pathFromUtf8(path).stem());
+}
+
+std::string lowerCase(std::string text)
+{
+    std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return std::tolower(c); });
+    return text;
+}
+
+// Whether every space-separated word of `query` appears in `entry` (case-insensitive)
+bool matchesSearch(const LibraryEntry& entry, const std::string& query)
+{
+    const std::string haystack = lowerCase(entry.name + " " + entry.folder + " " + entry.info);
+    size_t pos = 0;
+    const std::string q = lowerCase(query);
+    while (pos < q.size())
+    {
+        const size_t end = q.find(' ', pos);
+        const std::string word = q.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
+        if (!word.empty() && haystack.find(word) == std::string::npos)
+            return false;
+        if (end == std::string::npos)
+            break;
+        pos = end + 1;
+    }
+    return true;
+}
+
+// Removes the last UTF-8 character
+void popUtf8(std::string& text)
+{
+    while (!text.empty())
+    {
+        const auto c = static_cast<unsigned char>(text.back());
+        text.pop_back();
+        if ((c & 0xc0) != 0x80)
+            break;
+    }
+}
+
+int64_t fileTime(const std::filesystem::path& path)
+{
+    std::error_code ec;
+    const auto time = std::filesystem::last_write_time(path, ec);
+    return ec ? 0 : static_cast<int64_t>(time.time_since_epoch().count());
 }
 
 // The block type for a file the user picked, by extension: .nam -> NAM model, .wav -> IR
@@ -118,31 +203,26 @@ const BlockDescriptor* blockTypeForFile(const char* filename)
     return nullptr;
 }
 
-// One entry in the Add Block dialog: a block type to add directly, or a file browser for file-based types
+// One built-in block type in the Add Block dialog. (Local NAM and Local IR show the library instead.)
 struct AddItem {
     std::string label;
-    const BlockDescriptor* type; // nullptr: browse for a file
-    std::string detail;
+    const BlockDescriptor* type;
 };
+
+bool isLibraryCategory(Category category)
+{
+    return category == Category::LocalNam || category == Category::LocalIr;
+}
 
 std::vector<AddItem> addItems(Category category)
 {
     std::vector<AddItem> items;
-    switch (category)
-    {
-    case Category::LocalNam:
-        items.push_back({ "Browse for a NAM model…", nullptr, ".nam files" });
+    if (isLibraryCategory(category))
         return items;
-    case Category::LocalIr:
-        items.push_back({ "Browse for a cab IR…", nullptr, ".wav files" });
-        return items;
-    default:
-        break;
-    }
     for (const BlockDescriptor* type : BlockRegistry::builtin().types())
     {
         if (type->category == category)
-            items.push_back({ type->displayName, type, "" });
+            items.push_back({ type->displayName, type });
     }
     return items;
 }
@@ -162,6 +242,11 @@ public:
             if (!isSlotParam(i))
                 fParams[i] = globalParamSpec(i).def;
         }
+
+        fSettings = Settings::load();
+        fSettingsTime = fileTime(Settings::defaultPath());
+        applySettings();
+        rescan();
 
         const double scaleFactor = getScaleFactor();
         setGeometryConstraints(NAMSAYIN_UI_MIN_WIDTH * scaleFactor, NAMSAYIN_UI_MIN_HEIGHT * scaleFactor, false);
@@ -209,12 +294,22 @@ protected:
 
     void uiFileBrowserSelected(const char* const filename) override
     {
-        const BlockDescriptor* type = filename != nullptr ? blockTypeForFile(filename) : nullptr;
+        if (filename == nullptr)
+            return;
+        if (fBrowseTarget == BrowseTarget::NamDir || fBrowseTarget == BrowseTarget::IrDir)
+        {
+            // DPF's browser picks files, so the folder is the one the picked file is in
+            const Field field = fBrowseTarget == BrowseTarget::NamDir ? kFieldNamDir : kFieldIrDir;
+            fFields[field] = pathToUtf8(pathFromUtf8(filename).parent_path());
+            commitField(field);
+            return;
+        }
+        const BlockDescriptor* type = blockTypeForFile(filename);
         if (type == nullptr)
             return;
         nlohmann::json config = { { "path", filename } };
-        if (type == &kNamBlockDescriptor)
-            config["a2Size"] = 1.0;
+        if (const std::optional<std::string> hash = hashLibraryFile(filename))
+            config["hash"] = *hash;
         addBlock(type, std::move(config));
     }
 
@@ -237,8 +332,10 @@ protected:
         drawChain();
         drawSelectedPanel();
         drawBottomBar();
-        if (fDialogOpen)
+        if (fDialog == Dialog::AddBlock)
             drawAddDialog();
+        else if (fDialog == Dialog::Settings)
+            drawSettingsDialog();
 
         restore();
     }
@@ -264,6 +361,11 @@ protected:
         fLastClickTime = ev.time;
 
         const HitArea* hit = hitAt(x, y);
+
+        // clicking anywhere but the focused field ends editing it
+        if (fFocusedField >= 0 && !(hit && hit->kind == Hit::TextField && hit->index == fFocusedField))
+            blurField(true);
+
         if (hit == nullptr)
             return false;
 
@@ -309,8 +411,7 @@ protected:
             return true;
 
         case Hit::AddBlock:
-            fDialogOpen = true;
-            repaint();
+            openDialog(Dialog::AddBlock);
             return true;
 
         case Hit::Choice: {
@@ -326,8 +427,7 @@ protected:
 
         case Hit::DialogBackdrop:
         case Hit::DialogClose:
-            fDialogOpen = false;
-            repaint();
+            closeDialog();
             return true;
 
         case Hit::DialogPanel:
@@ -335,6 +435,7 @@ protected:
 
         case Hit::DialogCategory:
             fDialogCategory = static_cast<Category>(hit->index);
+            fListScroll = 0.0f;
             repaint();
             return true;
 
@@ -342,21 +443,89 @@ protected:
             const std::vector<AddItem> items = addItems(fDialogCategory);
             if (hit->index >= static_cast<int>(items.size()))
                 return true;
-            fDialogOpen = false;
             const AddItem& item = items[hit->index];
-            if (item.type == nullptr)
+            closeDialog();
+            addBlock(item.type, nlohmann::json::object());
+            return true;
+        }
+
+        case Hit::LibraryItem: {
+            if (hit->index >= static_cast<int>(fVisibleEntries.size()))
+                return true;
+            const LibraryEntry entry = *fVisibleEntries[hit->index];
+            const bool ir = fDialogCategory == Category::LocalIr;
+            closeDialog();
+            addBlock(ir ? &kIrBlockDescriptor : &kNamBlockDescriptor,
+                     { { "path", entry.path }, { "hash", entry.hash } });
+            return true;
+        }
+
+        case Hit::LibraryStar: {
+            if (hit->index >= static_cast<int>(fVisibleEntries.size()))
+                return true;
+            const std::string hash = fVisibleEntries[hit->index]->hash;
+            updateSettings([&hash](Settings& settings) {
+                if (!settings.favorites.erase(hash))
+                    settings.favorites.insert(hash);
+            });
+            return true;
+        }
+
+        case Hit::LibraryFavorites:
+            fFavoritesOnly = !fFavoritesOnly;
+            fListScroll = 0.0f;
+            repaint();
+            return true;
+
+        case Hit::LibraryBrowse: {
+            const bool ir = fDialogCategory == Category::LocalIr;
+            closeDialog();
+            browse(BrowseTarget::AddBlock, ir ? "Add a cab IR (.wav)" : "Add a NAM model (.nam)",
+                   ir ? fSettings.irDir : fSettings.namDir);
+            return true;
+        }
+
+        case Hit::TextField:
+            if (fFocusedField != hit->index)
             {
-                FileBrowserOptions options;
-                options.title = fDialogCategory == Category::LocalIr ? "Add a cab IR (.wav)" : "Add a NAM model (.nam)";
-                openFileBrowser(options);
-            }
-            else
-            {
-                addBlock(item.type, nlohmann::json::object());
+                fFocusedField = hit->index;
+                fFieldBeforeEdit = fFields[hit->index];
             }
             repaint();
             return true;
+
+        case Hit::OpenSettings:
+            openDialog(Dialog::Settings);
+            return true;
+
+        case Hit::SettingsChoose: {
+            const bool nam = hit->index == kFieldNamDir;
+            browse(nam ? BrowseTarget::NamDir : BrowseTarget::IrDir,
+                   nam ? "Pick any file in your NAM folder" : "Pick any file in your IR folder",
+                   nam ? fSettings.namDir : fSettings.irDir);
+            return true;
         }
+
+        case Hit::SettingsRescan:
+            rescan();
+            repaint();
+            return true;
+
+        case Hit::SettingsA2:
+            updateSettings([lite = hit->index == 1](Settings& settings) { settings.a2Lite = lite; });
+            return true;
+
+        case Hit::SettingsNormalize:
+            updateSettings([](Settings& settings) { settings.normalize = !settings.normalize; });
+            return true;
+
+        case Hit::SettingsParallel:
+            updateSettings([](Settings& settings) { settings.parallel = !settings.parallel; });
+            return true;
+
+        case Hit::SettingsAccent:
+            updateSettings([accent = hit->index](Settings& settings) { settings.accent = accent; });
+            return true;
 
         case Hit::A2Size: {
             nlohmann::json& config = fChain.blocks[hit->index].config;
@@ -405,19 +574,61 @@ protected:
 
     bool onKeyboard(const KeyboardEvent& ev) override
     {
-        if (ev.press && ev.key == kKeyEscape && fDialogOpen)
+        if (!ev.press)
+            return fFocusedField >= 0;
+
+        if (fFocusedField >= 0)
         {
-            fDialogOpen = false;
+            std::string& text = fFields[fFocusedField];
+            if (ev.key == kKeyBackspace)
+                popUtf8(text);
+            else if (ev.key == kKeyEnter)
+                blurField(true);
+            else if (ev.key == kKeyEscape)
+                blurField(false);
+            else if ((ev.mod & kModifierControl) && (ev.key == 'v' || ev.key == 'V'))
+                pasteInto(text);
+            else if ((ev.mod & kModifierControl) && (ev.key == 'u' || ev.key == 'U'))
+                text.clear();
+            else
+                return true; // characters arrive through onCharacterInput
+            if (fFocusedField == kFieldSearch)
+                fListScroll = 0.0f;
             repaint();
+            return true;
+        }
+
+        if (ev.key == kKeyEscape && fDialog != Dialog::None)
+        {
+            closeDialog();
             return true;
         }
         return false;
     }
 
+    bool onCharacterInput(const CharacterInputEvent& ev) override
+    {
+        if (fFocusedField < 0)
+            return false;
+        // control characters (and Ctrl+key combinations) are handled in onKeyboard
+        if (ev.character >= 32 && ev.character != 127)
+        {
+            fFields[fFocusedField] += ev.string;
+            if (fFocusedField == kFieldSearch)
+                fListScroll = 0.0f;
+            repaint();
+        }
+        return true;
+    }
+
     bool onScroll(const ScrollEvent& ev) override
     {
-        if (fDialogOpen)
+        if (fDialog != Dialog::None)
+        {
+            fListScroll = std::max(0.0f, fListScroll - static_cast<float>(ev.delta.getY()) * 40.0f);
+            repaint();
             return true;
+        }
         const float y = static_cast<float>(ev.pos.getY() / getScaleFactor());
         if (y < kChainTop || y > kChainTop + kTileSize)
             return false;
@@ -429,6 +640,38 @@ protected:
 
     void uiIdle() override
     {
+        if (std::optional<LibraryScanner::Result> result = fScanner.poll())
+        {
+            fNamLibrary = std::move(result->nam);
+            fIrLibrary = std::move(result->ir);
+            fScanned = true;
+            repaint();
+        }
+        if (fScanning != fScanner.busy())
+        {
+            fScanning = fScanner.busy();
+            repaint();
+        }
+
+        // Settings are shared by all instances: pick up changes made by another one
+        const auto now = std::chrono::steady_clock::now();
+        if (now - fSettingsCheckedAt > std::chrono::seconds(1))
+        {
+            fSettingsCheckedAt = now;
+            const int64_t time = fileTime(Settings::defaultPath());
+            if (time != fSettingsTime)
+            {
+                fSettingsTime = time;
+                const Settings settings = Settings::load();
+                const bool foldersChanged = settings.namDir != fSettings.namDir || settings.irDir != fSettings.irDir;
+                fSettings = settings;
+                applySettings();
+                if (foldersChanged)
+                    rescan();
+                repaint();
+            }
+        }
+
         // redraw once the grace period ends, so blocks that didn't start get marked
         if (fStatusPending && statusSettled())
         {
@@ -575,6 +818,157 @@ private:
         return buf;
     }
 
+    // ---------------------------------------------------------------------------------------------------------------
+    // Settings, library, dialogs
+
+    void applySettings()
+    {
+        theme::accent = theme::accents[std::clamp(fSettings.accent, 0, theme::accentCount - 1)];
+        if (fFocusedField != kFieldNamDir)
+            fFields[kFieldNamDir] = fSettings.namDir;
+        if (fFocusedField != kFieldIrDir)
+            fFields[kFieldIrDir] = fSettings.irDir;
+    }
+
+    // Changes the settings file: reloads it first, so changes made meanwhile by other instances aren't lost
+    template <typename Change>
+    void updateSettings(Change change)
+    {
+        Settings settings = Settings::load();
+        change(settings);
+        const bool foldersChanged = settings.namDir != fSettings.namDir || settings.irDir != fSettings.irDir;
+        fSettings = settings;
+        if (!fSettings.save())
+            d_stderr2("NAMsayin: can't save settings to %s", pathToUtf8(Settings::defaultPath()).c_str());
+        fSettingsTime = fileTime(Settings::defaultPath());
+        applySettings();
+        if (foldersChanged)
+            rescan();
+        repaint();
+    }
+
+    void rescan()
+    {
+        fScanner.start(fSettings.namDir, fSettings.irDir);
+        fScanning = true;
+    }
+
+    void openDialog(Dialog dialog)
+    {
+        fDialog = dialog;
+        fListScroll = 0.0f;
+        repaint();
+    }
+
+    void closeDialog()
+    {
+        blurField(true);
+        fDialog = Dialog::None;
+        repaint();
+    }
+
+    void browse(BrowseTarget target, const char* title, const std::string& startDir)
+    {
+        fBrowseTarget = target;
+        FileBrowserOptions options;
+        options.title = title;
+        if (!startDir.empty())
+            options.startDir = startDir.c_str();
+        openFileBrowser(options);
+    }
+
+    // Ends editing a text field; folder fields are saved to the settings (commit) or restored
+    void blurField(bool commit)
+    {
+        const int field = fFocusedField;
+        if (field < 0)
+            return;
+        fFocusedField = -1;
+        if (!commit)
+            fFields[field] = fFieldBeforeEdit;
+        else
+            commitField(static_cast<Field>(field));
+        repaint();
+    }
+
+    void commitField(Field field)
+    {
+        if (field == kFieldNamDir && fFields[field] != fSettings.namDir)
+            updateSettings([text = fFields[field]](Settings& settings) { settings.namDir = text; });
+        else if (field == kFieldIrDir && fFields[field] != fSettings.irDir)
+            updateSettings([text = fFields[field]](Settings& settings) { settings.irDir = text; });
+    }
+
+    void pasteInto(std::string& text)
+    {
+        size_t size = 0;
+        const void* data = getClipboard(size);
+        if (data == nullptr)
+            return;
+        for (size_t i = 0; i < size; ++i)
+        {
+            const char c = static_cast<const char*>(data)[i];
+            if (c != '\n' && c != '\r' && c != '\0')
+                text += c;
+        }
+    }
+
+    // An image file (8-bit PNG or JPEG, also inside a zip), loaded once; nullptr if it can't be loaded
+    NanoImage* image(const std::string& path)
+    {
+        if (path.empty())
+            return nullptr;
+        auto it = fImages.find(path);
+        if (it == fImages.end())
+        {
+            it = fImages.emplace(path, std::make_unique<NanoImage>()).first;
+            if (const std::optional<std::string> bytes = readLibraryFile(path))
+            {
+                *it->second = createImageFromMemory(reinterpret_cast<const uchar*>(bytes->data()),
+                                                    static_cast<uint>(bytes->size()), IMAGE_GENERATE_MIPMAPS);
+            }
+            // DPF's image decoder is an older stb_image: 8-bit PNG and JPEG work, 16-bit PNG doesn't
+            if (!it->second->isValid())
+                d_stderr2("NAMsayin: can't load image %s (use an 8-bit PNG or a JPEG)", path.c_str());
+        }
+        return it->second->isValid() ? it->second.get() : nullptr;
+    }
+
+    // The sidecar image of a block's file, if it has one
+    NanoImage* blockImage(const BlockState& block)
+    {
+        const std::string path = block.config.value("path", std::string());
+        if (path.empty())
+            return nullptr;
+        auto it = fSidecars.find(path);
+        if (it == fSidecars.end())
+            it = fSidecars.emplace(path, findSidecarImage(path)).first;
+        return image(it->second);
+    }
+
+    // Draws an image scaled to fit the rect, centred, keeping its aspect ratio
+    void drawImageFit(NanoImage& img, float x, float y, float w, float h, float radius)
+    {
+        const Size<uint> size = img.getSize();
+        if (size.getWidth() == 0 || size.getHeight() == 0)
+            return;
+        const float scale = std::min(w / size.getWidth(), h / size.getHeight());
+        const float dw = size.getWidth() * scale, dh = size.getHeight() * scale;
+        const float dx = x + (w - dw) / 2, dy = y + (h - dh) / 2;
+        beginPath();
+        roundedRect(dx, dy, dw, dh, radius);
+        fillPaint(imagePattern(dx, dy, dw, dh, 0.0f, img, 1.0f));
+        fill();
+    }
+
+    // Whether a block's file exists (for a file inside a zip: whether the zip does)
+    static bool fileExists(const std::string& path)
+    {
+        std::error_code ec;
+        const std::optional<ArchivePath> archive = splitArchivePath(path);
+        return std::filesystem::exists(pathFromUtf8(archive ? archive->archive : path), ec);
+    }
+
     // Adds a block at the end of the chain, starting from its defaults (parameter values live in the host)
     void addBlock(const BlockDescriptor* type, nlohmann::json config)
     {
@@ -592,8 +986,19 @@ private:
         {
             const ParamSpec& spec = type->params[p];
             block.params[p] = spec.toNormalized(spec.def);
-            setHostParameter(slotParam(slot, p), block.params[p]);
         }
+        // defaults from Settings
+        if (type == &kNamBlockDescriptor)
+        {
+            block.config["a2Size"] = fSettings.a2Lite ? 0.0 : 1.0;
+            block.params[kNamParamNormalize] = fSettings.normalize ? 1.0f : 0.0f;
+        }
+        else if (type == &kIrBlockDescriptor)
+        {
+            block.params[kIrParamNormalize] = fSettings.normalize ? 1.0f : 0.0f;
+        }
+        for (int p = 0; p < type->numParams; ++p)
+            setHostParameter(slotParam(slot, p), block.params[p]);
 
         fChain.blocks.push_back(std::move(block));
         fSelected = static_cast<int>(fChain.blocks.size()) - 1;
@@ -936,6 +1341,8 @@ private:
         label(16.0f, kTopBarHeight / 2, "NAMsayin", theme::text, 20.0f, ALIGN_LEFT | ALIGN_MIDDLE);
         drawButton({ fWidth - 96.0f, 10.0f, 80.0f, 28.0f }, "Bypass", fParams[kParamBypass] >= 0.5f, theme::accent,
                    Hit::Toggle, kParamBypass);
+        drawButton({ fWidth - 192.0f, 10.0f, 84.0f, 28.0f }, "Settings", fDialog == Dialog::Settings, theme::accent,
+                   Hit::OpenSettings, 0);
     }
 
     void drawChain()
@@ -999,8 +1406,7 @@ private:
     {
         const BlockState& block = fChain.blocks[i];
         const std::string path = block.config.value("path", std::string());
-        const bool missing = !path.empty() && !std::filesystem::exists(
-            std::filesystem::path(reinterpret_cast<const char8_t*>(path.c_str())));
+        const bool missing = !path.empty() && !fileExists(path);
         const bool bypassed = fParams[slotBypassParam(block.slot)] >= 0.5f;
         const bool notRunning = !missing && statusSettled() && !slotRunning(block.slot);
         const bool hover = Rect { x, y, kTileSize, kTileSize }.contains(fMouseX, fMouseY);
@@ -1018,7 +1424,10 @@ private:
         // thumbnail (placeholder art until real images)
         const BlockDescriptor* type = BlockRegistry::builtin().find(block.typeId);
         globalAlpha(bypassed || missing || notRunning ? 0.35f : 1.0f);
-        drawBlockArt(type, x + 16, y + 24, kTileSize - 32, 58, false);
+        if (NanoImage* img = blockImage(block))
+            drawImageFit(*img, x + 16, y + 24, kTileSize - 32, 58, 4.0f);
+        else
+            drawBlockArt(type, x + 16, y + 24, kTileSize - 32, 58, false);
         std::string name = missing ? "Missing file"
                          : notRunning ? "Not running"
                          : path.empty() ? (type ? type->displayName : block.typeId)
@@ -1111,8 +1520,11 @@ private:
             fillRect(imageX, imageY, imageSize, imageSize, theme::inset, 8.0f);
             const bool bypassed = fParams[slotBypassParam(block.slot)] >= 0.5f;
             globalAlpha(bypassed ? 0.35f : 1.0f);
-            drawBlockArt(type, imageX + imageSize * 0.1f, imageY + imageSize * 0.1f, imageSize * 0.8f,
-                         imageSize * 0.8f, true);
+            if (NanoImage* img = blockImage(block))
+                drawImageFit(*img, imageX + 8.0f, imageY + 8.0f, imageSize - 16.0f, imageSize - 16.0f, 6.0f);
+            else
+                drawBlockArt(type, imageX + imageSize * 0.1f, imageY + imageSize * 0.1f, imageSize * 0.8f,
+                             imageSize * 0.8f, true);
             globalAlpha(1.0f);
         }
 
@@ -1190,7 +1602,7 @@ private:
             const auto category = static_cast<Category>(c);
             const Rect r { listX, listTop + c * rowH, listW, rowH - 2.0f };
             const bool selected = category == fDialogCategory;
-            const bool available = !addItems(category).empty();
+            const bool available = isLibraryCategory(category) || !addItems(category).empty();
             if (selected)
                 fillRect(r.x, r.y, r.w, r.h, theme::accent.withAlpha(0.25f), 5.0f);
             else if (r.contains(fMouseX, fMouseY))
@@ -1202,6 +1614,11 @@ private:
 
         // the category's blocks on the right
         const float itemsX = listX + listW + 16.0f, itemsW = x + w - 16.0f - itemsX;
+        if (isLibraryCategory(fDialogCategory))
+        {
+            drawLibraryList(itemsX, listTop, itemsW, y + h - 12.0f - listTop);
+            return;
+        }
         const std::vector<AddItem> items = addItems(fDialogCategory);
         if (items.empty())
         {
@@ -1218,17 +1635,238 @@ private:
         {
             const Rect r { itemsX, listTop + i * (itemH + 8.0f), itemsW, itemH };
             fillRect(r.x, r.y, r.w, r.h, r.contains(fMouseX, fMouseY) ? theme::tileHover : theme::tile, 8.0f);
-            const BlockDescriptor* artType = items[i].type;
-            if (artType == nullptr)
-                artType = fDialogCategory == Category::LocalIr ? &kIrBlockDescriptor : &kNamBlockDescriptor;
-            drawBlockArt(artType, r.x + 10.0f, r.y + 8.0f, 60.0f, r.h - 16.0f, false);
-            label(r.x + 84.0f, r.y + (items[i].detail.empty() ? r.h / 2 : 24.0f), items[i].label.c_str(), theme::text,
-                  14.0f, ALIGN_LEFT | ALIGN_MIDDLE);
-            if (!items[i].detail.empty())
-                label(r.x + 84.0f, r.y + 44.0f, items[i].detail.c_str(), theme::textDim, 11.0f,
-                      ALIGN_LEFT | ALIGN_MIDDLE);
+            drawBlockArt(items[i].type, r.x + 10.0f, r.y + 8.0f, 60.0f, r.h - 16.0f, false);
+            label(r.x + 84.0f, r.y + r.h / 2, items[i].label.c_str(), theme::text, 14.0f, ALIGN_LEFT | ALIGN_MIDDLE);
             fHits.push_back({ r, Hit::DialogItem, static_cast<int>(i) });
         }
+    }
+
+    // A single-line text field. Click to edit; Enter or clicking elsewhere ends editing.
+    void drawTextField(const Rect& r, Field field, const char* placeholder)
+    {
+        const bool focused = fFocusedField == field;
+        fillRect(r.x, r.y, r.w, r.h, theme::inset, 6.0f);
+        beginPath();
+        roundedRect(r.x + 0.5f, r.y + 0.5f, r.w - 1.0f, r.h - 1.0f, 6.0f);
+        strokeColor(focused ? theme::accent : theme::border);
+        strokeWidth(1.0f);
+        stroke();
+
+        save();
+        scissor(r.x + 6.0f, r.y, r.w - 12.0f, r.h);
+        const std::string& text = fFields[field];
+        fontSize(13.0f);
+        textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
+        Rectangle<float> bounds;
+        const float textWidth = text.empty() ? 0.0f : textBounds(0, 0, text.c_str(), nullptr, bounds);
+        // keep the end (and the cursor) in view while typing
+        const float tx = r.x + 10.0f - std::max(0.0f, textWidth - (r.w - 24.0f));
+        if (text.empty() && !focused)
+            label(r.x + 10.0f, r.y + r.h / 2, placeholder, theme::textDim, 13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        else
+            label(tx, r.y + r.h / 2, text.c_str(), theme::text, 13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        if (focused)
+            fillRect(tx + textWidth + 1.0f, r.y + 7.0f, 1.5f, r.h - 14.0f, theme::accent);
+        restore();
+
+        fHits.push_back({ r, Hit::TextField, field });
+    }
+
+    // The library list for Local NAM / Local IR: search, favorites filter, browse, and the scanned files
+    void drawLibraryList(float x, float y, float w, float h)
+    {
+        const bool ir = fDialogCategory == Category::LocalIr;
+        const std::vector<LibraryEntry>& library = ir ? fIrLibrary : fNamLibrary;
+        const std::string& folder = ir ? fSettings.irDir : fSettings.namDir;
+
+        // header: search, favorites, browse
+        const float headerH = 30.0f;
+        drawTextField({ x, y, w - 200.0f, headerH }, kFieldSearch, ir ? "Search IRs" : "Search models");
+        drawButton({ x + w - 192.0f, y, 92.0f, headerH }, "★ Favorites", fFavoritesOnly, theme::accent,
+                   Hit::LibraryFavorites, 0);
+        drawButton({ x + w - 92.0f, y, 92.0f, headerH }, "Browse…", false, theme::accent, Hit::LibraryBrowse, 0);
+
+        const float listY = y + headerH + 10.0f;
+        const float listH = h - headerH - 10.0f;
+
+        fVisibleEntries.clear();
+        for (const LibraryEntry& entry : library)
+        {
+            if (fFavoritesOnly && fSettings.favorites.count(entry.hash) == 0)
+                continue;
+            if (!matchesSearch(entry, fFields[kFieldSearch]))
+                continue;
+            fVisibleEntries.push_back(&entry);
+        }
+
+        auto message = [&](const char* text) {
+            label(x + 8.0f, listY + 18.0f, text, theme::textDim, 13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        };
+        if (folder.empty())
+        {
+            message(ir ? "Set your IR folder in Settings to list your cab IRs here."
+                       : "Set your NAM folder in Settings to list your models here.");
+            drawButton({ x + 8.0f, listY + 40.0f, 120.0f, 28.0f }, "Open Settings", false, theme::accent,
+                       Hit::OpenSettings, 0);
+            return;
+        }
+        if (fVisibleEntries.empty())
+        {
+            if (fScanning)
+                message("Scanning…");
+            else if (library.empty())
+                message(ir ? "No .wav files found in your IR folder." : "No .nam files found in your NAM folder.");
+            else
+                message(fFavoritesOnly ? "No favorites match." : "No matches.");
+            return;
+        }
+
+        constexpr float rowH = 52.0f;
+        const float contentH = fVisibleEntries.size() * rowH;
+        fListScroll = std::clamp(fListScroll, 0.0f, std::max(0.0f, contentH - listH));
+
+        save();
+        scissor(x, listY, w, listH);
+        const int first = static_cast<int>(fListScroll / rowH);
+        for (int i = first; i < static_cast<int>(fVisibleEntries.size()); ++i)
+        {
+            const float ry = listY + i * rowH - fListScroll;
+            if (ry > listY + listH)
+                break;
+            const LibraryEntry& entry = *fVisibleEntries[i];
+            const Rect r { x, ry, w, rowH - 4.0f };
+            const bool hover = r.contains(fMouseX, fMouseY) && fMouseY >= listY && fMouseY < listY + listH;
+            fillRect(r.x, r.y, r.w, r.h, hover ? theme::tileHover : theme::tile, 6.0f);
+
+            if (NanoImage* img = image(entry.image))
+                drawImageFit(*img, r.x + 6.0f, r.y + 4.0f, 52.0f, r.h - 8.0f, 3.0f);
+            else
+                drawBlockArt(ir ? &kIrBlockDescriptor : &kNamBlockDescriptor, r.x + 6.0f, r.y + 6.0f, 52.0f,
+                             r.h - 12.0f, false);
+
+            label(r.x + 68.0f, r.y + 17.0f, entry.name.c_str(), theme::text, 13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+            std::string detail = entry.folder;
+            if (!entry.info.empty())
+                detail += (detail.empty() ? "" : "  ·  ") + entry.info;
+            label(r.x + 68.0f, r.y + 34.0f, detail.c_str(), theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+
+            const bool favorite = fSettings.favorites.count(entry.hash) != 0;
+            const Rect star { r.x + r.w - 40.0f, r.y, 40.0f, r.h };
+            label(star.x + 20.0f, star.y + r.h / 2, favorite ? "★" : "☆", favorite ? theme::accent : theme::textDim,
+                  18.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+
+            // only rows inside the list area are clickable
+            const float top = std::max(r.y, listY), bottom = std::min(r.y + r.h, listY + listH);
+            if (bottom > top)
+            {
+                fHits.push_back({ { r.x, top, r.w - 40.0f, bottom - top }, Hit::LibraryItem, i });
+                fHits.push_back({ { star.x, top, star.w, bottom - top }, Hit::LibraryStar, i });
+            }
+        }
+        restore();
+
+        char count[64];
+        std::snprintf(count, sizeof(count), "%zu of %zu", fVisibleEntries.size(), library.size());
+        label(x + w, y + h + 2.0f, count, theme::textDim, 10.0f, ALIGN_RIGHT | ALIGN_BOTTOM);
+    }
+
+    void drawSettingsDialog()
+    {
+        fHits.push_back({ { 0, 0, fWidth, fHeight }, Hit::DialogBackdrop, 0 });
+        fillRect(0, 0, fWidth, fHeight, theme::overlay);
+
+        const float w = std::min(640.0f, fWidth - 64.0f);
+        const float h = std::min(420.0f, fHeight - 48.0f);
+        const float x = (fWidth - w) / 2, y = (fHeight - h) / 2;
+        fillRect(x, y, w, h, theme::dialog, 12.0f);
+        beginPath();
+        roundedRect(x, y, w, h, 12.0f);
+        strokeColor(theme::border);
+        strokeWidth(1.0f);
+        stroke();
+        fHits.push_back({ { x, y, w, h }, Hit::DialogPanel, 0 });
+
+        label(x + 20.0f, y + 26.0f, "Settings", theme::text, 16.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        const Rect close { x + w - 40.0f, y + 10.0f, 30.0f, 30.0f };
+        label(close.x + 15.0f, close.y + 15.0f, "×", theme::textDim, 22.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        fHits.push_back({ close, Hit::DialogClose, 0 });
+
+        const float labelX = x + 24.0f;
+        const float controlX = x + 200.0f;
+        const float controlW = x + w - 24.0f - controlX;
+        float row = y + 64.0f;
+        constexpr float rowH = 44.0f;
+        auto rowLabel = [&](const char* text) {
+            label(labelX, row + 14.0f, text, theme::textDim, 13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        };
+
+        rowLabel("NAM folder");
+        drawTextField({ controlX, row, controlW - 96.0f, 28.0f }, kFieldNamDir, "Not set");
+        drawButton({ controlX + controlW - 88.0f, row, 88.0f, 28.0f }, "Choose…", false, theme::accent,
+                   Hit::SettingsChoose, kFieldNamDir);
+        row += rowH;
+
+        rowLabel("IR folder");
+        drawTextField({ controlX, row, controlW - 96.0f, 28.0f }, kFieldIrDir, "Not set");
+        drawButton({ controlX + controlW - 88.0f, row, 88.0f, 28.0f }, "Choose…", false, theme::accent,
+                   Hit::SettingsChoose, kFieldIrDir);
+        row += rowH;
+
+        rowLabel("Library");
+        drawButton({ controlX, row, 88.0f, 28.0f }, "Rescan", false, theme::accent, Hit::SettingsRescan, 0);
+        char status[96];
+        if (fScanning)
+            std::snprintf(status, sizeof(status), "Scanning…");
+        else
+            std::snprintf(status, sizeof(status), "%zu NAM model%s, %zu IR%s, %zu favorite%s", fNamLibrary.size(),
+                          fNamLibrary.size() == 1 ? "" : "s", fIrLibrary.size(), fIrLibrary.size() == 1 ? "" : "s",
+                          fSettings.favorites.size(), fSettings.favorites.size() == 1 ? "" : "s");
+        label(controlX + 100.0f, row + 14.0f, status, theme::textDim, 12.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        row += rowH;
+
+        rowLabel("Default A2 size");
+        drawButton({ controlX, row, 72.0f, 28.0f }, "Full", !fSettings.a2Lite, theme::accent, Hit::SettingsA2, 0);
+        drawButton({ controlX + 78.0f, row, 72.0f, 28.0f }, "Lite", fSettings.a2Lite, theme::accent,
+                   Hit::SettingsA2, 1);
+        label(controlX + 166.0f, row + 14.0f, "for new NAM blocks; each block can override it", theme::textDim,
+              11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        row += rowH;
+
+        rowLabel("Normalize new blocks");
+        drawButton({ controlX, row, 72.0f, 28.0f }, fSettings.normalize ? "On" : "Off", fSettings.normalize,
+                   theme::accent, Hit::SettingsNormalize, 0);
+        label(controlX + 88.0f, row + 14.0f, "loudness normalization for new NAM and IR blocks", theme::textDim, 11.0f,
+              ALIGN_LEFT | ALIGN_MIDDLE);
+        row += rowH;
+
+        rowLabel("Multi-core splits");
+        drawButton({ controlX, row, 72.0f, 28.0f }, fSettings.parallel ? "On" : "Off", fSettings.parallel,
+                   theme::accent, Hit::SettingsParallel, 0);
+        label(controlX + 88.0f, row + 14.0f, "run the second branch of a split on another core", theme::textDim,
+              11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        row += rowH;
+
+        rowLabel("Accent colour");
+        for (int i = 0; i < theme::accentCount; ++i)
+        {
+            const float cx = controlX + 14.0f + i * 34.0f, cy = row + 14.0f;
+            beginPath();
+            circle(cx, cy, 11.0f);
+            fillColor(theme::accents[i]);
+            fill();
+            if (i == fSettings.accent)
+            {
+                beginPath();
+                circle(cx, cy, 14.5f);
+                strokeColor(theme::text);
+                strokeWidth(1.5f);
+                stroke();
+            }
+            fHits.push_back({ { cx - 15.0f, cy - 15.0f, 30.0f, 30.0f }, Hit::SettingsAccent, i });
+        }
+
+        label(x + 24.0f, y + h - 18.0f, pathToUtf8(Settings::defaultPath()).c_str(), theme::textDim, 10.0f,
+              ALIGN_LEFT | ALIGN_MIDDLE);
     }
 
     void drawBottomBar()
@@ -1284,8 +1922,28 @@ private:
     float fPressX = 0.0f;
     bool fDraggingTile = false;
 
-    bool fDialogOpen = false;
+    Dialog fDialog = Dialog::None;
     Category fDialogCategory = Category::LocalNam;
+    float fListScroll = 0.0f;
+    bool fFavoritesOnly = false;
+    std::vector<const LibraryEntry*> fVisibleEntries; // library rows drawn last, for hit indices
+    BrowseTarget fBrowseTarget = BrowseTarget::AddBlock;
+
+    std::string fFields[kFieldCount];
+    int fFocusedField = -1;
+    std::string fFieldBeforeEdit;
+
+    Settings fSettings;
+    int64_t fSettingsTime = 0;
+    std::chrono::steady_clock::time_point fSettingsCheckedAt = std::chrono::steady_clock::now();
+
+    LibraryScanner fScanner;
+    std::vector<LibraryEntry> fNamLibrary, fIrLibrary;
+    bool fScanning = false;
+    bool fScanned = false;
+
+    std::map<std::string, std::unique_ptr<NanoImage>> fImages; // by image path
+    std::map<std::string, std::string> fSidecars;             // block file path -> its image path
 
     bool fInClipLatched = false;
     bool fOutClipLatched = false;

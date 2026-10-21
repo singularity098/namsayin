@@ -10,3 +10,9 @@
 [submodule "deps/FFTConvolver"]
 	path = deps/FFTConvolver
 	url = https://github.com/HiFi-LoFi/FFTConvolver
+[submodule "deps/miniz"]
+	path = deps/miniz
+	url = https://github.com/richgel999/miniz
+[submodule "deps/xxHash"]
+	path = deps/xxHash
+	url = https://github.com/Cyan4973/xxHash

@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstdlib>
+#include <string>
 #include <vector>
 
 namespace testing {
@@ -126,6 +128,15 @@ inline double rms(const std::vector<float>& x, size_t from, size_t to)
     for (size_t i = from; i < to; ++i)
         sum += static_cast<double>(x[i]) * x[i];
     return std::sqrt(sum / static_cast<double>(to - from));
+}
+
+inline void setEnv(const char* name, const std::string& value)
+{
+#ifdef _WIN32
+    _putenv_s(name, value.c_str());
+#else
+    setenv(name, value.c_str(), 1);
+#endif
 }
 
 inline const namsayin::BlockRegistry& testRegistry()
