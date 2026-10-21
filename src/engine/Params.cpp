@@ -30,6 +30,13 @@ constexpr GlobalParamSpec kLaterParams[kParamCount - kFirstLaterParam] = {
     { "Running Slots 17-32", "running_hi", "", 0.0f, 65535.0f, 0.0f, kParamFlagOutput | kParamFlagInteger },
     { "Instance ID",         "instance_id", "", 0.0f, 16777215.0f, 0.0f, kParamFlagOutput | kParamFlagInteger | kParamFlagHidden },
     { "Chain Revision",      "chain_rev",   "", 0.0f, 16777215.0f, 0.0f, kParamFlagInteger | kParamFlagHidden },
+    { "Merge Balance",       "merge_balance",  "%",  -100.0f, 100.0f, 0.0f, kParamFlagNone },
+    { "Merge Level A",       "merge_level_a",  "dB", -24.0f,  24.0f,  0.0f, kParamFlagNone },
+    { "Merge Level B",       "merge_level_b",  "dB", -24.0f,  24.0f,  0.0f, kParamFlagNone },
+    { "Merge Pan A",         "merge_pan_a",    "%",  -100.0f, 100.0f, 0.0f, kParamFlagNone },
+    { "Merge Pan B",         "merge_pan_b",    "%",  -100.0f, 100.0f, 0.0f, kParamFlagNone },
+    { "Merge Invert A",      "merge_invert_a", "",   0.0f,    1.0f,   0.0f, kParamFlagToggle },
+    { "Merge Invert B",      "merge_invert_b", "",   0.0f,    1.0f,   0.0f, kParamFlagToggle },
 };
 
 } // namespace

@@ -257,3 +257,167 @@ TEST_CASE("the engine reports which slots are running")
     CHECK(rig.engine.getParameter(kParamRunningSlotsLow) == static_cast<float>(1u << 3));
     CHECK(rig.engine.getParameter(kParamRunningSlotsHigh) == static_cast<float>(1u << 4));
 }
+
+namespace {
+
+// Chain: optional pre block (slot 0), branch A (slot 1), branch B (slot 2)
+ChainState splitChain(nlohmann::json configA = nlohmann::json::object(),
+                      nlohmann::json configB = nlohmann::json::object())
+{
+    ChainState chain;
+    chain.blocks.push_back({ "test.gain", 1, std::move(configA) });
+    chain.blocks.push_back({ "test.gain", 2, std::move(configB), {}, false, kBranchB });
+    chain.split = SplitState { 0, 2 };
+    return chain;
+}
+
+} // namespace
+
+TEST_CASE("a split sums its branches at the merge")
+{
+    Rig rig;
+    rig.engine.setParameter(kParamLimiter, 0.0f);
+    rig.engine.setParameter(slotParam(1, 0), gainParam(-6.0f));
+    rig.engine.setParameter(slotParam(2, 0), gainParam(-12.0f));
+    REQUIRE(rig.engine.setChain(splitChain()));
+    rig.run();
+    const float a = 0.25f * dbToGain(-6.0f);
+    const float b = 0.25f * dbToGain(-12.0f);
+    CHECK(rig.left() == doctest::Approx(a + b).epsilon(0.001));
+
+    SUBCASE("balance")
+    {
+        rig.engine.setParameter(kParamMergeBalance, -100.0f);
+        rig.run();
+        CHECK(rig.left() == doctest::Approx(a).epsilon(0.001));
+        rig.engine.setParameter(kParamMergeBalance, 50.0f);
+        rig.run();
+        CHECK(rig.left() == doctest::Approx(0.5f * a + b).epsilon(0.001));
+    }
+    SUBCASE("levels and phase invert")
+    {
+        rig.engine.setParameter(kParamMergeLevelB, 6.0f);
+        rig.engine.setParameter(kParamMergeInvertA, 1.0f);
+        rig.run();
+        CHECK(rig.left() == doctest::Approx(b * dbToGain(6.0f) - a).epsilon(0.001));
+    }
+    SUBCASE("identical branches with one inverted cancel")
+    {
+        rig.engine.setParameter(slotParam(2, 0), gainParam(-6.0f));
+        rig.engine.setParameter(kParamMergeInvertB, 1.0f);
+        rig.run();
+        CHECK(std::fabs(rig.left()) < 1e-5f);
+    }
+    SUBCASE("pan in stereo mode; ignored in mono mode")
+    {
+        rig.engine.setParameter(kParamMergePanA, -100.0f);
+        rig.engine.setParameter(kParamMergePanB, 100.0f);
+        rig.run();
+        CHECK(rig.left() == doctest::Approx(a + b).epsilon(0.001));
+
+        rig.engine.setParameter(kParamInputMode, 1.0f);
+        rig.run();
+        CHECK(rig.left() == doctest::Approx(a).epsilon(0.001));
+        CHECK(rig.right() == doctest::Approx(-0.125f * dbToGain(-12.0f)).epsilon(0.001));
+    }
+}
+
+TEST_CASE("empty branches carry the signal; blocks before and after the split run in series")
+{
+    Rig rig;
+    rig.engine.setParameter(kParamLimiter, 0.0f);
+    rig.engine.setParameter(slotParam(0, 0), gainParam(-6.0f));
+    rig.engine.setParameter(slotParam(3, 0), gainParam(-6.0f));
+    ChainState chain;
+    chain.blocks.push_back({ "test.gain", 0 });
+    chain.blocks.push_back({ "test.gain", 3 });
+    chain.split = SplitState { 1, 1 };
+    REQUIRE(rig.engine.setChain(chain));
+    rig.run();
+    // both branches carry the pre block's output, and they sum
+    CHECK(rig.left() == doctest::Approx(2.0f * 0.25f * dbToGain(-12.0f)).epsilon(0.001));
+}
+
+TEST_CASE("branches with different latencies are time-aligned at the merge")
+{
+    Rig rig;
+    rig.engine.setParameter(kParamLimiter, 0.0f);
+    rig.engine.setParameter(slotParam(1, 0), gainParam(0.0f));
+    rig.engine.setParameter(slotParam(2, 0), gainParam(0.0f));
+    REQUIRE(rig.engine.setChain(splitChain({ { "latency", 100 } }, { { "latency", 30 } })));
+    rig.run();
+    CHECK(rig.engine.latency() == 100);
+
+    // An impulse arrives once, at the larger latency, with both branches together
+    std::fill(rig.inL.begin(), rig.inL.end(), 0.0f);
+    rig.run(4);
+    rig.inL[0] = 1.0f;
+    std::vector<float> out;
+    for (int i = 0; i < 2; ++i)
+    {
+        rig.run(1);
+        out.insert(out.end(), rig.outL.begin(), rig.outL.end());
+        rig.inL[0] = 0.0f;
+    }
+    for (size_t i = 0; i < out.size(); ++i)
+        CHECK(out[i] == doctest::Approx(i == 100 ? 2.0f : 0.0f));
+}
+
+TEST_CASE("branch B gives the same result on the worker thread as in series")
+{
+    auto render = [](bool parallel) {
+        Rig rig;
+        rig.engine.setParallelProcessing(parallel);
+        rig.engine.setParameter(slotParam(1, 0), gainParam(-3.0f));
+        rig.engine.setParameter(slotParam(2, 0), gainParam(-9.0f));
+        rig.engine.setParameter(kParamMergeBalance, 20.0f);
+        REQUIRE(rig.engine.setChain(splitChain({ { "latency", 7 } })));
+        std::vector<float> out;
+        for (int i = 0; i < 20; ++i)
+        {
+            rig.inL[0] = static_cast<float>(i % 3) * 0.1f;
+            rig.run(1);
+            out.insert(out.end(), rig.outL.begin(), rig.outL.end());
+        }
+        return out;
+    };
+    CHECK(render(true) == render(false));
+}
+
+TEST_CASE("the audio thread doesn't allocate with a split on the worker thread")
+{
+    Rig rig;
+    rig.run(1);
+    for (int i = 0; i < 10; ++i)
+    {
+        REQUIRE(rig.engine.setChain(splitChain({ { "n", i } }, { { "latency", i * 3 } })));
+        rig.engine.setParameter(kParamMergePanA, static_cast<float>(i * 10));
+        rig.engine.setParameter(kParamInputMode, static_cast<float>(i % 2));
+
+        testing::AllocationGuard guard;
+        rig.run(4);
+        CHECK(guard.count() == 0);
+    }
+}
+
+TEST_CASE("split chain edits on another thread while audio runs")
+{
+    Rig rig;
+    std::atomic<bool> running { true };
+    std::thread editor([&] {
+        for (int i = 0; running && i < 500; ++i)
+        {
+            ChainState chain = splitChain({ { "n", i % 3 } }, { { "latency", i % 5 } });
+            if (i % 3 == 0)
+                chain.removeSplit();
+            rig.engine.setChain(chain);
+        }
+    });
+    for (int i = 0; i < 2000; ++i)
+        rig.run(1);
+    running = false;
+    editor.join();
+
+    rig.run();
+    CHECK(std::isfinite(rig.left()));
+}

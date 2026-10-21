@@ -32,7 +32,7 @@ src/
     blocks/           NamBlock, DelayBlock, ReverbBlock
     global/           InputStage, ToneStack (Bass/Mid/Treble), Limiter, Meters
     Tuner, Metronome
-    ParallelWorker    Second-core thread for split branch B
+    ParallelWorker    Second-core thread for split branch B (done, M6)
   state/              Plain data, shared by DSP and UI
     ChainState        Blocks, slots, split/merge, per-block settings (JSON)
     Preset            Load/save, embedding, missing-file handling
@@ -113,10 +113,11 @@ Each block is assigned a free slot when it is created and keeps it for its whole
 
 ### 4.4 Split, merge and the second core
 
-- The chain has at most one split. `ChainState` stores it as `{splitBefore: i, mergeAfter: j, branchA: [...], branchB: [...]}`.
-- The merge has A/B balance, level, pan and phase invert per branch.
-- If the two branches have different latencies, the shorter branch is delayed to match.
-- **Parallel processing** (Settings toggle, on by default): a `ParallelWorker` thread is woken each buffer to run branch B while the audio thread runs branch A, and the audio thread then waits for it. The worker uses real-time priority where the OS allows it. If the worker hasn't finished in time, the audio thread waits briefly and then does nothing extra (no extra latency, but a risk of a dropout on an overloaded machine). With the toggle off, both branches run in sequence on the audio thread.
+- The chain has at most one split. `ChainState` keeps the blocks in one list, left to right, plus `split = {begin, end}`: blocks `[begin, end)` run in the two branches, and each of them has a `branch` tag (A or B). Blocks before `begin` run before the split, blocks from `end` on after the merge. A branch may be empty; it then carries the signal unchanged (a parallel dry path). `ChainState` has helpers (`sectionIndices`, `insert`, `remove`, `move`, `addSplit`, `removeSplit`) that keep the range and tags consistent. Removing the split keeps every block: the branches become serial, A then B. The chain JSON went to version 2 for this; version 1 still loads.
+- The merge has A/B balance, and a level, pan and phase invert per branch. These are host parameters (`kParamMergeBalance` … `kParamMergeInvertB`), so they can be automated; one set is enough, as there's only one split. Presets (M7) must save them. Balance keeps both branches at full level in the middle and turns the other one down towards either end. Pan works like a balance control in Stereo mode and is ignored in Mono mode (the chain then has one channel). All merge gains are smoothed, so phase invert fades through zero instead of clicking.
+- If the two branches have different latencies, the shorter branch is delayed to match (`DelayLine`), and the host is told the longer one.
+- **Parallel processing** (on by default; the Settings toggle comes with M5, until then `Engine::setParallelProcessing`): a `ParallelWorker` thread is woken each buffer to run branch B while the audio thread runs branch A, and the audio thread then waits for it. Waking is lock-free (an atomic counter with `wait`/`notify_one`), and the audio thread spins briefly, then yields, until the worker is done. The worker copies the audio thread's scheduling policy and priority on its first job (Linux), or uses `THREAD_PRIORITY_TIME_CRITICAL` (Windows), and flushes denormals like a host audio thread. If the worker is late, the audio thread keeps waiting (no extra latency, but a risk of a dropout on an overloaded machine). With the toggle off, or with an empty branch B, both branches run in sequence on the audio thread. The worker thread is only started once a chain needs it.
+- UI: with a split, the chain view has two rows of slightly smaller tiles: branch A and everything outside the split on the top row, branch B below, and a tall merge tile where they join (click it for the merge controls, × to remove the split). Each branch and the part after the merge has its own "+". "Split" (shown while there's no split) splits around the selected block, which goes into branch A, or adds an empty split at the end. Blocks are dragged between rows and sections freely; a purple line shows where a block will land.
 
 ### 4.5 Latency
 

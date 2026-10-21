@@ -49,7 +49,11 @@ Color accent(0x9b, 0x5c, 0xff);
 constexpr float kTopBarHeight = 48.0f;
 constexpr float kBottomBarHeight = 132.0f;
 constexpr float kTileSize = 120.0f;
+constexpr float kSplitTileSize = 100.0f; // tiles are smaller with a split, to fit two rows
 constexpr float kTileGap = 16.0f;
+constexpr float kRowGap = 14.0f;
+constexpr float kForkWidth = 28.0f;
+constexpr float kMergeWidth = 64.0f;
 constexpr float kChainTop = kTopBarHeight + 24.0f;
 constexpr float kKnobRadius = 22.0f;
 constexpr uint kDoubleClickMs = 350;
@@ -67,7 +71,10 @@ enum class Hit {
     Tile,         // index = position in the chain
     TileBypass,
     TileRemove,
-    AddBlock,
+    AddBlock,     // index = Section
+    Split,        // add a split
+    Merge,        // select the merge
+    MergeRemove,  // remove the split
     A2Size,       // index = position in the chain
     InClip,
     OutClip,
@@ -77,6 +84,29 @@ struct HitArea {
     Rect rect;
     Hit kind;
     int index;
+};
+
+// Where a dragged block can land: position `position` of `section`; `x` is where the block's tile would start
+struct DropPoint {
+    Section section;
+    int position;
+    float x;
+    int row;
+};
+
+// Positions of everything in the chain view, worked out before drawing and kept for drag and drop.
+// With a split, branch A and everything outside the split are on row 0, branch B on row 1.
+struct ChainLayout {
+    float tile = kTileSize;
+    float rowY[2] {};
+    float height = kTileSize;
+    std::vector<Rect> tiles;          // per block index
+    Rect add[4];                      // "+" per Section; w == 0 if there's none
+    Rect split;                       // "Split" button (no split yet)
+    Rect merge;                       // merge tile (split)
+    float forkX = 0.0f;               // where the chain splits
+    std::vector<Rect> wires[2];       // items on each row in order, joined by signal-flow lines
+    std::vector<DropPoint> drops;
 };
 
 std::string fileStem(const std::string& path)
@@ -184,8 +214,9 @@ protected:
             setHostParameter(slotParam(slot, p), block.params[p]);
         }
 
-        fChain.blocks.push_back(std::move(block));
-        fSelected = static_cast<int>(fChain.blocks.size()) - 1;
+        fChain.insert(fAddSection, kMaxBlocks, std::move(block));
+        fSelected = indexOfSlot(slot);
+        fMergeSelected = false;
         sendChain();
     }
 
@@ -227,7 +258,7 @@ protected:
         if (!ev.press)
         {
             if (ev.button == kMouseButtonLeft)
-                return onRelease(x);
+                return onRelease(x, y);
             return false;
         }
         if (ev.button != kMouseButtonLeft)
@@ -261,8 +292,10 @@ protected:
 
         case Hit::Tile:
             fSelected = hit->index;
+            fMergeSelected = false;
             fPressTile = hit->index;
             fPressX = x;
+            fPressY = y;
             fDraggingTile = false;
             repaint();
             return true;
@@ -275,13 +308,39 @@ protected:
         }
 
         case Hit::TileRemove:
-            fChain.blocks.erase(fChain.blocks.begin() + hit->index);
+            fChain.remove(hit->index);
             if (fSelected >= static_cast<int>(fChain.blocks.size()))
                 fSelected = static_cast<int>(fChain.blocks.size()) - 1;
             sendChain();
             return true;
 
+        case Hit::Split: {
+            // around the selected block if there is one (it goes into branch A), otherwise at the end
+            const int count = static_cast<int>(fChain.blocks.size());
+            if (fSelected >= 0 && fSelected < count)
+                fChain.addSplit(fSelected, fSelected + 1);
+            else
+                fChain.addSplit(count, count);
+            for (uint32_t index = kParamMergeBalance; index <= kParamMergeInvertB; ++index)
+                setHostParameter(index, globalParamSpec(index).def);
+            fMergeSelected = true;
+            sendChain();
+            return true;
+        }
+
+        case Hit::Merge:
+            fMergeSelected = true;
+            repaint();
+            return true;
+
+        case Hit::MergeRemove:
+            fChain.removeSplit();
+            fMergeSelected = false;
+            sendChain();
+            return true;
+
         case Hit::AddBlock: {
+            fAddSection = static_cast<Section>(hit->index);
             FileBrowserOptions options;
             options.title = "Add a NAM model (.nam) or cab IR (.wav)";
             openFileBrowser(options);
@@ -326,7 +385,7 @@ protected:
             return true;
         }
 
-        if (fPressTile >= 0 && std::fabs(x - fPressX) > 6.0f)
+        if (fPressTile >= 0 && (std::fabs(x - fPressX) > 6.0f || std::fabs(y - fPressY) > 6.0f))
             fDraggingTile = true;
 
         repaint();
@@ -336,7 +395,7 @@ protected:
     bool onScroll(const ScrollEvent& ev) override
     {
         const float y = static_cast<float>(ev.pos.getY() / getScaleFactor());
-        if (y < kChainTop || y > kChainTop + kTileSize)
+        if (y < kChainTop || y > kChainTop + fLayout.height)
             return false;
         const float delta = static_cast<float>(ev.delta.getY() != 0.0 ? ev.delta.getY() : ev.delta.getX());
         fScrollX = std::max(0.0f, fScrollX - delta * 40.0f);
@@ -458,8 +517,24 @@ private:
                 std::snprintf(buf, sizeof(buf), "%.1f %s", v, spec->unit);
             return buf;
         }
+        const float v = fParams[index];
+        if (index == kParamMergeBalance)
+        {
+            // how far the other branch is turned down
+            if (std::fabs(v) < 0.5f)
+                return "A = B";
+            std::snprintf(buf, sizeof(buf), v < 0 ? "B -%.0f%%" : "A -%.0f%%", std::fabs(v));
+            return buf;
+        }
+        if (index == kParamMergePanA || index == kParamMergePanB)
+        {
+            if (std::fabs(v) < 0.5f)
+                return "Center";
+            std::snprintf(buf, sizeof(buf), v < 0 ? "L %.0f" : "R %.0f", std::fabs(v));
+            return buf;
+        }
         const GlobalParamSpec& spec = globalParamSpec(index);
-        std::snprintf(buf, sizeof(buf), "%+.1f %s", fParams[index], spec.unit);
+        std::snprintf(buf, sizeof(buf), "%+.1f %s", v, spec.unit);
         return buf;
     }
 
@@ -511,7 +586,7 @@ private:
         return ((low | (high << 16)) >> slot) & 1u;
     }
 
-    bool onRelease(float x)
+    bool onRelease(float x, float y)
     {
         if (fDragParam >= 0)
         {
@@ -523,16 +598,14 @@ private:
         {
             if (fDraggingTile)
             {
-                const int count = static_cast<int>(fChain.blocks.size());
-                const float pos = (x + fScrollX - 16.0f + kTileGap / 2.0f) / (kTileSize + kTileGap);
-                const int target = std::clamp(static_cast<int>(std::floor(pos)), 0, count - 1);
-                if (target != fPressTile)
+                if (const DropPoint* drop = dropPointAt(x, y))
                 {
-                    BlockState moved = std::move(fChain.blocks[fPressTile]);
-                    fChain.blocks.erase(fChain.blocks.begin() + fPressTile);
-                    fChain.blocks.insert(fChain.blocks.begin() + target, std::move(moved));
-                    fSelected = target;
-                    sendChain();
+                    const int slot = fChain.blocks[fPressTile].slot;
+                    const ChainState before = fChain;
+                    fChain.move(fPressTile, drop->section, drop->position);
+                    fSelected = indexOfSlot(slot);
+                    if (!(fChain == before))
+                        sendChain();
                 }
             }
             fPressTile = -1;
@@ -541,6 +614,30 @@ private:
             return true;
         }
         return false;
+    }
+
+    int indexOfSlot(int slot) const
+    {
+        for (int i = 0; i < static_cast<int>(fChain.blocks.size()); ++i)
+        {
+            if (fChain.blocks[i].slot == slot)
+                return i;
+        }
+        return -1;
+    }
+
+    // The drop point nearest to a tile dragged with the mouse at (x, y)
+    const DropPoint* dropPointAt(float x, float y) const
+    {
+        const int row = fChain.split && y >= fLayout.rowY[1] - kRowGap / 2 ? 1 : 0;
+        const float left = x - fLayout.tile / 2;
+        const DropPoint* best = nullptr;
+        for (const DropPoint& drop : fLayout.drops)
+        {
+            if (drop.row == row && (!best || std::fabs(drop.x - left) < std::fabs(best->x - left)))
+                best = &drop;
+        }
+        return best;
     }
 
     const HitArea* hitAt(float x, float y) const
@@ -687,92 +784,244 @@ private:
                    Hit::Toggle, kParamBypass);
     }
 
+    void layoutChain()
+    {
+        ChainLayout& l = fLayout;
+        const bool split = fChain.split.has_value();
+        l = ChainLayout {};
+        l.tile = split ? kSplitTileSize : kTileSize;
+        l.rowY[0] = kChainTop;
+        l.rowY[1] = kChainTop + l.tile + kRowGap;
+        l.height = split ? 2 * l.tile + kRowGap : l.tile;
+        l.tiles.resize(fChain.blocks.size());
+
+        const float step = l.tile + kTileGap;
+        float x = 16.0f - fScrollX;
+
+        // Lays out one section's tiles on a row from `x`, with a drop point before each and one at the end
+        auto section = [&](Section s, int row, float x0) {
+            const std::vector<int> indices = fChain.sectionIndices(s);
+            float sx = x0;
+            for (int k = 0; k < static_cast<int>(indices.size()); ++k)
+            {
+                l.drops.push_back({ s, k, sx, row });
+                l.tiles[indices[k]] = { sx, l.rowY[row], l.tile, l.tile };
+                l.wires[row].push_back(l.tiles[indices[k]]);
+                sx += step;
+            }
+            l.drops.push_back({ s, static_cast<int>(indices.size()), sx, row });
+            return sx;
+        };
+        auto addTile = [&](Section s, int row, float ax) {
+            l.add[static_cast<int>(s)] = { ax, l.rowY[row], l.tile, l.tile };
+            l.wires[row].push_back(l.add[static_cast<int>(s)]);
+        };
+
+        x = section(Section::Pre, 0, x);
+        if (!split)
+        {
+            addTile(Section::Pre, 0, x);
+            l.split = { x + step, l.rowY[0] + l.tile / 2 - 18.0f, 72.0f, 36.0f };
+            return;
+        }
+
+        l.forkX = x + kForkWidth / 2 - kTileGap / 2;
+        const Rect fork { l.forkX, l.rowY[0], 0.0f, l.tile };
+        l.wires[0].push_back(fork);
+        l.wires[1].push_back({ l.forkX, l.rowY[1], 0.0f, l.tile });
+        x += kForkWidth;
+
+        const float endA = section(Section::A, 0, x);
+        const float endB = section(Section::B, 1, x);
+        addTile(Section::A, 0, endA);
+        addTile(Section::B, 1, endB);
+        x = std::max(endA, endB) + step;
+
+        l.merge = { x, l.rowY[0], kMergeWidth, l.height };
+        l.wires[0].push_back({ x, l.rowY[0], kMergeWidth, l.tile });
+        l.wires[1].push_back({ x, l.rowY[1], kMergeWidth, l.tile });
+        x += kMergeWidth + kTileGap;
+
+        x = section(Section::Post, 0, x);
+        addTile(Section::Post, 0, x);
+    }
+
+    void drawWire(float x0, float x1, float y)
+    {
+        if (x1 - x0 < 4.0f)
+            return;
+        beginPath();
+        moveTo(x0 + 3.0f, y);
+        lineTo(x1 - 3.0f, y);
+        strokeColor(theme::border);
+        strokeWidth(2.0f);
+        stroke();
+    }
+
     void drawChain()
     {
+        layoutChain();
+        const ChainLayout& l = fLayout;
         const int count = static_cast<int>(fChain.blocks.size());
-        const float y = kChainTop;
 
-        scissor(0, kTopBarHeight, fWidth, kTileSize + 48.0f);
-        for (int i = 0; i <= count; ++i)
+        scissor(0, kTopBarHeight, fWidth, l.height + 48.0f);
+
+        // signal-flow lines between neighbours on each row, and the fork down to branch B
+        for (int row = 0; row < 2; ++row)
         {
-            float x = 16.0f + i * (kTileSize + kTileGap) - fScrollX;
-            if (i < count && fDraggingTile && i == fPressTile)
-                continue; // drawn last, under the mouse
-
-            if (i == count)
-            {
-                drawAddTile(x, y);
-                break;
-            }
-            drawTile(i, x, y);
-
-            // signal-flow arrow to the next tile
+            for (size_t i = 1; i < l.wires[row].size(); ++i)
+                drawWire(l.wires[row][i - 1].x + l.wires[row][i - 1].w, l.wires[row][i].x,
+                         l.rowY[row] + l.tile / 2);
+        }
+        if (fChain.split)
+        {
             beginPath();
-            moveTo(x + kTileSize + 3.0f, y + kTileSize / 2);
-            lineTo(x + kTileSize + kTileGap - 3.0f, y + kTileSize / 2);
+            moveTo(l.forkX, l.rowY[0] + l.tile / 2);
+            lineTo(l.forkX, l.rowY[1] + l.tile / 2);
             strokeColor(theme::border);
             strokeWidth(2.0f);
             stroke();
+            beginPath();
+            circle(l.forkX, l.rowY[0] + l.tile / 2, 4.0f);
+            fillColor(theme::accent);
+            fill();
+            drawMergeTile();
         }
+
+        for (int i = 0; i < count; ++i)
+        {
+            if (fDraggingTile && i == fPressTile)
+                continue; // drawn last, under the mouse
+            drawTile(i, l.tiles[i].x, l.tiles[i].y, l.tile);
+        }
+        for (int s = 0; s < 4; ++s)
+        {
+            if (l.add[s].w > 0.0f)
+                drawAddTile(l.add[s], static_cast<Section>(s));
+        }
+        if (!fChain.split)
+            drawSplitButton(l.split);
+
         if (fDraggingTile && fPressTile >= 0 && fPressTile < count)
-            drawTile(fPressTile, fMouseX - kTileSize / 2, y - 6.0f);
+        {
+            if (const DropPoint* drop = dropPointAt(fMouseX, fMouseY))
+            {
+                const float dx = drop->x - kTileGap / 2;
+                fillRect(dx - 1.5f, l.rowY[drop->row] - 4.0f, 3.0f, l.tile + 8.0f, theme::accent, 1.5f);
+            }
+            drawTile(fPressTile, fMouseX - l.tile / 2, fMouseY - l.tile / 2, l.tile);
+        }
         resetScissor();
 
-        if (count == 0)
-            label(16.0f + kTileSize + 32.0f, y + kTileSize / 2, "Click + to add a NAM model or a cab IR", theme::textDim,
-                  14.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        if (count == 0 && !fChain.split)
+            label(l.split.x + l.split.w + 24.0f, l.rowY[0] + kTileSize / 2, "Click + to add a NAM model or a cab IR",
+                  theme::textDim, 14.0f, ALIGN_LEFT | ALIGN_MIDDLE);
 
         bool anyRunning = false;
         for (const BlockState& block : fChain.blocks)
             anyRunning |= slotRunning(block.slot);
         if (count > 0 && !anyRunning && statusSettled())
-            label(16.0f, y + kTileSize + 14.0f,
+            label(16.0f, kChainTop + l.height + 14.0f,
                   "The audio engine hasn't started this chain. The host may not pass the plugin's UI messages "
                   "to it (some LV2 hosts don't); try the VST3 version.",
                   theme::bad, 12.0f, ALIGN_LEFT | ALIGN_MIDDLE);
     }
 
-    void drawAddTile(float x, float y)
+    void drawAddTile(const Rect& r, Section section)
     {
         beginPath();
-        roundedRect(x, y, kTileSize, kTileSize, 10.0f);
+        roundedRect(r.x, r.y, r.w, r.h, 10.0f);
         strokeColor(theme::border);
         strokeWidth(2.0f);
         stroke();
-        label(x + kTileSize / 2, y + kTileSize / 2 - 2, "+", theme::textDim, 44.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        label(r.x + r.w / 2, r.y + r.h / 2 - 2, "+", theme::textDim, r.w * 0.37f, ALIGN_CENTER | ALIGN_MIDDLE);
         if (fChain.blocks.size() < static_cast<size_t>(kMaxBlocks))
-            fHits.push_back({ { x, y, kTileSize, kTileSize }, Hit::AddBlock, 0 });
+            fHits.push_back({ r, Hit::AddBlock, static_cast<int>(section) });
     }
 
-    void drawTile(int i, float x, float y)
+    void drawSplitButton(const Rect& r)
     {
+        const bool hover = r.contains(fMouseX, fMouseY);
+        fillRect(r.x, r.y, r.w, r.h, hover ? theme::tileHover : theme::tile, 8.0f);
+        // fork icon
+        const float ix = r.x + 14.0f, iy = r.y + r.h / 2;
+        beginPath();
+        moveTo(ix - 4.0f, iy);
+        lineTo(ix + 2.0f, iy);
+        lineTo(ix + 8.0f, iy - 6.0f);
+        moveTo(ix + 2.0f, iy);
+        lineTo(ix + 8.0f, iy + 6.0f);
+        strokeColor(theme::text);
+        strokeWidth(1.5f);
+        stroke();
+        label(r.x + 44.0f, iy, "Split", theme::text, 13.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        fHits.push_back({ r, Hit::Split, 0 });
+    }
+
+    void drawMergeTile()
+    {
+        const Rect& r = fLayout.merge;
+        const bool hover = r.contains(fMouseX, fMouseY);
+        fillRect(r.x, r.y, r.w, r.h, hover ? theme::tileHover : theme::tile, 10.0f);
+        if (fMergeSelected)
+        {
+            beginPath();
+            roundedRect(r.x, r.y, r.w, r.h, 10.0f);
+            strokeColor(theme::accent);
+            strokeWidth(2.0f);
+            stroke();
+        }
+        const float rowA = fLayout.rowY[0] + fLayout.tile / 2;
+        const float rowB = fLayout.rowY[1] + fLayout.tile / 2;
+        label(r.x + r.w / 2, rowA, "A", theme::text, 15.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        label(r.x + r.w / 2, rowB, "B", theme::text, 15.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        label(r.x + r.w / 2, (rowA + rowB) / 2, "MERGE", theme::textDim, 10.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        fHits.push_back({ r, Hit::Merge, 0 });
+
+        const Rect remove { r.x + r.w - 22, r.y + 4, 18, 18 };
+        label(remove.x + 9, remove.y + 9, "×", theme::textDim, 18.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        fHits.push_back({ remove, Hit::MergeRemove, 0 });
+    }
+
+    // Draws block `i` as a `size` square at (x, y). The tile is designed at kTileSize and scaled.
+    void drawTile(int i, float x, float y, float size)
+    {
+        const float k = size / kTileSize;
+        auto hitRect = [&](float rx, float ry, float rw, float rh) {
+            return Rect { x + rx * k, y + ry * k, rw * k, rh * k };
+        };
+
         const BlockState& block = fChain.blocks[i];
         const std::string path = block.config.value("path", std::string());
         const bool missing = !path.empty() && !std::filesystem::exists(
             std::filesystem::path(reinterpret_cast<const char8_t*>(path.c_str())));
         const bool bypassed = fParams[slotBypassParam(block.slot)] >= 0.5f;
         const bool notRunning = !missing && statusSettled() && !slotRunning(block.slot);
-        const bool hover = Rect { x, y, kTileSize, kTileSize }.contains(fMouseX, fMouseY);
+        const bool hover = Rect { x, y, size, size }.contains(fMouseX, fMouseY);
 
-        fillRect(x, y, kTileSize, kTileSize, hover ? theme::tileHover : theme::tile, 10.0f);
-        if (i == fSelected)
+        save();
+        translate(x, y);
+        this->scale(k, k);
+
+        fillRect(0, 0, kTileSize, kTileSize, hover ? theme::tileHover : theme::tile, 10.0f);
+        if (i == fSelected && !fMergeSelected)
         {
             beginPath();
-            roundedRect(x, y, kTileSize, kTileSize, 10.0f);
+            roundedRect(0, 0, kTileSize, kTileSize, 10.0f);
             strokeColor(theme::accent);
-            strokeWidth(2.0f);
+            strokeWidth(2.0f / k);
             stroke();
         }
 
         // generic images (placeholders until real images): an amp grille for NAM, a speaker cone for IRs
         globalAlpha(bypassed || missing || notRunning ? 0.35f : 1.0f);
-        fillRect(x + 18, y + 24, kTileSize - 36, 52, theme::inset, 6.0f);
+        fillRect(18, 24, kTileSize - 36, 52, theme::inset, 6.0f);
         if (block.typeId == kIrBlockDescriptor.typeId)
         {
             for (const float r : { 22.0f, 13.0f, 5.0f })
             {
                 beginPath();
-                circle(x + kTileSize / 2, y + 50, r);
+                circle(kTileSize / 2, 50, r);
                 strokeColor(theme::border);
                 strokeWidth(2.0f);
                 stroke();
@@ -783,8 +1032,8 @@ private:
             for (int row = 0; row < 5; ++row)
             {
                 beginPath();
-                moveTo(x + 24, y + 32 + row * 9.0f);
-                lineTo(x + kTileSize - 24, y + 32 + row * 9.0f);
+                moveTo(24, 32 + row * 9.0f);
+                lineTo(kTileSize - 24, 32 + row * 9.0f);
                 strokeColor(theme::border);
                 strokeWidth(2.0f);
                 stroke();
@@ -793,36 +1042,40 @@ private:
         std::string name = missing ? "Missing file" : (notRunning ? "Not running" : fileStem(path));
         if (name.size() > 16)
             name = name.substr(0, 15) + "…";
-        label(x + kTileSize / 2, y + 94, name.c_str(), missing || notRunning ? theme::bad : theme::text, 12.0f,
+        label(kTileSize / 2, 94, name.c_str(), missing || notRunning ? theme::bad : theme::text, 12.0f,
               ALIGN_CENTER | ALIGN_MIDDLE);
         globalAlpha(1.0f);
 
         char slotText[16];
         std::snprintf(slotText, sizeof(slotText), "S%02d", block.slot + 1);
-        label(x + kTileSize / 2, y + 110, slotText, theme::textDim, 10.0f, ALIGN_CENTER | ALIGN_MIDDLE);
-
-        fHits.push_back({ { x, y, kTileSize, kTileSize }, Hit::Tile, i });
+        label(kTileSize / 2, 110, slotText, theme::textDim, 10.0f, ALIGN_CENTER | ALIGN_MIDDLE);
 
         // bypass (top left) and remove (top right)
-        const Rect power { x + 6, y + 4, 18, 18 };
         beginPath();
-        circle(power.x + 9, power.y + 9, 6.0f);
+        circle(15, 13, 6.0f);
         fillColor(bypassed ? theme::border : theme::good);
         fill();
-        fHits.push_back({ power, Hit::TileBypass, i });
+        label(kTileSize - 15, 13, "×", theme::textDim, 18.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        restore();
 
-        const Rect remove { x + kTileSize - 24, y + 4, 18, 18 };
-        label(remove.x + 9, remove.y + 9, "×", theme::textDim, 18.0f, ALIGN_CENTER | ALIGN_MIDDLE);
-        fHits.push_back({ remove, Hit::TileRemove, i });
+        fHits.push_back({ { x, y, size, size }, Hit::Tile, i });
+        fHits.push_back({ hitRect(6, 4, 18, 18), Hit::TileBypass, i });
+        fHits.push_back({ hitRect(kTileSize - 24, 4, 18, 18), Hit::TileRemove, i });
     }
 
     void drawSelectedPanel()
     {
-        const float top = kChainTop + kTileSize + 28.0f;
+        const float top = kChainTop + fLayout.height + 28.0f;
         const float height = fHeight - kBottomBarHeight - top - 16.0f;
         if (height < 60.0f)
             return;
         fillRect(16.0f, top, fWidth - 32.0f, height, theme::panel, 10.0f);
+
+        if (fMergeSelected && fChain.split)
+        {
+            drawMergePanel(top);
+            return;
+        }
 
         if (fSelected < 0 || fSelected >= static_cast<int>(fChain.blocks.size()))
         {
@@ -866,6 +1119,33 @@ private:
         }
     }
 
+    void drawMergePanel(float top)
+    {
+        label(32.0f, top + 22.0f, "Merge", theme::text, 16.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        const bool stereo = fParams[kParamInputMode] >= 0.5f;
+        label(32.0f, top + 42.0f,
+              stereo ? "Mixes branch A (top row) and branch B (bottom row) back together"
+                     : "Mixes branch A (top row) and branch B (bottom row) back together. Pan needs Stereo mode.",
+              theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+
+        float x = 32.0f + kKnobRadius + 8.0f;
+        const float cy = top + 42.0f + 24.0f + kKnobRadius + 14.0f;
+        for (const uint32_t index : { kParamMergeBalance, kParamMergeLevelA, kParamMergeLevelB, kParamMergePanA,
+                                      kParamMergePanB })
+        {
+            static constexpr const char* names[] = { "A / B", "Level A", "Level B", "Pan A", "Pan B" };
+            globalAlpha(!stereo && (index == kParamMergePanA || index == kParamMergePanB) ? 0.4f : 1.0f);
+            drawKnob(x, cy, index, names[index - kParamMergeBalance]);
+            globalAlpha(1.0f);
+            x += 100.0f;
+        }
+        drawButton({ x - 40.0f, cy - 14.0f, 80.0f, 28.0f }, "Invert A", fParams[kParamMergeInvertA] >= 0.5f,
+                   theme::accent, Hit::Toggle, kParamMergeInvertA);
+        x += 100.0f;
+        drawButton({ x - 40.0f, cy - 14.0f, 80.0f, 28.0f }, "Invert B", fParams[kParamMergeInvertB] >= 0.5f,
+                   theme::accent, Hit::Toggle, kParamMergeInvertB);
+    }
+
     void drawBottomBar()
     {
         const float top = fHeight - kBottomBarHeight;
@@ -904,6 +1184,9 @@ private:
     NanoImage fDither;
     ChainState fChain;
     int fSelected = -1;
+    bool fMergeSelected = false;
+    Section fAddSection = Section::Pre; // where the block picked in the file browser goes
+    ChainLayout fLayout;
 
     std::vector<HitArea> fHits;
     float fWidth = DISTRHO_UI_DEFAULT_WIDTH;
@@ -917,7 +1200,7 @@ private:
     uint fLastClickTime = 0;
 
     int fPressTile = -1;
-    float fPressX = 0.0f;
+    float fPressX = 0.0f, fPressY = 0.0f;
     bool fDraggingTile = false;
 
     bool fInClipLatched = false;

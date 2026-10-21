@@ -18,6 +18,14 @@ float clampDb(float db)
     return std::clamp(db, -60.0f, 6.0f);
 }
 
+uint32_t sectionLatency(const auto& nodes)
+{
+    uint32_t latency = 0;
+    for (const auto& node : nodes)
+        latency += node.block->latency();
+    return latency;
+}
+
 } // namespace
 
 Engine::Engine(const BlockRegistry& registry)
@@ -67,8 +75,7 @@ void Engine::prepare(double sampleRate, uint32_t maxFrames)
     fFadeGain = 1.0f;
 
     std::unordered_set<Block*> blocks;
-    for (const Node& node : fActive->nodes)
-        blocks.insert(node.block.get());
+    fActive->forEachNode([&](const Node& node) { blocks.insert(node.block.get()); });
     for (const CachedBlock& cached : fCache)
     {
         if (cached.block)
@@ -80,16 +87,17 @@ void Engine::prepare(double sampleRate, uint32_t maxFrames)
         block->reset();
     }
 
+    // block latencies may depend on the sample rate
+    updateLatency(*fActive);
     fLatency.store(fActive->latency, std::memory_order_relaxed);
     for (SlotState& slot : fSlots)
         slot = SlotState {};
-    for (const Node& node : fActive->nodes)
-    {
+    fActive->forEachNode([this](const Node& node) {
         SlotState& slot = fSlots[node.slot];
         slot.block = node.block.get();
         slot.applyAll = true;
         slot.bypassMix = param(slotBypassParam(node.slot)) >= 0.5f ? 1.0f : 0.0f;
-    }
+    });
 
     fFadeStep = static_cast<float>(1.0 / (kSwapFadeSeconds * fSampleRate));
     fRampStep = static_cast<float>(1.0 / (kBypassRampSeconds * fSampleRate));
@@ -102,6 +110,14 @@ void Engine::prepare(double sampleRate, uint32_t maxFrames)
     fToneStack.setGains(param(kParamBass), param(kParamMiddle), param(kParamTreble));
     fToneStack.prepare(fSampleRate);
     fLimiter.prepare(fSampleRate);
+    for (int branch = 0; branch < 2; ++branch)
+    {
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            fMergeGain[branch][ch].prepare(fSampleRate);
+            fMergeGain[branch][ch].snap(mergeGain(branch, ch, param(kParamInputMode) >= 0.5f));
+        }
+    }
     for (int ch = 0; ch < 2; ++ch)
     {
         fInMeters[ch].prepare(fSampleRate);
@@ -109,6 +125,8 @@ void Engine::prepare(double sampleRate, uint32_t maxFrames)
         fWork[ch].assign(fMaxFrames, 0.0f);
         fDry[ch].assign(fMaxFrames, 0.0f);
         fScratch[ch].assign(fMaxFrames, 0.0f);
+        fBranch[ch].assign(fMaxFrames, 0.0f);
+        fBranchScratch[ch].assign(fMaxFrames, 0.0f);
     }
 }
 
@@ -123,8 +141,10 @@ bool Engine::setChain(const ChainState& chain, std::string* error, std::vector<i
     auto graph = std::make_unique<Graph>();
     std::array<CachedBlock, kMaxBlocks> cache;
 
-    for (const BlockState& state : chain.blocks)
+    graph->split = chain.split.has_value();
+    for (size_t i = 0; i < chain.blocks.size(); ++i)
     {
+        const BlockState& state = chain.blocks[i];
         const BlockDescriptor* type = fRegistry.find(state.typeId);
         std::string config = state.config.dump();
 
@@ -146,12 +166,27 @@ bool Engine::setChain(const ChainState& chain, std::string* error, std::vector<i
             }
         }
 
-        graph->latency += block->latency();
-        graph->nodes.push_back({ block, type, state.slot });
+        std::vector<Node>* section = &graph->pre;
+        switch (chain.sectionOf(static_cast<int>(i)))
+        {
+        case Section::Pre: section = &graph->pre; break;
+        case Section::A: section = &graph->branchA; break;
+        case Section::B: section = &graph->branchB; break;
+        case Section::Post: section = &graph->post; break;
+        }
+        section->push_back({ block, type, state.slot });
         cache[state.slot] = { std::move(block), state.typeId, std::move(config) };
     }
 
     fCache = std::move(cache);
+    updateLatency(*graph);
+
+    if (graph->split && !graph->branchB.empty() && fParallel.load(std::memory_order_relaxed))
+    {
+        if (!fWorker)
+            fWorker = std::make_unique<ParallelWorker>();
+        graph->worker = fWorker.get();
+    }
 
     // A graph still pending was never seen by the audio thread, so it can be deleted here
     delete fPending.exchange(graph.release(), std::memory_order_acq_rel);
@@ -188,8 +223,7 @@ void Engine::process(const float* const* inputs, float* const* outputs, uint32_t
     fParams[kParamInClip].store(fInMeters[0].clipping() || fInMeters[1].clipping() ? 1.0f : 0.0f,
                                 std::memory_order_relaxed);
     uint32_t running = 0;
-    for (const Node& node : fActive->nodes)
-        running |= 1u << node.slot;
+    fActive->forEachNode([&](const Node& node) { running |= 1u << node.slot; });
     fParams[kParamRunningSlotsLow].store(static_cast<float>(running & 0xffffu), std::memory_order_relaxed);
     fParams[kParamRunningSlotsHigh].store(static_cast<float>(running >> 16), std::memory_order_relaxed);
     fParams[kParamOutClip].store(fOutMeters[0].clipping() || fOutMeters[1].clipping() ? 1.0f : 0.0f,
@@ -304,8 +338,92 @@ void Engine::processChain(uint32_t numChannels, uint32_t frames)
 {
     float* work[2] = { fWork[0].data(), fWork[1].data() };
     float* scratch[2] = { fScratch[0].data(), fScratch[1].data() };
+    Graph& graph = *fActive;
 
-    for (const Node& node : fActive->nodes)
+    processNodes(graph.pre, work, scratch, numChannels, frames);
+    if (graph.split)
+    {
+        for (uint32_t ch = 0; ch < numChannels; ++ch)
+            std::memcpy(fBranch[ch].data(), work[ch], sizeof(float) * frames);
+        fJobChannels = numChannels;
+        fJobFrames = frames;
+
+        // Branch B on the worker (if any) while this thread runs branch A
+        const bool parallel = graph.worker && !graph.branchB.empty() && fParallel.load(std::memory_order_relaxed);
+        if (parallel)
+            graph.worker->start(&Engine::runBranchB, this);
+        processNodes(graph.branchA, work, scratch, numChannels, frames);
+        graph.alignA.process(work, numChannels, frames);
+        if (parallel)
+            graph.worker->wait();
+        else
+            runBranchB(this);
+
+        merge(numChannels, frames);
+    }
+    processNodes(graph.post, work, scratch, numChannels, frames);
+}
+
+void Engine::runBranchB(void* context)
+{
+    Engine& engine = *static_cast<Engine*>(context);
+    float* branch[2] = { engine.fBranch[0].data(), engine.fBranch[1].data() };
+    float* scratch[2] = { engine.fBranchScratch[0].data(), engine.fBranchScratch[1].data() };
+    engine.processNodes(engine.fActive->branchB, branch, scratch, engine.fJobChannels, engine.fJobFrames);
+    engine.fActive->alignB.process(branch, engine.fJobChannels, engine.fJobFrames);
+}
+
+float Engine::mergeGain(int branch, int channel, bool stereo) const
+{
+    const float balance = std::clamp(param(kParamMergeBalance) / 100.0f, -1.0f, 1.0f);
+    float gain = branch == kBranchA ? std::min(1.0f, 1.0f - balance) : std::min(1.0f, 1.0f + balance);
+    gain *= dbToGain(param(branch == kBranchA ? kParamMergeLevelA : kParamMergeLevelB));
+    if (param(branch == kBranchA ? kParamMergeInvertA : kParamMergeInvertB) >= 0.5f)
+        gain = -gain;
+
+    // Pan as a balance control: the far side is turned down, the near side stays at full level
+    if (stereo)
+    {
+        const float pan = std::clamp(param(branch == kBranchA ? kParamMergePanA : kParamMergePanB) / 100.0f,
+                                     -1.0f, 1.0f);
+        if (channel == 0 && pan > 0.0f)
+            gain *= 1.0f - pan;
+        else if (channel == 1 && pan < 0.0f)
+            gain *= 1.0f + pan;
+    }
+    return gain;
+}
+
+void Engine::merge(uint32_t numChannels, uint32_t frames)
+{
+    const bool stereo = numChannels == 2;
+    for (uint32_t ch = 0; ch < numChannels; ++ch)
+    {
+        Smoother& gainA = fMergeGain[kBranchA][ch];
+        Smoother& gainB = fMergeGain[kBranchB][ch];
+        gainA.setTarget(mergeGain(kBranchA, static_cast<int>(ch), stereo));
+        gainB.setTarget(mergeGain(kBranchB, static_cast<int>(ch), stereo));
+        float* a = fWork[ch].data();
+        const float* b = fBranch[ch].data();
+        for (uint32_t i = 0; i < frames; ++i)
+            a[i] = a[i] * gainA.next() + b[i] * gainB.next();
+    }
+}
+
+void Engine::updateLatency(Graph& graph)
+{
+    const uint32_t a = sectionLatency(graph.branchA);
+    const uint32_t b = sectionLatency(graph.branchB);
+    const uint32_t branches = std::max(a, b);
+    graph.alignA.prepare(graph.split ? branches - a : 0);
+    graph.alignB.prepare(graph.split ? branches - b : 0);
+    graph.latency = sectionLatency(graph.pre) + branches + sectionLatency(graph.post);
+}
+
+void Engine::processNodes(const std::vector<Node>& nodes, float* const* work, float* const* scratch,
+                          uint32_t numChannels, uint32_t frames)
+{
+    for (const Node& node : nodes)
     {
         SlotState& slot = fSlots[node.slot];
         Block& block = *node.block;
@@ -352,8 +470,7 @@ void Engine::swapGraph()
     fActive = fNext;
     fNext = nullptr;
 
-    for (const Node& node : fActive->nodes)
-    {
+    fActive->forEachNode([this](const Node& node) {
         SlotState& slot = fSlots[node.slot];
         if (slot.block != node.block.get())
         {
@@ -362,7 +479,7 @@ void Engine::swapGraph()
             slot.applyAll = true;
             slot.bypassMix = param(slotBypassParam(node.slot)) >= 0.5f ? 1.0f : 0.0f;
         }
-    }
+    });
 
     fLatency.store(fActive->latency, std::memory_order_relaxed);
 

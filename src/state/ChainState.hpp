@@ -17,31 +17,68 @@ namespace namsayin {
 
 class BlockRegistry;
 
+enum Branch : int {
+    kBranchA = 0,
+    kBranchB = 1,
+};
+
 struct BlockState {
     std::string typeId;
     int slot = -1;                                // fixed host parameter slot, 0..kMaxBlocks-1
     nlohmann::json config = nlohmann::json::object(); // non-automatable settings, e.g. a file path
     std::array<float, kParamsPerSlot> params {};   // normalized 0..1 values, for presets and undo
     bool bypass = false;
+    int branch = kBranchA;                         // which branch, for blocks inside the split; 0 elsewhere
 
     bool operator==(const BlockState&) const = default;
+};
+
+// The one split the chain may have: blocks [begin, end) run in two parallel branches (each block's `branch` says
+// which) that merge back into one. Blocks before `begin` run before the split, blocks from `end` on after the
+// merge. A branch may be empty (it then carries the signal unchanged). The merge controls are host parameters.
+struct SplitState {
+    int begin = 0;
+    int end = 0;
+
+    bool operator==(const SplitState&) const = default;
+};
+
+// Parts of the chain, left to right. Without a split, the whole chain is Pre.
+enum class Section {
+    Pre,
+    A,
+    B,
+    Post,
 };
 
 // The whole signal chain as plain data. Shared by the DSP (plugin state), the UI, presets and undo.
 // The DSP takes parameter values from the host, not from `params`/`bypass`; the UI pushes those to the host.
 struct ChainState {
-    static constexpr int kVersion = 1;
+    static constexpr int kVersion = 2;
 
-    std::vector<BlockState> blocks; // left to right
+    std::vector<BlockState> blocks; // left to right; inside the split, each branch in order
+    std::optional<SplitState> split;
 
     std::string toJson() const;
     static std::optional<ChainState> fromJson(std::string_view json, std::string* error = nullptr);
 
-    // Checks block count, slot range and uniqueness, and that every type exists
+    // Checks block count, slot range and uniqueness, that every type exists, and the split
     bool validate(const BlockRegistry& registry, std::string* error = nullptr) const;
 
     // Lowest slot not used by any block, or -1 if the chain is full
     int freeSlot() const;
+
+    // Editing helpers. Positions are within a section; they keep the split's range and `branch` tags consistent.
+    Section sectionOf(int index) const;
+    std::vector<int> sectionIndices(Section section) const; // indices into `blocks`, in order
+    void insert(Section section, int position, BlockState block);
+    BlockState remove(int index);
+    void move(int index, Section section, int position);
+
+    // Adds a split over blocks [begin, end), all in branch A. Does nothing if there's already one.
+    void addSplit(int begin, int end);
+    // Removes the split; the branches become serial, A then B
+    void removeSplit();
 
     bool operator==(const ChainState&) const = default;
 };

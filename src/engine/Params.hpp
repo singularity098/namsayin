@@ -48,6 +48,15 @@ enum LaterParam : uint32_t {
     kParamInstanceId,       // output: this plugin instance's random ID
     kParamChainRevision,    // input, hidden: bumped by the UI after writing the exchange file
 
+    // merge of the split (M6)
+    kParamMergeBalance,     // -100 (only A) .. 100 (only B) %; both at full level in the middle
+    kParamMergeLevelA,      // dB
+    kParamMergeLevelB,
+    kParamMergePanA,        // -100 (left) .. 100 (right) %; stereo mode only
+    kParamMergePanB,
+    kParamMergeInvertA,     // phase invert
+    kParamMergeInvertB,
+
     kParamCount
 };
 

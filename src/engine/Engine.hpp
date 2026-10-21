@@ -5,7 +5,9 @@
 
 #include "engine/BlockRegistry.hpp"
 #include "engine/Params.hpp"
+#include "engine/ParallelWorker.hpp"
 #include "engine/SpscQueue.hpp"
+#include "engine/dsp/DelayLine.hpp"
 #include "engine/dsp/Limiter.hpp"
 #include "engine/dsp/Meter.hpp"
 #include "engine/dsp/Smoother.hpp"
@@ -21,7 +23,8 @@
 
 namespace namsayin {
 
-// The audio engine: input stage, signal chain, tone stack, output stage, limiter and meters.
+// The audio engine: input stage, signal chain (with an optional split), tone stack, output stage, limiter and
+// meters.
 //
 // Threads: process() runs on the audio thread and never allocates, locks or frees. setChain() and prepare()
 // run on other threads; a new chain is built there and handed to the audio thread lock-free, which swaps it in
@@ -54,6 +57,10 @@ public:
     // Total latency of the active chain, in samples
     uint32_t latency() const { return fLatency.load(std::memory_order_relaxed); }
 
+    // Any thread. Whether branch B of a split runs on a second core (default on). Takes effect from the next
+    // setChain() if no worker thread was started yet.
+    void setParallelProcessing(bool enabled) { fParallel.store(enabled, std::memory_order_relaxed); }
+
 private:
     struct Node {
         std::shared_ptr<Block> block;
@@ -61,9 +68,22 @@ private:
         int slot;
     };
 
+    // The chain in four sections: before the split, the two branches, and after the merge. Without a split,
+    // everything is in `pre`.
     struct Graph {
-        std::vector<Node> nodes;
+        std::vector<Node> pre, branchA, branchB, post;
+        bool split = false;
         uint32_t latency = 0;
+        DelayLine alignA, alignB;        // delays the branch with less latency so both arrive together
+        ParallelWorker* worker = nullptr; // runs branch B, if parallel processing is on
+
+        template <typename F>
+        void forEachNode(F&& f) const
+        {
+            for (const std::vector<Node>* nodes : { &pre, &branchA, &branchB, &post })
+                for (const Node& node : *nodes)
+                    f(node);
+        }
     };
 
     // What the non-RT side last built for each slot, so unchanged blocks can be reused
@@ -85,6 +105,12 @@ private:
 
     void processChunk(const float* const* inputs, float* const* outputs, uint32_t frames);
     void processChain(uint32_t numChannels, uint32_t frames);
+    void processNodes(const std::vector<Node>& nodes, float* const* work, float* const* scratch,
+                      uint32_t numChannels, uint32_t frames);
+    void merge(uint32_t numChannels, uint32_t frames);
+    float mergeGain(int branch, int channel, bool stereo) const;
+    static void runBranchB(void* engine);
+    void updateLatency(Graph& graph);
     void swapGraph();
     void drainRetired();
     float param(uint32_t index) const { return fParams[index].load(std::memory_order_relaxed); }
@@ -104,6 +130,8 @@ private:
     std::atomic<Graph*> fPending { nullptr };
     SpscQueue<Graph*, 8> fRetired;
     std::atomic<uint32_t> fLatency { 0 };
+    std::atomic<bool> fParallel { true };
+    std::unique_ptr<ParallelWorker> fWorker; // started when a chain first needs it
 
     // audio thread side
     Graph* fActive = nullptr;
@@ -116,11 +144,14 @@ private:
     std::array<SlotState, kMaxBlocks> fSlots {};
 
     Smoother fInputGain, fOutputGain;
+    Smoother fMergeGain[2][2]; // [branch][channel]
+    uint32_t fJobChannels = 0, fJobFrames = 0; // branch B job, for the worker
     ToneStack fToneStack;
     Limiter fLimiter;
     Meter fInMeters[2], fOutMeters[2];
 
     std::vector<float> fWork[2], fDry[2], fScratch[2];
+    std::vector<float> fBranch[2], fBranchScratch[2]; // branch B of a split
 };
 
 } // namespace namsayin

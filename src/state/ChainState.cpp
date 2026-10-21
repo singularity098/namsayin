@@ -5,6 +5,8 @@
 
 #include "engine/BlockRegistry.hpp"
 
+#include <algorithm>
+
 namespace namsayin {
 
 using nlohmann::json;
@@ -21,8 +23,13 @@ std::string ChainState::toJson() const
             { "params", block.params },
             { "bypass", block.bypass },
         });
+        if (block.branch != kBranchA)
+            blocksJson.back()["branch"] = block.branch;
     }
-    return json { { "version", kVersion }, { "blocks", blocksJson } }.dump();
+    json root { { "version", kVersion }, { "blocks", blocksJson } };
+    if (split)
+        root["split"] = { { "begin", split->begin }, { "end", split->end } };
+    return root.dump();
 }
 
 std::optional<ChainState> ChainState::fromJson(std::string_view text, std::string* error)
@@ -35,7 +42,7 @@ std::optional<ChainState> ChainState::fromJson(std::string_view text, std::strin
     {
         const json root = json::parse(text);
         const int version = root.value("version", 0);
-        if (version < 1 || version > kVersion)
+        if (version < 1 || version > kVersion) // version 1 had no split
         {
             if (error)
                 *error = "unsupported chain version " + std::to_string(version);
@@ -50,6 +57,7 @@ std::optional<ChainState> ChainState::fromJson(std::string_view text, std::strin
             block.slot = item.at("slot").get<int>();
             block.config = item.value("config", json::object());
             block.bypass = item.value("bypass", false);
+            block.branch = item.value("branch", 0);
             if (const auto params = item.find("params"); params != item.end())
             {
                 for (size_t i = 0; i < params->size() && i < block.params.size(); ++i)
@@ -57,6 +65,8 @@ std::optional<ChainState> ChainState::fromJson(std::string_view text, std::strin
             }
             state.blocks.push_back(std::move(block));
         }
+        if (const auto split = root.find("split"); split != root.end())
+            state.split = SplitState { split->at("begin").get<int>(), split->at("end").get<int>() };
         return state;
     }
     catch (const json::exception& e)
@@ -88,6 +98,18 @@ bool ChainState::validate(const BlockRegistry& registry, std::string* error) con
         used[block.slot] = true;
         if (registry.find(block.typeId) == nullptr)
             return fail("unknown block type: " + block.typeId);
+        if (block.branch != kBranchA && block.branch != kBranchB)
+            return fail("bad branch: " + std::to_string(block.branch));
+    }
+
+    const int count = static_cast<int>(blocks.size());
+    if (split && (split->begin < 0 || split->begin > split->end || split->end > count))
+        return fail("bad split range");
+    for (int i = 0; i < count; ++i)
+    {
+        const bool inSplit = split && i >= split->begin && i < split->end;
+        if (!inSplit && blocks[i].branch != kBranchA)
+            return fail("branch set on a block outside the split");
     }
     return true;
 }
@@ -106,6 +128,108 @@ int ChainState::freeSlot() const
             return slot;
     }
     return -1;
+}
+
+Section ChainState::sectionOf(int index) const
+{
+    if (!split || index < split->begin)
+        return Section::Pre;
+    if (index < split->end)
+        return blocks[index].branch == kBranchB ? Section::B : Section::A;
+    return Section::Post;
+}
+
+std::vector<int> ChainState::sectionIndices(Section section) const
+{
+    std::vector<int> indices;
+    for (int i = 0; i < static_cast<int>(blocks.size()); ++i)
+    {
+        if (sectionOf(i) == section)
+            indices.push_back(i);
+    }
+    return indices;
+}
+
+void ChainState::insert(Section section, int position, BlockState block)
+{
+    const int count = static_cast<int>(blocks.size());
+    block.branch = kBranchA;
+    if (!split)
+    {
+        blocks.insert(blocks.begin() + std::clamp(position, 0, count), std::move(block));
+        return;
+    }
+
+    int index = 0;
+    switch (section)
+    {
+    case Section::Pre:
+        index = std::clamp(position, 0, split->begin);
+        ++split->begin;
+        break;
+    case Section::A:
+    case Section::B: {
+        const std::vector<int> branch = sectionIndices(section);
+        index = position >= 0 && position < static_cast<int>(branch.size()) ? branch[position] : split->end;
+        block.branch = section == Section::B ? kBranchB : kBranchA;
+        break;
+    }
+    case Section::Post:
+        index = split->end + std::clamp(position, 0, count - split->end);
+        break;
+    }
+    if (section != Section::Post)
+        ++split->end;
+    blocks.insert(blocks.begin() + index, std::move(block));
+}
+
+BlockState ChainState::remove(int index)
+{
+    BlockState block = std::move(blocks[index]);
+    blocks.erase(blocks.begin() + index);
+    if (split)
+    {
+        if (index < split->begin)
+            --split->begin;
+        if (index < split->end)
+            --split->end;
+    }
+    block.branch = kBranchA;
+    return block;
+}
+
+void ChainState::move(int index, Section section, int position)
+{
+    const Section from = sectionOf(index);
+    const std::vector<int> fromIndices = sectionIndices(from);
+    const int current = static_cast<int>(std::find(fromIndices.begin(), fromIndices.end(), index) - fromIndices.begin());
+    BlockState block = remove(index);
+    if (from == section && position > current)
+        --position;
+    insert(section, position, std::move(block));
+}
+
+void ChainState::addSplit(int begin, int end)
+{
+    if (split)
+        return;
+    const int count = static_cast<int>(blocks.size());
+    begin = std::clamp(begin, 0, count);
+    end = std::clamp(end, begin, count);
+    split = SplitState { begin, end };
+    for (BlockState& block : blocks)
+        block.branch = kBranchA;
+}
+
+void ChainState::removeSplit()
+{
+    if (!split)
+        return;
+    std::stable_partition(blocks.begin() + split->begin, blocks.begin() + split->end,
+                          [](const BlockState& block) { return block.branch == kBranchA; });
+    for (BlockState& block : blocks)
+        block.branch = kBranchA;
+    split.reset();
 }
 
 } // namespace namsayin
