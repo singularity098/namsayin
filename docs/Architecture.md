@@ -32,7 +32,7 @@ src/
     blocks/           NamBlock, DelayBlock, ReverbBlock
     global/           InputStage, ToneStack (Bass/Mid/Treble), Limiter, Meters
     tuner/            PitchDetector, Tuner (done, M8)
-    Metronome
+    metronome/        Metronome, ClickSamples (done, M9)
     ParallelWorker    Second-core thread for split branch B (done, M6)
   state/              Plain data, shared by DSP and UI
     ChainState        Blocks, slots, split/merge, per-block settings (JSON)
@@ -43,7 +43,7 @@ src/
   ui/                 DPF UI subclass and NanoVG widgets
     widgets/          Knob, Toggle, Button, Meter, BlockTile, ChainView, Dialog, ...
     theme/            Colours, sizes, fonts
-resources/            Fonts, generic block images, metronome sounds
+resources/            Fonts, generic block images, metronome sounds (resources/sounds, done)
 tests/
 docs/
 ```
@@ -153,11 +153,14 @@ An algorithmic reverb written in-house (Dattorro-style plate/hall network). Para
 
 ### 4.10 Metronome
 
-- Runs in the DSP, scheduled to the exact sample.
-- **Free mode** (default): its own tempo and start/stop.
-- **DAW sync** (switch): follows the host's tempo, time signature and transport position (DPF `TimePosition`).
-- Features match Fretbored: 20–300 BPM, tap tempo, meter and beat grouping, per-beat accents, subdivisions, Classic/Digital/Beep sounds with separate subdivision volume, step and gradual trainer, gap trainer, visual pulse.
-- Sounds: the Classic and Digital samples from Fretbored, built into the binary. Beep is generated in code.
+- Runs in the DSP (`engine/metronome/Metronome`), scheduled to the exact sample: each beat's time is kept as a fractional sample position and rounded, so the tempo never drifts, whatever the buffer size. Clicks are mixed in after the Output level and before the limiter, so they can't clip the output; the tuner's mute doesn't silence them. Global bypass does (it's a true bypass).
+- **Free mode** (default): its own tempo, starting on beat 1 when switched on. Switching off lets the click that's sounding play out (cutting it would pop).
+- **DAW sync** (switch): follows the host's tempo, time signature and transport position (DPF `TimePosition`): clicks fall where the host's beat position crosses a beat or subdivision, only while the transport plays. Each click has an ID (beat × 16 + subdivision), so a click on a buffer boundary is never played twice or missed, and a jump (loop, locate) starts over at the new position. The tempo trainer doesn't apply in sync mode (the host sets the tempo); the gap trainer does, on the host's bars.
+- Features match Fretbored: 20–300 BPM (slider, ±1/±5, keyboard), tap tempo, 1–16 beats over 2/4/8/16 with beat grouping (cycled through every split into 2s and 3s; the default follows Fretbored, e.g. 7/8 = 2+2+3), per-beat accents (accent/normal/soft/mute, set by the grouping and by clicking a beat), the eleven subdivisions, Classic/Digital/Beep sounds with separate volume for subdivisions, step and gradual tempo trainer (also slowing down), gap trainer, and a visual pulse and pendulum sweep. Fretbored's "visual sync" offset (for Bluetooth speakers) isn't needed in a plugin.
+- **Every setting is a host parameter** (tempo, volume, on/off and sync are automatable; the rest are hidden), so it works the same in every host — including Reaper's LV2, which doesn't deliver UI state messages — and is saved with the project. The accents are 16 parameters; the grouping is a bit mask of the beats that start a group, kept only for the UI. The DSP reports the beat being heard, a beat counter (the UI pulses when it changes), the bar, the tempo being played and the gap trainer's mute as output parameters.
+- **Panel**: the top bar's Metronome button switches it on and off (and flashes on every beat); ▾ next to it opens the panel, which covers the chain while it's open. Shortcuts while the panel is open (so only while the plugin window has the keyboard focus): Space start/stop, ↑/↓ tempo (Shift: 5 BPM), T tap.
+- Sounds: the Classic and Digital samples from Fretbored (`resources/sounds/`), built into the binary as `ClickSamples.cpp` by `tools/embed_sounds.py`, resampled to the host rate and edge-faded as in Fretbored. Beep is generated in code.
+- The top bar also has the Fretbored link (opens the web app in the default browser: `xdg-open` / `ShellExecute`).
 
 ## 5. Plugin state, presets and settings
 

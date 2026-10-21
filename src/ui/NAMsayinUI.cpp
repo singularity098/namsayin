@@ -3,6 +3,7 @@
 
 #include "DistrhoUI.hpp"
 
+#include "OpenUrl.hpp"
 #include "engine/BlockRegistry.hpp"
 #include "engine/Params.hpp"
 #include "engine/blocks/IrBlock.hpp"
@@ -12,6 +13,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <utility>
 #include <cmath>
 #include <cstdio>
 #include <cctype>
@@ -80,6 +82,13 @@ enum class Hit {
     MergeRemove,  // remove the split
     SetValue,     // index = host parameter, set to `value` (real units)
     Step,         // index = host parameter, add `value` (real units), clamped
+    Slider,       // index = host parameter; horizontal drag over the rect
+    MetroPanel,   // open/close the metronome panel
+    MetroAccent,  // index = beat: cycle accent / normal / soft / mute
+    MetroGrouping, // next beat grouping
+    MetroResetAccents,
+    Tap,          // tap tempo
+    Fretbored,    // open the Fretbored web app
     A2Size,       // index = position in the chain
     InClip,
     OutClip,
@@ -114,6 +123,106 @@ struct ChainLayout {
     std::vector<Rect> wires[2];       // items on each row in order, joined by signal-flow lines
     std::vector<DropPoint> drops;
 };
+
+constexpr const char* kFretboredUrl = "https://singularity098.github.io/fretbored/";
+constexpr double kTapTimeout = 2.0; // seconds between taps before tap tempo starts over
+constexpr int kNoteValues[4] = { 2, 4, 8, 16 };
+
+// Beat groupings, as in Fretbored. A grouping is stored as a bit mask of the beats that start a group.
+std::vector<int> groupsFromMask(int beats, uint32_t mask)
+{
+    std::vector<int> groups;
+    for (int i = 0; i < beats; ++i)
+    {
+        if (i == 0 || (mask >> i) & 1u)
+            groups.push_back(0);
+        ++groups.back();
+    }
+    return groups;
+}
+
+uint32_t maskFromGroups(const std::vector<int>& groups)
+{
+    uint32_t mask = 0;
+    int beat = 0;
+    for (const int g : groups)
+    {
+        mask |= 1u << beat;
+        beat += g;
+    }
+    return mask;
+}
+
+// Fretbored's default: groups of 3, ending in 2+2 or 2 (7/8 is 2+2+3, 5/8 is 3+2); none below 5 beats or for
+// quarter and half notes
+std::vector<int> defaultGroups(int beats, int noteValue)
+{
+    if (noteValue < 8 || beats < 5)
+        return {};
+    if (beats % 3 == 0)
+        return std::vector<int>(beats / 3, 3);
+    if (beats == 5)
+        return { 3, 2 };
+    if (beats == 7)
+        return { 2, 2, 3 };
+    std::vector<int> groups;
+    int left = beats;
+    while (left > 4)
+    {
+        groups.push_back(3);
+        left -= 3;
+    }
+    if (left == 4)
+    {
+        groups.push_back(2);
+        groups.push_back(2);
+    }
+    else if (left > 0)
+    {
+        groups.push_back(left);
+    }
+    return groups;
+}
+
+// Every way to split `beats` into groups of 2 and 3, for the Grouping button to cycle through
+void groupings(int beats, std::vector<int>& current, std::vector<std::vector<int>>& out)
+{
+    if (beats == 0)
+    {
+        out.push_back(current);
+        return;
+    }
+    for (const int g : { 2, 3 })
+    {
+        if (g <= beats)
+        {
+            current.push_back(g);
+            groupings(beats - g, current, out);
+            current.pop_back();
+        }
+    }
+}
+
+std::string groupingText(const std::vector<int>& groups)
+{
+    std::string text;
+    for (const int g : groups)
+        text += (text.empty() ? "" : "+") + std::to_string(g);
+    return text.empty() ? "None" : text;
+}
+
+const char* tempoMarking(double bpm)
+{
+    static const std::pair<double, const char*> marks[] = { { 40, "Grave" }, { 60, "Largo" }, { 66, "Larghetto" },
+        { 76, "Adagio" }, { 108, "Andante" }, { 120, "Moderato" }, { 156, "Allegro" }, { 176, "Vivace" },
+        { 200, "Presto" } };
+    for (const auto& [limit, name] : marks)
+    {
+        if (bpm < limit)
+            return name;
+    }
+    return "Prestissimo";
+}
 
 const char* const kNoteNames[12] = { "C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B" };
 
@@ -177,6 +286,8 @@ protected:
         }
         if (index == kParamTunerFrequency && value > 0.0f)
             tunerReading(value);
+        if (index == kParamMetroBeatCount)
+            fBeatAt = std::chrono::steady_clock::now();
         if (index == kParamInClip && value >= 0.5f)
             fInClipLatched = true;
         if (index == kParamOutClip && value >= 0.5f)
@@ -250,7 +361,11 @@ protected:
         fill();
         drawDither(scale);
         drawTopBar();
-        if (fParams[kParamTuner] >= 0.5f)
+        if (fMetroPanel)
+        {
+            drawMetronome();
+        }
+        else if (fParams[kParamTuner] >= 0.5f)
         {
             drawTuner();
         }
@@ -375,6 +490,41 @@ protected:
             setValue(static_cast<uint32_t>(hit->index), hit->value);
             return true;
 
+        case Hit::Slider:
+            fDragParam = hit->index;
+            fSliderRect = hit->rect;
+            editParameter(static_cast<uint32_t>(hit->index), true);
+            setNormalized(static_cast<uint32_t>(hit->index), std::clamp((x - hit->rect.x) / hit->rect.w, 0.0f, 1.0f),
+                          false);
+            return true;
+
+        case Hit::MetroPanel:
+            fMetroPanel = !fMetroPanel;
+            repaint();
+            return true;
+
+        case Hit::MetroAccent: {
+            const uint32_t index = kParamMetroAccent1 + static_cast<uint32_t>(hit->index);
+            setValue(index, static_cast<float>((static_cast<int>(fParams[index]) + 3) % 4)); // 3 > 2 > 1 > 0 > 3
+            return true;
+        }
+
+        case Hit::MetroGrouping:
+            nextGrouping();
+            return true;
+
+        case Hit::MetroResetAccents:
+            applyDefaultAccents();
+            return true;
+
+        case Hit::Tap:
+            tap();
+            return true;
+
+        case Hit::Fretbored:
+            openUrl(kFretboredUrl);
+            return true;
+
         case Hit::Step:
             setValue(static_cast<uint32_t>(hit->index), fParams[hit->index] + hit->value);
             return true;
@@ -399,6 +549,12 @@ protected:
         fMouseX = x;
         fMouseY = y;
 
+        if (fDragParam >= 0 && fSliderRect.w > 0.0f)
+        {
+            setNormalized(static_cast<uint32_t>(fDragParam), std::clamp((x - fSliderRect.x) / fSliderRect.w, 0.0f, 1.0f),
+                          false);
+            return true;
+        }
         if (fDragParam >= 0)
         {
             // 200 px for the full range; Shift for fine control
@@ -428,8 +584,40 @@ protected:
         return true;
     }
 
+    // Metronome shortcuts, while its panel is open (and so only while this window has the keyboard focus):
+    // Space start/stop, Up/Down tempo (Shift: 5 BPM), T tap
+    bool onKeyboard(const KeyboardEvent& ev) override
+    {
+        if (!ev.press || !fMetroPanel)
+            return false;
+        const float step = (ev.mod & kModifierShift) ? 5.0f : 1.0f;
+        switch (ev.key)
+        {
+        case kKeySpace:
+            setValue(kParamMetronome, fParams[kParamMetronome] >= 0.5f ? 0.0f : 1.0f);
+            return true;
+        case kKeyUp:
+        case kKeyRight:
+            setValue(kParamMetroTempo, std::round(fParams[kParamMetroTempo]) + step);
+            return true;
+        case kKeyDown:
+        case kKeyLeft:
+            setValue(kParamMetroTempo, std::round(fParams[kParamMetroTempo]) - step);
+            return true;
+        case 't':
+        case 'T':
+            tap();
+            return true;
+        }
+        return false;
+    }
+
     void uiIdle() override
     {
+        // the metronome's pulse and sweep
+        if (fParams[kParamMetronome] >= 0.5f || fMetroPanel)
+            repaint();
+
         // the tuner animates (needle easing, strobe)
         const auto now = std::chrono::steady_clock::now();
         const float dt = std::min(0.1f, std::chrono::duration<float>(now - fLastIdle).count());
@@ -527,7 +715,78 @@ private:
     void setValue(uint32_t index, float value)
     {
         const GlobalParamSpec& spec = globalParamSpec(index);
+        if (spec.flags & (kParamFlagInteger | kParamFlagToggle))
+            value = std::round(value);
         setNormalized(index, (std::clamp(value, spec.min, spec.max) - spec.min) / (spec.max - spec.min), true);
+        if (index == kParamMetroBeats || index == kParamMetroNoteValue)
+            applyDefaultAccents();
+    }
+
+    int metroBeats() const { return std::clamp(static_cast<int>(fParams[kParamMetroBeats]), 1, 16); }
+    int metroNoteValue() const { return kNoteValues[std::clamp(static_cast<int>(fParams[kParamMetroNoteValue]), 0, 3)]; }
+
+    // Accents follow the grouping: the first beat accented, the first of every other group normal, the rest soft.
+    // Without a grouping: the first beat accented, the rest normal.
+    void applyGrouping(const std::vector<int>& groups)
+    {
+        const int beats = metroBeats();
+        std::vector<int> levels(16, 2);
+        levels[0] = 3;
+        int sum = 0;
+        for (const int g : groups)
+            sum += g;
+        if (!groups.empty() && sum == beats)
+        {
+            int beat = 0;
+            for (size_t gi = 0; gi < groups.size(); ++gi)
+            {
+                for (int k = 0; k < groups[gi]; ++k)
+                    levels[beat + k] = k == 0 ? (gi == 0 ? 3 : 2) : 1;
+                beat += groups[gi];
+            }
+        }
+        setValue(kParamMetroGrouping, static_cast<float>(groups.empty() || sum != beats ? 0 : maskFromGroups(groups)));
+        for (int i = 0; i < 16; ++i)
+            setValue(kParamMetroAccent1 + static_cast<uint32_t>(i), static_cast<float>(levels[i]));
+    }
+
+    void applyDefaultAccents() { applyGrouping(defaultGroups(metroBeats(), metroNoteValue())); }
+
+    std::vector<int> currentGroups() const
+    {
+        const auto mask = static_cast<uint32_t>(fParams[kParamMetroGrouping]);
+        return mask == 0 ? std::vector<int> {} : groupsFromMask(metroBeats(), mask);
+    }
+
+    // Cycles through no grouping and every split of the bar into 2s and 3s
+    void nextGrouping()
+    {
+        std::vector<std::vector<int>> all { {} };
+        std::vector<int> current;
+        groupings(metroBeats(), current, all);
+        const std::vector<int> groups = currentGroups();
+        size_t i = 0;
+        while (i < all.size() && all[i] != groups)
+            ++i;
+        applyGrouping(all[(i + 1) % all.size()]);
+    }
+
+    void tap()
+    {
+        const auto now = std::chrono::steady_clock::now();
+        if (!fTaps.empty() && std::chrono::duration<double>(now - fTaps.back()).count() > kTapTimeout)
+            fTaps.clear();
+        fTaps.push_back(now);
+        if (fTaps.size() > 8)
+            fTaps.erase(fTaps.begin());
+        fTapAt = now;
+        if (fTaps.size() >= 2)
+        {
+            const double average =
+                std::chrono::duration<double>(fTaps.back() - fTaps.front()).count() / (fTaps.size() - 1);
+            setValue(kParamMetroTempo, static_cast<float>(std::round(60.0 / average)));
+        }
+        repaint();
     }
 
     // A new frequency from the tuner. Readings are median-filtered; a clear change of note starts over.
@@ -670,6 +929,7 @@ private:
         {
             editParameter(static_cast<uint32_t>(fDragParam), false);
             fDragParam = -1;
+            fSliderRect = Rect {};
             return true;
         }
         if (fPressTile >= 0)
@@ -862,6 +1122,278 @@ private:
                    Hit::Toggle, kParamBypass);
         drawButton({ fWidth - 184.0f, 10.0f, 80.0f, 28.0f }, "Tuner", fParams[kParamTuner] >= 0.5f, theme::accent,
                    Hit::Toggle, kParamTuner);
+
+        // Metronome: on/off, flashing on every beat, and ▾ for its panel
+        const bool running = fParams[kParamMetronome] >= 0.5f;
+        const Rect metro { fWidth - 304.0f, 10.0f, 88.0f, 28.0f };
+        drawButton(metro, "Metronome", running, theme::accent, Hit::Toggle, kParamMetronome);
+        const float pulse = beatPulse();
+        if (running && pulse > 0.0f)
+            fillRect(metro.x, metro.y, metro.w, metro.h, Color(255, 255, 255, 0.35f * pulse), 6.0f);
+        drawButton({ metro.x + metro.w + 2.0f, 10.0f, 26.0f, 28.0f }, "▾", fMetroPanel, theme::accent, Hit::MetroPanel,
+                   0);
+
+        drawButton({ fWidth - 408.0f, 10.0f, 92.0f, 28.0f }, "Fretbored ↗", false, theme::accent, Hit::Fretbored, 0);
+    }
+
+    // 1 right after a beat, fading to 0 over 150 ms
+    float beatPulse() const
+    {
+        if (fParams[kParamMetroBeat] < 0.0f || fParams[kParamMetroSilent] >= 0.5f)
+            return 0.0f;
+        const float since = std::chrono::duration<float>(std::chrono::steady_clock::now() - fBeatAt).count();
+        return std::clamp(1.0f - since / 0.15f, 0.0f, 1.0f);
+    }
+
+    void drawSlider(const Rect& r, uint32_t index, bool enabled = true)
+    {
+        const float n = std::clamp(normalized(index), 0.0f, 1.0f);
+        globalAlpha(enabled ? 1.0f : 0.4f);
+        fillRect(r.x, r.y + r.h / 2 - 2.0f, r.w, 4.0f, theme::inset, 2.0f);
+        fillRect(r.x, r.y + r.h / 2 - 2.0f, r.w * n, 4.0f, theme::accent, 2.0f);
+        beginPath();
+        circle(r.x + r.w * n, r.y + r.h / 2, 7.0f);
+        fillColor(theme::text);
+        fill();
+        globalAlpha(1.0f);
+        // the hit rect maps x to the value, so it's exactly the track
+        if (enabled)
+            fHits.push_back({ r, Hit::Slider, static_cast<int>(index) });
+    }
+
+    // [−] value [+]
+    void drawStepper(float x, float y, float w, const char* text, uint32_t index, float step)
+    {
+        drawValueButton({ x, y, 24.0f, 24.0f }, "−", false, Hit::Step, index, -step);
+        label(x + w / 2, y + 12.0f, text, theme::text, 13.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        drawValueButton({ x + w - 24.0f, y, 24.0f, 24.0f }, "+", false, Hit::Step, index, step);
+    }
+
+    void sectionTitle(float x, float y, const char* text)
+    {
+        label(x, y, text, theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+    }
+
+    void drawMetronome()
+    {
+        const Rect panel { 16.0f, kTopBarHeight + 16.0f, fWidth - 32.0f,
+                           fHeight - kBottomBarHeight - kTopBarHeight - 32.0f };
+        fillRect(panel.x, panel.y, panel.w, panel.h, theme::panel, 10.0f);
+        label(panel.x + 16.0f, panel.y + 30.0f, "Metronome", theme::text, 16.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        drawValueButton({ panel.x + panel.w - 30.0f, panel.y + 6.0f, 24.0f, 24.0f }, "×", false, Hit::MetroPanel, 0, 0);
+
+        const float gap = 20.0f;
+        const float mainWidth = std::clamp(panel.w * 0.36f, 300.0f, 420.0f);
+        const float colWidth = (panel.w - mainWidth - 4 * gap) / 2.0f;
+        drawMetronomeMain({ panel.x + gap, panel.y + 52.0f, mainWidth, panel.h - 64.0f });
+        drawMetronomeMeter({ panel.x + 2 * gap + mainWidth, panel.y + 16.0f, colWidth, panel.h - 28.0f });
+        drawMetronomeTrainers({ panel.x + 3 * gap + mainWidth + colWidth, panel.y + 52.0f, colWidth,
+                                panel.h - 64.0f });
+    }
+
+    void drawMetronomeMain(const Rect& r)
+    {
+        const bool running = fParams[kParamMetronome] >= 0.5f;
+        const bool sync = fParams[kParamMetroSync] >= 0.5f;
+        const bool trainer = fParams[kParamMetroTrainer] >= 0.5f;
+        const bool live = running && fParams[kParamMetroBeat] >= 0.0f;
+        const float cx = r.x + r.w / 2;
+
+        // tempo: what's being played if the trainer or the DAW sets it
+        float shown = fParams[kParamMetroTempo];
+        if ((trainer || sync) && live)
+            shown = fParams[kParamMetroLiveTempo];
+        else if (trainer && !sync)
+            shown = fParams[kParamMetroTrainerStart];
+        char bpm[16];
+        std::snprintf(bpm, sizeof(bpm), sync && !live ? "DAW" : "%.0f", shown);
+        label(cx, r.y + 30.0f, bpm, theme::text, 56.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        label(cx, r.y + 64.0f, sync && !live ? "tempo" : (std::string("BPM · ") + tempoMarking(shown)).c_str(),
+              theme::textDim, 12.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+
+        // beat dots: click to cycle accent / normal / soft / mute; the beat being heard lights up
+        const int beats = metroBeats();
+        const float dot = std::min(22.0f, (r.w - 8.0f) / beats - 4.0f);
+        const float dotsWidth = beats * (dot + 4.0f) - 4.0f;
+        const float dy = r.y + 96.0f;
+        const int current = live ? static_cast<int>(fParams[kParamMetroBeat]) : -1;
+        const float pulse = beatPulse();
+        for (int i = 0; i < beats; ++i)
+        {
+            const float x = cx - dotsWidth / 2 + i * (dot + 4.0f);
+            const int level = static_cast<int>(fParams[kParamMetroAccent1 + static_cast<uint32_t>(i)]);
+            const float height = dot * (level == 3 ? 1.0f : level == 2 ? 0.72f : level == 1 ? 0.45f : 0.2f);
+            const bool lit = i == current;
+            fillRect(x, dy + dot - height, dot, height, lit ? theme::accent : theme::tile, 4.0f);
+            if (lit && pulse > 0.0f)
+                fillRect(x, dy + dot - height, dot, height, Color(255, 255, 255, 0.5f * pulse), 4.0f);
+            fHits.push_back({ { x, dy - 4.0f, dot, dot + 8.0f }, Hit::MetroAccent, i });
+        }
+        label(cx, dy + dot + 12.0f, "Click a beat: accent · normal · soft · mute", theme::textDim, 10.0f,
+              ALIGN_CENTER | ALIGN_MIDDLE);
+
+        // sweep: a ball swinging from side to side once per beat, eased like a pendulum
+        const float sy = dy + dot + 32.0f;
+        fillRect(r.x, sy - 1.0f, r.w, 2.0f, theme::border, 1.0f);
+        if (live && fParams[kParamMetroLiveTempo] > 0.0f)
+        {
+            const float beatSeconds = 60.0f / fParams[kParamMetroLiveTempo];
+            const float since = std::chrono::duration<float>(std::chrono::steady_clock::now() - fBeatAt).count();
+            const float phase = std::clamp(since / beatSeconds, 0.0f, 1.0f);
+            const float eased = (1.0f - std::cos(static_cast<float>(M_PI) * phase)) / 2.0f;
+            const bool odd = static_cast<int>(fParams[kParamMetroBeatCount]) % 2;
+            const float pos = odd ? eased : 1.0f - eased;
+            beginPath();
+            circle(r.x + 7.0f + pos * (r.w - 14.0f), sy, 7.0f);
+            fillColor(fParams[kParamMetroSilent] >= 0.5f ? theme::border : theme::accent);
+            fill();
+        }
+
+        // tempo controls (locked while the trainer or the DAW sets the tempo)
+        const bool locked = trainer || sync;
+        const float ty = sy + 22.0f;
+        globalAlpha(locked ? 0.4f : 1.0f);
+        if (!locked)
+        {
+            drawValueButton({ r.x, ty, 34.0f, 26.0f }, "−5", false, Hit::Step, kParamMetroTempo, -5.0f);
+            drawValueButton({ r.x + 38.0f, ty, 30.0f, 26.0f }, "−1", false, Hit::Step, kParamMetroTempo, -1.0f);
+            drawValueButton({ r.x + r.w - 68.0f, ty, 30.0f, 26.0f }, "+1", false, Hit::Step, kParamMetroTempo, 1.0f);
+            drawValueButton({ r.x + r.w - 34.0f, ty, 34.0f, 26.0f }, "+5", false, Hit::Step, kParamMetroTempo, 5.0f);
+        }
+        globalAlpha(1.0f);
+        drawSlider({ r.x + 76.0f, ty, r.w - 152.0f, 26.0f }, kParamMetroTempo, !locked);
+
+        const float by = ty + 40.0f;
+        const float tapFlash = std::clamp(1.0f - std::chrono::duration<float>(std::chrono::steady_clock::now() -
+                                                                              fTapAt).count() / 0.15f, 0.0f, 1.0f);
+        drawButton({ r.x, by, 80.0f, 32.0f }, "Tap", tapFlash > 0.0f, theme::accent, Hit::Tap, 0);
+        drawButton({ r.x + 88.0f, by, r.w - 176.0f, 32.0f }, running ? "■  Stop" : "▶  Start", running, theme::accent,
+                   Hit::Toggle, kParamMetronome);
+        drawButton({ r.x + r.w - 80.0f, by, 80.0f, 32.0f }, "DAW sync", sync, theme::accent, Hit::Toggle,
+                   kParamMetroSync);
+
+        char status[96];
+        if (!running)
+            std::snprintf(status, sizeof(status), "Stopped");
+        else if (!live)
+            std::snprintf(status, sizeof(status), sync ? "Waiting for the DAW to play" : "Starting…");
+        else
+            std::snprintf(status, sizeof(status), "Bar %d · Beat %d%s", static_cast<int>(fParams[kParamMetroBar]) + 1,
+                          current + 1, fParams[kParamMetroSilent] >= 0.5f ? " · (muted)" : "");
+        label(cx, by + 50.0f, status, theme::textDim, 12.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        if (by + 74.0f < r.y + r.h)
+            label(cx, by + 70.0f, "Space start/stop · ↑/↓ tempo (Shift ×5) · T tap", theme::textDim, 10.0f,
+                  ALIGN_CENTER | ALIGN_MIDDLE);
+    }
+
+    void drawMetronomeMeter(const Rect& r)
+    {
+        float y = r.y + 14.0f;
+        sectionTitle(r.x, y, "METER");
+        y += 16.0f;
+        char text[32];
+        std::snprintf(text, sizeof(text), "%d beats", metroBeats());
+        drawStepper(r.x, y, 100.0f, text, kParamMetroBeats, 1.0f);
+        label(r.x + 107.0f, y + 12.0f, "/", theme::textDim, 14.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        for (int i = 0; i < 4; ++i)
+        {
+            std::snprintf(text, sizeof(text), "%d", kNoteValues[i]);
+            drawValueButton({ r.x + 114.0f + i * 30.0f, y, 28.0f, 24.0f }, text,
+                            static_cast<int>(fParams[kParamMetroNoteValue]) == i, Hit::SetValue, kParamMetroNoteValue,
+                            static_cast<float>(i));
+        }
+        y += 32.0f;
+        const std::string grouping = "Grouping: " + groupingText(currentGroups());
+        drawButton({ r.x, y, std::min(150.0f, r.w / 2 - 4.0f), 24.0f }, grouping.c_str(), false, theme::accent,
+                   Hit::MetroGrouping, 0);
+        drawButton({ r.x + std::min(154.0f, r.w / 2), y, std::min(110.0f, r.w / 2 - 4.0f), 24.0f }, "Reset accents",
+                   false, theme::accent, Hit::MetroResetAccents, 0);
+
+        y += 42.0f;
+        sectionTitle(r.x, y, "SUBDIVISION");
+        y += 14.0f;
+        static constexpr const char* subdivisions[] = { "Quarter", "Eighths", "Triplets", "16ths", "Quintuplets",
+            "Sextuplets", "Swing", "Dotted", "8 + 16 16", "16 16 + 8", "16 8 16" };
+        static constexpr const char* shortNames[] = { "1/4", "8ths", "Triplets", "16ths", "5-tuplets", "6-tuplets",
+            "Swing", "Dotted", "8 16 16", "16 16 8", "16 8 16" };
+        const float pill = (r.w - 3 * 4.0f) / 4.0f;
+        for (int i = 0; i < 11; ++i)
+        {
+            drawValueButton({ r.x + (i % 4) * (pill + 4.0f), y + (i / 4) * 28.0f, pill, 24.0f },
+                            pill >= 84.0f ? subdivisions[i] : shortNames[i],
+                            static_cast<int>(fParams[kParamMetroSubdivision]) == i, Hit::SetValue,
+                            kParamMetroSubdivision, static_cast<float>(i));
+        }
+
+        y += 3 * 28.0f + 18.0f;
+        sectionTitle(r.x, y, "SOUND");
+        y += 14.0f;
+        static constexpr const char* sounds[] = { "Classic", "Digital", "Beep" };
+        const float seg = (r.w - 2 * 4.0f) / 3.0f;
+        for (int i = 0; i < 3; ++i)
+            drawValueButton({ r.x + i * (seg + 4.0f), y, seg, 24.0f }, sounds[i],
+                            static_cast<int>(fParams[kParamMetroSound]) == i, Hit::SetValue, kParamMetroSound,
+                            static_cast<float>(i));
+        y += 34.0f;
+        for (const uint32_t index : { kParamMetroVolume, kParamMetroSubVolume })
+        {
+            std::snprintf(text, sizeof(text), "%s %.0f%%", index == kParamMetroVolume ? "Volume" : "Subdivisions",
+                          fParams[index]);
+            label(r.x, y + 12.0f, text, theme::text, 12.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+            drawSlider({ r.x + 110.0f, y, r.w - 110.0f, 24.0f }, index);
+            y += 28.0f;
+        }
+    }
+
+    void drawMetronomeTrainers(const Rect& r)
+    {
+        float y = r.y - 22.0f;
+        sectionTitle(r.x, y, "TEMPO TRAINER");
+        y += 14.0f;
+        static constexpr const char* modes[] = { "Off", "Step", "Gradual" };
+        const int mode = static_cast<int>(fParams[kParamMetroTrainer]);
+        const float seg = (r.w - 2 * 4.0f) / 3.0f;
+        for (int i = 0; i < 3; ++i)
+            drawValueButton({ r.x + i * (seg + 4.0f), y, seg, 24.0f }, modes[i], mode == i, Hit::SetValue,
+                            kParamMetroTrainer, static_cast<float>(i));
+        y += 32.0f;
+
+        char text[48];
+        auto row = [&](const char* name, uint32_t index, const char* unit, float step) {
+            label(r.x, y + 12.0f, name, theme::textDim, 12.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+            std::snprintf(text, sizeof(text), "%.0f %s", fParams[index], unit);
+            drawStepper(r.x + r.w - 130.0f, y, 130.0f, text, index, step);
+            y += 28.0f;
+        };
+        globalAlpha(mode == 0 ? 0.4f : 1.0f);
+        row("Start", kParamMetroTrainerStart, "BPM", 1.0f);
+        row("End", kParamMetroTrainerEnd, "BPM", 1.0f);
+        if (mode == 2)
+        {
+            row("Over", kParamMetroTrainerBars, "bars", 1.0f);
+        }
+        else
+        {
+            row("Change by", kParamMetroTrainerStep, "BPM", 1.0f);
+            row("Every", kParamMetroTrainerEvery, "bars", 1.0f);
+        }
+        globalAlpha(1.0f);
+        if (mode != 0 && fParams[kParamMetroSync] >= 0.5f)
+            label(r.x, y + 8.0f, "The trainer is off while the DAW sets the tempo", theme::warn, 11.0f,
+                  ALIGN_LEFT | ALIGN_MIDDLE);
+
+        y += 30.0f;
+        sectionTitle(r.x, y, "GAP TRAINER");
+        y += 14.0f;
+        const bool gapOn = fParams[kParamMetroGap] >= 0.5f;
+        drawButton({ r.x, y, 64.0f, 24.0f }, gapOn ? "On" : "Off", gapOn, theme::accent, Hit::Toggle, kParamMetroGap);
+        label(r.x + 74.0f, y + 12.0f, "Mute the click for a few bars", theme::textDim, 11.0f,
+              ALIGN_LEFT | ALIGN_MIDDLE);
+        y += 32.0f;
+        globalAlpha(gapOn ? 1.0f : 0.4f);
+        row("Play", kParamMetroGapPlay, "bars", 1.0f);
+        row("Then mute", kParamMetroGapMute, "bars", 1.0f);
+        globalAlpha(1.0f);
     }
 
     // Small button that sets a parameter to a value, or steps it
@@ -905,7 +1437,7 @@ private:
         if (fTunerNote >= 0)
         {
             fontSize(84.0f);
-            Rectangle<float> bounds;
+            DGL_NAMESPACE::Rectangle<float> bounds;
             const char* name = kNoteNames[((fTunerNote % 12) + 12) % 12];
             textBounds(0, 0, name, nullptr, bounds);
             const float w = bounds.getWidth();
@@ -1426,6 +1958,12 @@ private:
     int fPressTile = -1;
     float fPressX = 0.0f, fPressY = 0.0f;
     bool fDraggingTile = false;
+
+    // metronome
+    bool fMetroPanel = false;
+    Rect fSliderRect; // the slider being dragged (w == 0: a knob is)
+    std::vector<std::chrono::steady_clock::time_point> fTaps;
+    std::chrono::steady_clock::time_point fTapAt, fBeatAt;
 
     // tuner display
     std::vector<float> fTunerHistory;

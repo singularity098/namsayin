@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <mutex>
@@ -161,7 +162,20 @@ protected:
 
     void run(const float** const inputs, float** const outputs, const uint32_t frames) override
     {
-        fEngine.process(inputs, outputs, frames);
+        // The host's transport, for the metronome's DAW sync
+        const TimePosition& time = getTimePosition();
+        Transport transport;
+        transport.valid = time.bbt.valid && time.bbt.ticksPerBeat > 0.0;
+        transport.playing = time.playing;
+        if (transport.valid)
+        {
+            transport.bpm = time.bbt.beatsPerMinute;
+            transport.beatsPerBar = static_cast<int>(std::lround(time.bbt.beatsPerBar));
+            transport.beat = (time.bbt.bar - 1) * static_cast<double>(time.bbt.beatsPerBar) + (time.bbt.beat - 1) +
+                             time.bbt.tick / time.bbt.ticksPerBeat;
+        }
+
+        fEngine.process(inputs, outputs, frames, &transport);
 
         const uint32_t latency = fEngine.latency();
         if (latency != fReportedLatency)

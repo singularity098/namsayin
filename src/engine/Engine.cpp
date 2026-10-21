@@ -108,6 +108,8 @@ void Engine::prepare(double sampleRate, uint32_t maxFrames)
         const std::lock_guard<std::mutex> tunerLock(fTunerMutex);
         fTuner.prepare(fSampleRate);
     }
+    fMetronome.prepare(fSampleRate);
+    fClick.assign(fMaxFrames, 0.0f);
 
     fInputGain.prepare(fSampleRate);
     fInputGain.snap(dbToGain(param(kParamInput)));
@@ -210,7 +212,8 @@ float Engine::getParameter(uint32_t index) const
     return index < kParamCount ? param(index) : 0.0f;
 }
 
-void Engine::process(const float* const* inputs, float* const* outputs, uint32_t frames)
+void Engine::process(const float* const* inputs, float* const* outputs, uint32_t frames,
+                     const Transport* transport)
 {
     uint32_t done = 0;
     while (done < frames)
@@ -218,9 +221,16 @@ void Engine::process(const float* const* inputs, float* const* outputs, uint32_t
         const uint32_t n = std::min(frames - done, fMaxFrames);
         const float* in[2] = { inputs[0] + done, inputs[1] + done };
         float* out[2] = { outputs[0] + done, outputs[1] + done };
-        processChunk(in, out, n);
+        processChunk(in, out, n, transport, done);
         done += n;
     }
+
+    const Metronome::Status& metronome = fMetronome.status();
+    fParams[kParamMetroBeat].store(static_cast<float>(metronome.beat), std::memory_order_relaxed);
+    fParams[kParamMetroBeatCount].store(static_cast<float>(metronome.beatCount), std::memory_order_relaxed);
+    fParams[kParamMetroBar].store(static_cast<float>(metronome.bar & 0xffffffu), std::memory_order_relaxed);
+    fParams[kParamMetroLiveTempo].store(static_cast<float>(metronome.bpm), std::memory_order_relaxed);
+    fParams[kParamMetroSilent].store(metronome.silent ? 1.0f : 0.0f, std::memory_order_relaxed);
 
     fParams[kParamInPeakL].store(clampDb(gainToDb(fInMeters[0].level())), std::memory_order_relaxed);
     fParams[kParamInPeakR].store(clampDb(gainToDb(fInMeters[1].level())), std::memory_order_relaxed);
@@ -246,7 +256,36 @@ void Engine::analyzeTuner()
     fParams[kParamTunerClarity].store(static_cast<float>(result.clarity), std::memory_order_relaxed);
 }
 
-void Engine::processChunk(const float* const* inputs, float* const* outputs, uint32_t frames)
+Metronome::Settings Engine::metronomeSettings() const
+{
+    auto integer = [this](uint32_t index) { return static_cast<int>(std::lround(param(index))); };
+    Metronome::Settings settings;
+    settings.on = param(kParamMetronome) >= 0.5f;
+    settings.sync = param(kParamMetroSync) >= 0.5f;
+    settings.bpm = param(kParamMetroTempo);
+    settings.beats = std::clamp(integer(kParamMetroBeats), 1, Metronome::kMaxBeats);
+    settings.subdivision = static_cast<MetroSubdivision>(
+        std::clamp(integer(kParamMetroSubdivision), 0, static_cast<int>(MetroSubdivision::Count) - 1));
+    settings.sound = static_cast<MetroSound>(std::clamp(integer(kParamMetroSound), 0,
+                                                        static_cast<int>(MetroSound::Count) - 1));
+    settings.volume = std::clamp(param(kParamMetroVolume) / 100.0f, 0.0f, 1.0f);
+    settings.subVolume = std::clamp(param(kParamMetroSubVolume) / 100.0f, 0.0f, 1.0f);
+    for (int i = 0; i < Metronome::kMaxBeats; ++i)
+        settings.levels[i] = integer(kParamMetroAccent1 + static_cast<uint32_t>(i));
+    settings.trainer = static_cast<MetroTrainer>(std::clamp(integer(kParamMetroTrainer), 0, 2));
+    settings.trainerStart = param(kParamMetroTrainerStart);
+    settings.trainerEnd = param(kParamMetroTrainerEnd);
+    settings.trainerStep = param(kParamMetroTrainerStep);
+    settings.trainerEvery = integer(kParamMetroTrainerEvery);
+    settings.trainerBars = integer(kParamMetroTrainerBars);
+    settings.gap = param(kParamMetroGap) >= 0.5f;
+    settings.gapPlay = integer(kParamMetroGapPlay);
+    settings.gapMute = integer(kParamMetroGapMute);
+    return settings;
+}
+
+void Engine::processChunk(const float* const* inputs, float* const* outputs, uint32_t frames,
+                          const Transport* transport, uint32_t offset)
 {
     const bool stereo = param(kParamInputMode) >= 0.5f;
     const uint32_t numChannels = stereo ? 2 : 1;
@@ -328,6 +367,13 @@ void Engine::processChunk(const float* const* inputs, float* const* outputs, uin
         for (uint32_t ch = 0; ch < numChannels; ++ch)
             fWork[ch][i] *= g;
     }
+
+    // Metronome, before the limiter so clicks can't clip the output
+    std::fill(fClick.begin(), fClick.begin() + frames, 0.0f);
+    fMetronome.process(fClick.data(), frames, metronomeSettings(), transport, offset);
+    for (uint32_t ch = 0; ch < numChannels; ++ch)
+        for (uint32_t i = 0; i < frames; ++i)
+            fWork[ch][i] += fClick[i];
 
     float reduction = 1.0f;
     if (param(kParamLimiter) >= 0.5f)

@@ -12,6 +12,7 @@
 #include "engine/dsp/Meter.hpp"
 #include "engine/dsp/Smoother.hpp"
 #include "engine/dsp/ToneStack.hpp"
+#include "engine/metronome/Metronome.hpp"
 #include "engine/tuner/Tuner.hpp"
 #include "state/ChainState.hpp"
 
@@ -24,8 +25,8 @@
 
 namespace namsayin {
 
-// The audio engine: input stage, signal chain (with an optional split), tone stack, output stage, limiter and
-// meters.
+// The audio engine: input stage, signal chain (with an optional split), tone stack, output stage, metronome,
+// limiter and meters, and the tuner's input.
 //
 // Threads: process() runs on the audio thread and never allocates, locks or frees. setChain() and prepare()
 // run on other threads; a new chain is built there and handed to the audio thread lock-free, which swaps it in
@@ -52,8 +53,9 @@ public:
     void setParameter(uint32_t index, float value);
     float getParameter(uint32_t index) const;
 
-    // RT. Two inputs and two outputs; they may alias.
-    void process(const float* const* inputs, float* const* outputs, uint32_t frames);
+    // RT. Two inputs and two outputs; they may alias. `transport` is the host's, for the metronome's DAW sync.
+    void process(const float* const* inputs, float* const* outputs, uint32_t frames,
+                 const Transport* transport = nullptr);
 
     // Total latency of the active chain, in samples
     uint32_t latency() const { return fLatency.load(std::memory_order_relaxed); }
@@ -108,7 +110,9 @@ private:
 
     enum class Fade { Idle, Out, In };
 
-    void processChunk(const float* const* inputs, float* const* outputs, uint32_t frames);
+    void processChunk(const float* const* inputs, float* const* outputs, uint32_t frames,
+                      const Transport* transport, uint32_t offset);
+    Metronome::Settings metronomeSettings() const;
     void processChain(uint32_t numChannels, uint32_t frames);
     void processNodes(const std::vector<Node>& nodes, float* const* work, float* const* scratch,
                       uint32_t numChannels, uint32_t frames);
@@ -157,10 +161,12 @@ private:
     ToneStack fToneStack;
     Limiter fLimiter;
     Tuner fTuner;
+    Metronome fMetronome;
     Meter fInMeters[2], fOutMeters[2];
 
     std::vector<float> fWork[2], fDry[2], fScratch[2];
     std::vector<float> fBranch[2], fBranchScratch[2]; // branch B of a split
+    std::vector<float> fClick;
 };
 
 } // namespace namsayin
