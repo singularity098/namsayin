@@ -257,3 +257,14 @@ TEST_CASE("the engine reports which slots are running")
     CHECK(rig.engine.getParameter(kParamRunningSlotsLow) == static_cast<float>(1u << 3));
     CHECK(rig.engine.getParameter(kParamRunningSlotsHigh) == static_cast<float>(1u << 4));
 }
+
+TEST_CASE("blocks get the host tempo, and their meters reach the slot meter parameters")
+{
+    Rig rig;
+    REQUIRE(rig.engine.setChain(gainChain(7)));
+    rig.run(2);
+    CHECK(rig.engine.getParameter(slotMeterParam(7)) == doctest::Approx(120.0f));
+    rig.engine.setTempo(93.5);
+    rig.run(2);
+    CHECK(rig.engine.getParameter(slotMeterParam(7)) == doctest::Approx(93.5f));
+}

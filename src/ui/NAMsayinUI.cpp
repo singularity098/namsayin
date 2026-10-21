@@ -5,6 +5,8 @@
 
 #include "engine/BlockRegistry.hpp"
 #include "engine/Params.hpp"
+#include "engine/blocks/CompressorBlock.hpp"
+#include "engine/blocks/DelayBlock.hpp"
 #include "engine/blocks/IrBlock.hpp"
 #include "engine/blocks/NamBlock.hpp"
 #include "state/ChainExchange.hpp"
@@ -26,16 +28,16 @@ using namespace namsayin;
 
 namespace {
 
-// Theme tokens. Very dark: the window fades from near-black at the top to pure black at the bottom, and every
-// surface is a faint translucent white over it.
+// Theme tokens. Very dark: a pure black window with flat near-black grey surfaces on it.
 namespace theme {
-const Color backgroundTop(0x0b, 0x0b, 0x0d);
-const Color backgroundBottom(0x00, 0x00, 0x00);
-const Color bar(255, 255, 255, 0.025f);
-const Color panel(255, 255, 255, 0.035f);
-const Color tile(255, 255, 255, 0.05f);
-const Color tileHover(255, 255, 255, 0.08f);
-const Color inset(0, 0, 0, 0.45f);
+const Color background(0x00, 0x00, 0x00);
+const Color bar(0x0c, 0x0c, 0x0e);
+const Color panel(0x0c, 0x0c, 0x0e);
+const Color tile(0x16, 0x16, 0x1a);
+const Color tileHover(0x1d, 0x1d, 0x22);
+const Color inset(0x05, 0x05, 0x06);
+const Color overlay(0, 0, 0, 0.7f);
+const Color dialog(0x10, 0x10, 0x13);
 const Color border(255, 255, 255, 0.10f);
 const Color text(0xe6, 0xe6, 0xea);
 const Color textDim(0x78, 0x78, 0x82);
@@ -44,6 +46,13 @@ const Color warn(0xf0, 0xc0, 0x40);
 const Color bad(0xe5, 0x48, 0x4d);
 // Highlight colour. Will be user-configurable (Settings); purple for now.
 Color accent(0x9b, 0x5c, 0xff);
+// Placeholder block art, by kind of block
+const Color amp(0x8a, 0x5a, 0x3a);
+const Color cab(0x4a, 0x4a, 0x52);
+const Color pedalDelay(0x2f, 0x9e, 0x91);
+const Color pedalReverb(0x4c, 0x7c, 0xe0);
+const Color pedalDynamics(0xd0, 0x82, 0x2e);
+const Color pedalOther(0x70, 0x70, 0x7a);
 } // namespace theme
 
 constexpr float kTopBarHeight = 48.0f;
@@ -52,6 +61,10 @@ constexpr float kTileSize = 120.0f;
 constexpr float kTileGap = 16.0f;
 constexpr float kChainTop = kTopBarHeight + 24.0f;
 constexpr float kKnobRadius = 22.0f;
+// Block panel: one cell per control, right-justified next to the block image
+constexpr float kCellWidth = 96.0f;
+constexpr float kCellHeight = 116.0f;
+constexpr float kPanelMargin = 16.0f;
 constexpr uint kDoubleClickMs = 350;
 // How long the audio engine gets to start a changed chain before the UI reports blocks that aren't running
 constexpr auto kStatusGrace = std::chrono::milliseconds(2500);
@@ -69,8 +82,14 @@ enum class Hit {
     TileRemove,
     AddBlock,
     A2Size,       // index = position in the chain
+    Choice,       // index = host parameter; click steps to the next choice
     InClip,
     OutClip,
+    DialogBackdrop,
+    DialogPanel,
+    DialogClose,
+    DialogCategory, // index = Category
+    DialogItem,     // index = position in the current category's item list
 };
 
 struct HitArea {
@@ -97,6 +116,35 @@ const BlockDescriptor* blockTypeForFile(const char* filename)
     if (ext == ".wav")
         return &kIrBlockDescriptor;
     return nullptr;
+}
+
+// One entry in the Add Block dialog: a block type to add directly, or a file browser for file-based types
+struct AddItem {
+    std::string label;
+    const BlockDescriptor* type; // nullptr: browse for a file
+    std::string detail;
+};
+
+std::vector<AddItem> addItems(Category category)
+{
+    std::vector<AddItem> items;
+    switch (category)
+    {
+    case Category::LocalNam:
+        items.push_back({ "Browse for a NAM model…", nullptr, ".nam files" });
+        return items;
+    case Category::LocalIr:
+        items.push_back({ "Browse for a cab IR…", nullptr, ".wav files" });
+        return items;
+    default:
+        break;
+    }
+    for (const BlockDescriptor* type : BlockRegistry::builtin().types())
+    {
+        if (type->category == category)
+            items.push_back({ type->displayName, type, "" });
+    }
+    return items;
 }
 
 } // namespace
@@ -164,29 +212,10 @@ protected:
         const BlockDescriptor* type = filename != nullptr ? blockTypeForFile(filename) : nullptr;
         if (type == nullptr)
             return;
-        const int slot = fChain.freeSlot();
-        if (slot < 0)
-            return;
-
-        BlockState block;
-        block.typeId = type->typeId;
-        block.slot = slot;
-        block.config = { { "path", filename } };
+        nlohmann::json config = { { "path", filename } };
         if (type == &kNamBlockDescriptor)
-            block.config["a2Size"] = 1.0;
-
-        // A new block starts from its defaults; parameter values live in the host
-        setHostParameter(slotBypassParam(slot), 0.0f);
-        for (int p = 0; p < type->numParams; ++p)
-        {
-            const ParamSpec& spec = type->params[p];
-            block.params[p] = spec.toNormalized(spec.def);
-            setHostParameter(slotParam(slot, p), block.params[p]);
-        }
-
-        fChain.blocks.push_back(std::move(block));
-        fSelected = static_cast<int>(fChain.blocks.size()) - 1;
-        sendChain();
+            config["a2Size"] = 1.0;
+        addBlock(type, std::move(config));
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -203,15 +232,13 @@ protected:
         this->scale(scale, scale);
         fontSize(14.0f);
 
-        beginPath();
-        rect(0, 0, fWidth, fHeight);
-        fillPaint(linearGradient(0, 0, 0, fHeight, theme::backgroundTop, theme::backgroundBottom));
-        fill();
-        drawDither(scale);
+        fillRect(0, 0, fWidth, fHeight, theme::background);
         drawTopBar();
         drawChain();
         drawSelectedPanel();
         drawBottomBar();
+        if (fDialogOpen)
+            drawAddDialog();
 
         restore();
     }
@@ -281,10 +308,53 @@ protected:
             sendChain();
             return true;
 
-        case Hit::AddBlock: {
-            FileBrowserOptions options;
-            options.title = "Add a NAM model (.nam) or cab IR (.wav)";
-            openFileBrowser(options);
+        case Hit::AddBlock:
+            fDialogOpen = true;
+            repaint();
+            return true;
+
+        case Hit::Choice: {
+            const ParamSpec* spec = slotSpec(hit->index);
+            if (!spec)
+                return true;
+            const int steps = static_cast<int>(spec->max - spec->min);
+            const int current = static_cast<int>(spec->toValue(normalized(hit->index)) - spec->min);
+            const int next = (current + 1) % (steps + 1);
+            setNormalized(hit->index, spec->toNormalized(spec->min + next), true);
+            return true;
+        }
+
+        case Hit::DialogBackdrop:
+        case Hit::DialogClose:
+            fDialogOpen = false;
+            repaint();
+            return true;
+
+        case Hit::DialogPanel:
+            return true;
+
+        case Hit::DialogCategory:
+            fDialogCategory = static_cast<Category>(hit->index);
+            repaint();
+            return true;
+
+        case Hit::DialogItem: {
+            const std::vector<AddItem> items = addItems(fDialogCategory);
+            if (hit->index >= static_cast<int>(items.size()))
+                return true;
+            fDialogOpen = false;
+            const AddItem& item = items[hit->index];
+            if (item.type == nullptr)
+            {
+                FileBrowserOptions options;
+                options.title = fDialogCategory == Category::LocalIr ? "Add a cab IR (.wav)" : "Add a NAM model (.nam)";
+                openFileBrowser(options);
+            }
+            else
+            {
+                addBlock(item.type, nlohmann::json::object());
+            }
+            repaint();
             return true;
         }
 
@@ -333,8 +403,21 @@ protected:
         return fDraggingTile;
     }
 
+    bool onKeyboard(const KeyboardEvent& ev) override
+    {
+        if (ev.press && ev.key == kKeyEscape && fDialogOpen)
+        {
+            fDialogOpen = false;
+            repaint();
+            return true;
+        }
+        return false;
+    }
+
     bool onScroll(const ScrollEvent& ev) override
     {
+        if (fDialogOpen)
+            return true;
         const float y = static_cast<float>(ev.pos.getY() / getScaleFactor());
         if (y < kChainTop || y > kChainTop + kTileSize)
             return false;
@@ -359,6 +442,16 @@ private:
     // Parameters
 
     bool isSlot(uint32_t index) const { return isSlotParam(index); }
+
+    const BlockState* blockInSlot(int slot) const
+    {
+        for (const BlockState& block : fChain.blocks)
+        {
+            if (block.slot == slot)
+                return &block;
+        }
+        return nullptr;
+    }
 
     const ParamSpec* slotSpec(uint32_t index) const
     {
@@ -452,6 +545,25 @@ private:
             const float v = spec->toValue(fParams[index]);
             if (spec->scale == ParamScale::Toggle)
                 return v >= 0.5f ? "On" : "Off";
+            if (spec->scale == ParamScale::Choice && spec->choices)
+                return spec->choices[static_cast<int>(v - spec->min)];
+            const uint32_t offset = index - kSlotParamBase;
+            const int slot = static_cast<int>(offset / kSlotParamCount);
+            const int param = static_cast<int>(offset % kSlotParamCount) - 1;
+            const BlockState* block = blockInSlot(slot);
+            if (block && block->typeId == kDelayBlockDescriptor.typeId && param == kDelayParamTime
+                && fParams[slotParam(slot, kDelayParamSync)] >= 0.5f)
+                return delayNoteName(delayNoteIndex(fParams[index]));
+            if (spec->unit[0] == ':')
+            {
+                std::snprintf(buf, sizeof(buf), "%.1f%s", v, spec->unit);
+                return buf;
+            }
+            if (std::strcmp(spec->unit, "ms") == 0 && v > 0.0f && v < 10.0f)
+            {
+                std::snprintf(buf, sizeof(buf), "%.2f ms", v);
+                return buf;
+            }
             if (std::strcmp(spec->unit, "Hz") == 0 && v >= 1000.0f)
                 std::snprintf(buf, sizeof(buf), "%.1f kHz", v / 1000.0f);
             else
@@ -461,6 +573,31 @@ private:
         const GlobalParamSpec& spec = globalParamSpec(index);
         std::snprintf(buf, sizeof(buf), "%+.1f %s", fParams[index], spec.unit);
         return buf;
+    }
+
+    // Adds a block at the end of the chain, starting from its defaults (parameter values live in the host)
+    void addBlock(const BlockDescriptor* type, nlohmann::json config)
+    {
+        const int slot = fChain.freeSlot();
+        if (slot < 0)
+            return;
+
+        BlockState block;
+        block.typeId = type->typeId;
+        block.slot = slot;
+        block.config = std::move(config);
+
+        setHostParameter(slotBypassParam(slot), 0.0f);
+        for (int p = 0; p < type->numParams; ++p)
+        {
+            const ParamSpec& spec = type->params[p];
+            block.params[p] = spec.toNormalized(spec.def);
+            setHostParameter(slotParam(slot, p), block.params[p]);
+        }
+
+        fChain.blocks.push_back(std::move(block));
+        fSelected = static_cast<int>(fChain.blocks.size()) - 1;
+        sendChain();
     }
 
     void sendChain()
@@ -557,39 +694,6 @@ private:
     // ---------------------------------------------------------------------------------------------------------------
     // Drawing helpers
 
-    // A dark gradient only spans a handful of 8-bit levels, so it shows as bands. A faint noise texture (0-3 levels
-    // of white per pixel, one texel per physical pixel) breaks the bands up into a smooth fade.
-    // NanoVG has no built-in dithering, so we draw it ourselves.
-    void drawDither(float scale)
-    {
-        constexpr uint kSize = 128;
-        if (!fDither.isValid())
-        {
-            std::vector<uchar> pixels(kSize * kSize * 4);
-            uint32_t seed = 0x12345678u;
-            for (uint i = 0; i < kSize * kSize; ++i)
-            {
-                seed = seed * 1664525u + 1013904223u; // LCG: plenty for noise
-                pixels[i * 4 + 0] = pixels[i * 4 + 1] = pixels[i * 4 + 2] = 255;
-                pixels[i * 4 + 3] = static_cast<uchar>((seed >> 24) % 4);
-            }
-            fDither = createImageFromRGBA(kSize, kSize, pixels.data(),
-                                          static_cast<ImageFlags>(IMAGE_REPEAT_X | IMAGE_REPEAT_Y));
-        }
-        // Fade the noise out towards the bottom, which stays pure black
-        constexpr int kStrips = 32;
-        const float tile = kSize / scale;
-        const float stripHeight = fHeight / kStrips;
-        for (int i = 0; i < kStrips; ++i)
-        {
-            const float alpha = 1.0f - (i + 0.5f) / kStrips;
-            beginPath();
-            rect(0, i * stripHeight, fWidth, stripHeight + 0.5f);
-            fillPaint(imagePattern(0, 0, tile, tile, 0.0f, fDither, alpha));
-            fill();
-        }
-    }
-
     void fillRect(float x, float y, float w, float h, const Color& color, float radius = 0.0f)
     {
         beginPath();
@@ -656,6 +760,153 @@ private:
                           Hit::Knob, static_cast<int>(index) });
     }
 
+    // A choice parameter: its name, and a button showing the current choice that steps to the next one
+    void drawChoice(float cx, float cy, uint32_t index, const char* name)
+    {
+        label(cx, cy - 26.0f, name, theme::textDim, 12.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        drawButton({ cx - 42.0f, cy - 14.0f, 84.0f, 28.0f }, valueText(index).c_str(), false, theme::accent,
+                   Hit::Choice, static_cast<int>(index));
+    }
+
+    // Gain-reduction style meter for a block (fills downward from the top), in dB
+    void drawBlockMeter(float cx, float cy, float db, float maxDb, const char* name)
+    {
+        constexpr float w = 10.0f, h = 64.0f;
+        const float x = cx - w / 2, y = cy - h / 2 - 6.0f;
+        fillRect(x, y, w, h, theme::inset, 2.0f);
+        const float level = std::clamp(db / maxDb, 0.0f, 1.0f);
+        if (level > 0.0f)
+            fillRect(x, y, w, h * level, theme::warn, 2.0f);
+        label(cx, cy + kKnobRadius + 16.0f, name, theme::textDim, 12.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        char text[24];
+        if (db >= 0.05f)
+            std::snprintf(text, sizeof(text), "-%.1f dB", db);
+        else
+            std::snprintf(text, sizeof(text), "0.0 dB");
+        label(cx, cy + kKnobRadius + 31.0f, text, theme::text, 12.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+    }
+
+    // Placeholder art until real images exist: a pedal, an amp head or a speaker cab, fitted into the rect
+    void drawBlockArt(const BlockDescriptor* type, float x, float y, float w, float h, bool detailed)
+    {
+        if (type == nullptr)
+            return;
+        const float cx = x + w / 2, cy = y + h / 2;
+
+        if (type->category == Category::LocalIr)
+        {
+            // cab: a 2x2 of speakers
+            const float size = std::min(w, h);
+            const float bx = cx - size / 2, by = cy - size / 2;
+            fillRect(bx, by, size, size, theme::cab.withAlpha(0.35f), size * 0.06f);
+            fillRect(bx + size * 0.05f, by + size * 0.05f, size * 0.9f, size * 0.9f, theme::inset, size * 0.04f);
+            for (int r = 0; r < 2; ++r)
+            {
+                for (int c = 0; c < 2; ++c)
+                {
+                    const float sx = bx + size * (0.28f + 0.44f * c), sy = by + size * (0.28f + 0.44f * r);
+                    for (const float k : { 0.19f, 0.11f, 0.04f })
+                    {
+                        beginPath();
+                        circle(sx, sy, size * k);
+                        strokeColor(theme::cab.withAlpha(0.9f));
+                        strokeWidth(std::max(1.0f, size * 0.012f));
+                        stroke();
+                    }
+                }
+            }
+            return;
+        }
+
+        if (type->category == Category::LocalNam)
+        {
+            // amp head: a control strip over a grille, landscape
+            float aw = w, ah = w / 1.7f;
+            if (ah > h)
+            {
+                ah = h;
+                aw = h * 1.7f;
+            }
+            const float ax = cx - aw / 2, ay = cy - ah / 2;
+            fillRect(ax, ay, aw, ah, theme::amp.withAlpha(0.45f), aw * 0.04f);
+            fillRect(ax + aw * 0.05f, ay + ah * 0.08f, aw * 0.9f, ah * 0.22f, theme::inset, aw * 0.015f);
+            if (detailed)
+            {
+                for (int k = 0; k < 6; ++k)
+                {
+                    beginPath();
+                    circle(ax + aw * (0.2f + 0.12f * k), ay + ah * 0.19f, ah * 0.06f);
+                    fillColor(theme::text.withAlpha(0.6f));
+                    fill();
+                }
+            }
+            const float gx = ax + aw * 0.05f, gy = ay + ah * 0.38f, gw = aw * 0.9f, gh = ah * 0.52f;
+            fillRect(gx, gy, gw, gh, theme::inset, aw * 0.015f);
+            const int lines = detailed ? 9 : 5;
+            for (int row = 0; row < lines; ++row)
+            {
+                const float ly = gy + gh * (row + 0.5f) / lines;
+                beginPath();
+                moveTo(gx + gw * 0.04f, ly);
+                lineTo(gx + gw * 0.96f, ly);
+                strokeColor(theme::amp.withAlpha(0.6f));
+                strokeWidth(std::max(1.0f, ah * 0.012f));
+                stroke();
+            }
+            return;
+        }
+
+        // pedal: portrait enclosure with knobs, a name, an LED and a footswitch
+        Color color = theme::pedalOther;
+        if (type->category == Category::Delay)
+            color = theme::pedalDelay;
+        else if (type->category == Category::Reverb)
+            color = theme::pedalReverb;
+        else if (type->category == Category::Dynamics)
+            color = theme::pedalDynamics;
+
+        float pw = h * 0.62f, ph = h;
+        if (pw > w)
+        {
+            pw = w;
+            ph = w / 0.62f;
+        }
+        const float px = cx - pw / 2, py = cy - ph / 2;
+        fillRect(px, py, pw, ph, color.withAlpha(0.5f), pw * 0.08f);
+        beginPath();
+        roundedRect(px, py, pw, ph, pw * 0.08f);
+        strokeColor(color);
+        strokeWidth(std::max(1.0f, pw * 0.015f));
+        stroke();
+
+        const int knobs = detailed ? 3 : 2;
+        for (int k = 0; k < knobs; ++k)
+        {
+            const float kx = px + pw * (k + 1) / (knobs + 1);
+            beginPath();
+            circle(kx, py + ph * 0.17f, pw * 0.085f);
+            fillColor(theme::inset);
+            fill();
+        }
+        if (detailed)
+        {
+            label(cx, py + ph * 0.45f, type->displayName, theme::text, std::max(10.0f, pw * 0.13f),
+                  ALIGN_CENTER | ALIGN_MIDDLE);
+        }
+        beginPath();
+        circle(cx, py + ph * 0.62f, pw * 0.035f);
+        fillColor(theme::bad.withAlpha(0.9f));
+        fill();
+        beginPath();
+        circle(cx, py + ph * 0.8f, pw * 0.12f);
+        fillColor(theme::inset);
+        fill();
+        beginPath();
+        circle(cx, py + ph * 0.8f, pw * 0.08f);
+        fillColor(theme::textDim);
+        fill();
+    }
+
     void drawMeter(float x, float y, float h, uint32_t left, uint32_t right, bool latched, Hit clipHit,
                    const char* name)
     {
@@ -719,7 +970,7 @@ private:
         resetScissor();
 
         if (count == 0)
-            label(16.0f + kTileSize + 32.0f, y + kTileSize / 2, "Click + to add a NAM model or a cab IR", theme::textDim,
+            label(16.0f + kTileSize + 32.0f, y + kTileSize / 2, "Click + to add a block", theme::textDim,
                   14.0f, ALIGN_LEFT | ALIGN_MIDDLE);
 
         bool anyRunning = false;
@@ -764,33 +1015,14 @@ private:
             stroke();
         }
 
-        // generic images (placeholders until real images): an amp grille for NAM, a speaker cone for IRs
+        // thumbnail (placeholder art until real images)
+        const BlockDescriptor* type = BlockRegistry::builtin().find(block.typeId);
         globalAlpha(bypassed || missing || notRunning ? 0.35f : 1.0f);
-        fillRect(x + 18, y + 24, kTileSize - 36, 52, theme::inset, 6.0f);
-        if (block.typeId == kIrBlockDescriptor.typeId)
-        {
-            for (const float r : { 22.0f, 13.0f, 5.0f })
-            {
-                beginPath();
-                circle(x + kTileSize / 2, y + 50, r);
-                strokeColor(theme::border);
-                strokeWidth(2.0f);
-                stroke();
-            }
-        }
-        else
-        {
-            for (int row = 0; row < 5; ++row)
-            {
-                beginPath();
-                moveTo(x + 24, y + 32 + row * 9.0f);
-                lineTo(x + kTileSize - 24, y + 32 + row * 9.0f);
-                strokeColor(theme::border);
-                strokeWidth(2.0f);
-                stroke();
-            }
-        }
-        std::string name = missing ? "Missing file" : (notRunning ? "Not running" : fileStem(path));
+        drawBlockArt(type, x + 16, y + 24, kTileSize - 32, 58, false);
+        std::string name = missing ? "Missing file"
+                         : notRunning ? "Not running"
+                         : path.empty() ? (type ? type->displayName : block.typeId)
+                         : fileStem(path);
         if (name.size() > 16)
             name = name.substr(0, 15) + "…";
         label(x + kTileSize / 2, y + 94, name.c_str(), missing || notRunning ? theme::bad : theme::text, 12.0f,
@@ -819,10 +1051,12 @@ private:
     void drawSelectedPanel()
     {
         const float top = kChainTop + kTileSize + 28.0f;
+        const float left = 16.0f;
+        const float width = fWidth - 32.0f;
         const float height = fHeight - kBottomBarHeight - top - 16.0f;
         if (height < 60.0f)
             return;
-        fillRect(16.0f, top, fWidth - 32.0f, height, theme::panel, 10.0f);
+        fillRect(left, top, width, height, theme::panel, 10.0f);
 
         if (fSelected < 0 || fSelected >= static_cast<int>(fChain.blocks.size()))
         {
@@ -836,33 +1070,164 @@ private:
         if (!type)
             return;
 
-        const std::string path = block.config.value("path", std::string());
-        label(32.0f, top + 22.0f, path.empty() ? type->displayName : fileStem(path).c_str(), theme::text, 16.0f,
-              ALIGN_LEFT | ALIGN_MIDDLE);
-        label(32.0f, top + 42.0f, path.c_str(), theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
-
-        float x = 32.0f + kKnobRadius + 8.0f;
-        const float cy = top + 42.0f + 24.0f + kKnobRadius + 14.0f;
+        // The controls: one cell each, plus block-specific extras
+        enum class Cell { Param, A2Size, Meter };
+        struct Control {
+            Cell cell;
+            int param;
+        };
+        std::vector<Control> controls;
         for (int p = 0; p < type->numParams; ++p)
+            controls.push_back({ Cell::Param, p });
+        if (type == &kNamBlockDescriptor)
+            controls.push_back({ Cell::A2Size, 0 });
+        if (type == &kCompressorBlockDescriptor)
+            controls.push_back({ Cell::Meter, 0 });
+        const int count = static_cast<int>(controls.size());
+
+        // Layout: the block image on the left, the controls right-justified in rows. Use fewer columns (more
+        // rows) when one row would leave the image small and there's height for it; in a small window, narrow
+        // the cells instead.
+        constexpr float kHeaderHeight = 52.0f;
+        const float imageMax = height - 2 * kPanelMargin;
+        const float rowsSpace = height - kHeaderHeight - kPanelMargin;
+        const int rowsAvailable = std::max(1, static_cast<int>(rowsSpace / kCellHeight));
+        const int minColumns = (count + rowsAvailable - 1) / rowsAvailable;
+        const float freeWidth = width - 3 * kPanelMargin;
+        int columns = std::max(count, 1);
+        while (columns > minColumns && freeWidth - columns * kCellWidth < std::min(imageMax, 240.0f))
+            --columns;
+        const int rows = (count + columns - 1) / columns;
+        float cellWidth = kCellWidth;
+        const float imageWanted = std::min(imageMax, 140.0f);
+        if (freeWidth - columns * cellWidth < imageWanted)
+            cellWidth = std::max(76.0f, (freeWidth - imageWanted) / columns);
+        const float imageSize = std::clamp(freeWidth - columns * cellWidth, 0.0f, imageMax);
+
+        // Image area (placeholder art for now; real pedal/amp/cab images go here)
+        const float imageX = left + kPanelMargin, imageY = top + kPanelMargin;
+        if (imageSize >= 60.0f)
         {
-            const uint32_t index = slotParam(block.slot, p);
-            if (type->params[p].scale == ParamScale::Toggle)
-            {
-                drawButton({ x - 40.0f, cy - 14.0f, 80.0f, 28.0f }, type->params[p].name, fParams[index] >= 0.5f,
-                           theme::accent, Hit::Toggle, static_cast<int>(index));
-            }
-            else
-            {
-                drawKnob(x, cy, index, type->params[p].name);
-            }
-            x += 100.0f;
+            fillRect(imageX, imageY, imageSize, imageSize, theme::inset, 8.0f);
+            const bool bypassed = fParams[slotBypassParam(block.slot)] >= 0.5f;
+            globalAlpha(bypassed ? 0.35f : 1.0f);
+            drawBlockArt(type, imageX + imageSize * 0.1f, imageY + imageSize * 0.1f, imageSize * 0.8f,
+                         imageSize * 0.8f, true);
+            globalAlpha(1.0f);
         }
 
-        if (block.typeId == kNamBlockDescriptor.typeId)
+        // Header: name and file, above the controls
+        const float textX = imageSize >= 60.0f ? imageX + imageSize + kPanelMargin : left + kPanelMargin;
+        const std::string path = block.config.value("path", std::string());
+        label(textX, top + 26.0f, path.empty() ? type->displayName : fileStem(path).c_str(), theme::text, 16.0f,
+              ALIGN_LEFT | ALIGN_MIDDLE);
+        label(textX, top + 46.0f, path.empty() ? categoryName(type->category) : path.c_str(), theme::textDim, 11.0f,
+              ALIGN_LEFT | ALIGN_MIDDLE);
+
+        const float gridRight = left + width - kPanelMargin;
+        const float gridTop = top + kHeaderHeight + std::max(0.0f, (rowsSpace - rows * kCellHeight) / 2);
+        for (int i = 0; i < count; ++i)
         {
-            const bool lite = block.config.value("a2Size", 1.0) < 0.5;
-            drawButton({ x - 40.0f, cy - 14.0f, 80.0f, 28.0f }, lite ? "A2: Lite" : "A2: Full", lite, theme::accent,
-                       Hit::A2Size, fSelected);
+            const int row = i / columns;
+            const int col = i % columns;
+            // right-justified: the last row's cells sit against the right edge too
+            const int inRow = row == rows - 1 ? count - row * columns : columns;
+            const float cx = gridRight - (inRow - col - 0.5f) * cellWidth;
+            const float cy = gridTop + row * kCellHeight + 8.0f + kKnobRadius + 6.0f;
+            const Control& control = controls[i];
+
+            if (control.cell == Cell::A2Size)
+            {
+                const bool lite = block.config.value("a2Size", 1.0) < 0.5;
+                drawButton({ cx - 40.0f, cy - 14.0f, 80.0f, 28.0f }, lite ? "A2: Lite" : "A2: Full", lite,
+                           theme::accent, Hit::A2Size, fSelected);
+                continue;
+            }
+            if (control.cell == Cell::Meter)
+            {
+                drawBlockMeter(cx, cy, fParams[slotMeterParam(block.slot)], 24.0f, "Reduction");
+                continue;
+            }
+
+            const ParamSpec& spec = type->params[control.param];
+            const uint32_t index = slotParam(block.slot, control.param);
+            if (spec.scale == ParamScale::Toggle)
+                drawButton({ cx - 40.0f, cy - 14.0f, 80.0f, 28.0f }, spec.name, fParams[index] >= 0.5f, theme::accent,
+                           Hit::Toggle, static_cast<int>(index));
+            else if (spec.scale == ParamScale::Choice)
+                drawChoice(cx, cy, index, spec.name);
+            else
+                drawKnob(cx, cy, index, spec.name);
+        }
+    }
+
+    void drawAddDialog()
+    {
+        fHits.push_back({ { 0, 0, fWidth, fHeight }, Hit::DialogBackdrop, 0 });
+        fillRect(0, 0, fWidth, fHeight, theme::overlay);
+
+        const float w = std::min(680.0f, fWidth - 64.0f);
+        const float h = std::min(440.0f, fHeight - 64.0f);
+        const float x = (fWidth - w) / 2, y = (fHeight - h) / 2;
+        fillRect(x, y, w, h, theme::dialog, 12.0f);
+        beginPath();
+        roundedRect(x, y, w, h, 12.0f);
+        strokeColor(theme::border);
+        strokeWidth(1.0f);
+        stroke();
+        fHits.push_back({ { x, y, w, h }, Hit::DialogPanel, 0 });
+
+        label(x + 20.0f, y + 26.0f, "Add Block", theme::text, 16.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        const Rect close { x + w - 40.0f, y + 10.0f, 30.0f, 30.0f };
+        label(close.x + 15.0f, close.y + 15.0f, "×", theme::textDim, 22.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        fHits.push_back({ close, Hit::DialogClose, 0 });
+
+        // categories on the left
+        const float listX = x + 12.0f, listTop = y + 52.0f, listW = 190.0f;
+        const float rowH = std::min(26.0f, (h - 64.0f) / kCategoryCount);
+        for (int c = 0; c < kCategoryCount; ++c)
+        {
+            const auto category = static_cast<Category>(c);
+            const Rect r { listX, listTop + c * rowH, listW, rowH - 2.0f };
+            const bool selected = category == fDialogCategory;
+            const bool available = !addItems(category).empty();
+            if (selected)
+                fillRect(r.x, r.y, r.w, r.h, theme::accent.withAlpha(0.25f), 5.0f);
+            else if (r.contains(fMouseX, fMouseY))
+                fillRect(r.x, r.y, r.w, r.h, theme::tileHover, 5.0f);
+            label(r.x + 10.0f, r.y + r.h / 2, categoryName(category), available ? theme::text : theme::textDim, 13.0f,
+                  ALIGN_LEFT | ALIGN_MIDDLE);
+            fHits.push_back({ r, Hit::DialogCategory, c });
+        }
+
+        // the category's blocks on the right
+        const float itemsX = listX + listW + 16.0f, itemsW = x + w - 16.0f - itemsX;
+        const std::vector<AddItem> items = addItems(fDialogCategory);
+        if (items.empty())
+        {
+            const bool tone3000 = fDialogCategory == Category::Tone3000AmpHead
+                               || fDialogCategory == Category::Tone3000AmpCab
+                               || fDialogCategory == Category::Tone3000Cab;
+            label(itemsX + 8.0f, listTop + 16.0f, tone3000 ? "Tone3000 integration comes in a later version."
+                                                           : "No blocks in this category yet.",
+                  theme::textDim, 13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+            return;
+        }
+        const float itemH = 64.0f;
+        for (size_t i = 0; i < items.size(); ++i)
+        {
+            const Rect r { itemsX, listTop + i * (itemH + 8.0f), itemsW, itemH };
+            fillRect(r.x, r.y, r.w, r.h, r.contains(fMouseX, fMouseY) ? theme::tileHover : theme::tile, 8.0f);
+            const BlockDescriptor* artType = items[i].type;
+            if (artType == nullptr)
+                artType = fDialogCategory == Category::LocalIr ? &kIrBlockDescriptor : &kNamBlockDescriptor;
+            drawBlockArt(artType, r.x + 10.0f, r.y + 8.0f, 60.0f, r.h - 16.0f, false);
+            label(r.x + 84.0f, r.y + (items[i].detail.empty() ? r.h / 2 : 24.0f), items[i].label.c_str(), theme::text,
+                  14.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+            if (!items[i].detail.empty())
+                label(r.x + 84.0f, r.y + 44.0f, items[i].detail.c_str(), theme::textDim, 11.0f,
+                      ALIGN_LEFT | ALIGN_MIDDLE);
+            fHits.push_back({ r, Hit::DialogItem, static_cast<int>(i) });
         }
     }
 
@@ -901,7 +1266,6 @@ private:
     // ---------------------------------------------------------------------------------------------------------------
 
     float fParams[kParamCount] {};
-    NanoImage fDither;
     ChainState fChain;
     int fSelected = -1;
 
@@ -919,6 +1283,9 @@ private:
     int fPressTile = -1;
     float fPressX = 0.0f;
     bool fDraggingTile = false;
+
+    bool fDialogOpen = false;
+    Category fDialogCategory = Category::LocalNam;
 
     bool fInClipLatched = false;
     bool fOutClipLatched = false;

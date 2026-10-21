@@ -3,7 +3,7 @@
 - The plugin is ultra-light, fast, and snappy
 - Zero latency by default: latency (plugin delay compensation, PDC) is only introduced by blocks that require it, and is reported to the host
 - Natively runs on Linux and Windows, x86-64 only, and requires a CPU with AVX2/FMA (macOS and ARM are not supported for now)
-- Beautiful interface with a very dark theme, drawn with NanoVG: the background fades from a very dark gray at the top to pure black at the bottom, and boxes, banners and panels are a very dark, almost translucent gray
+- Beautiful interface with a very dark theme, drawn with NanoVG: the window background is pure black, and the top and bottom bars and the block panel are a flat, very dark near-black gray (no gradient)
     - The highlight colour is purple for now, and will be configurable
 - The interface can be resized and scales for high DPI displays
 - Free, open source software under the MIT license
@@ -41,7 +41,8 @@
     - Only one split at a time
     - The merge has controls for A/B balance, level, pan and phase invert per branch
     - The two branches are time-aligned at the merge if their latencies differ
-- The blocks in the signal chain are square shaped, and we will use provided images
+- The blocks in the signal chain are square shaped, and we will use provided images (later possibly as small thumbnails on the tiles)
+- The panel below the chain shows the selected block: a large, high-quality image of the pedal/amp/cab on the left of the panel, and the block's generic knobs right-justified next to it. Until real images exist, a drawn placeholder (pedal, amp head or cab) is shown. Later the generic knobs may be removed so knobs are turned on the image itself (needs images prepared by the owner first)
 - A local NAM file or IR uses an image sidecar file with the same name (e.g. `My Amp.nam` → `My Amp.png`). When there is no sidecar image, we will use a generic image. In the beginning, we can use a very crude mockup and I will provide higher quality images later
 - Blocks can be easily reordered by dragging and dropping. They can also be temporarily disabled/bypassed, or removed
 - Undo/redo for all edits to the signal chain and block settings
@@ -83,4 +84,5 @@
 - Local IR blocks (cab impulse responses from .wav files), added to the prototype at the owner's request
 - Delay block (with stereo delay)
 - Reverb block (room, hall and plate types)
+- Compressor block (studio style: threshold, ratio, attack, release, knee, makeup, mix, with a gain-reduction meter), added to M3 at the owner's request
 - Everything else in this document (Tone3000 integration, IR loader, other effect categories, etc.) follows in later versions, but the architecture must allow for it

@@ -12,6 +12,10 @@ namespace namsayin {
 
 // The list of block types the engine can create. The Add Block dialog, parameter names and preset loading
 // all read from here. To add an effect: write its Block subclass and add its descriptor in BlockRegistry.cpp.
+// Name shown in the Add Block dialog
+const char* categoryName(Category category);
+constexpr int kCategoryCount = static_cast<int>(Category::Wah) + 1;
+
 class BlockRegistry {
 public:
     explicit BlockRegistry(std::vector<const BlockDescriptor*> types);

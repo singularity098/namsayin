@@ -47,6 +47,7 @@ struct ParamSpec {
     float max = 1.0f;
     float def = 0.0f;
     ParamScale scale = ParamScale::Linear;
+    const char* const* choices = nullptr; // Choice only: one label per step, from min to max
 
     float toValue(float normalized) const
     {
@@ -102,6 +103,12 @@ public:
 
     // RT. Processes in place. numChannels is 1 or 2.
     virtual void process(float* const* io, uint32_t numChannels, uint32_t frames) = 0;
+
+    // RT. The host tempo, called before every process(). 120 BPM when the host doesn't report one.
+    virtual void setTempo(double /*bpm*/) {}
+
+    // RT. A level the UI shows on the block (e.g. a compressor's gain reduction in dB); read after process().
+    virtual float meter() const { return 0.0f; }
 
     // Latency in samples this block adds. May only change across a configure()/prepare() call.
     virtual uint32_t latency() const { return 0; }

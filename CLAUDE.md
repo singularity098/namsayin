@@ -8,18 +8,19 @@ NAMsayin is a guitar rig plugin (VST3 + LV2) in C++20, built with DPF (plugin fr
 
 - **Requirements**: `docs/Requirements.md` — the owner's feature list plus agreed decisions. Treat it as the source of truth; record new decisions there.
 - **Architecture and milestones**: `docs/Architecture.md` — design, v1 milestones (M0–M10) and decisions log.
-- **Current milestone**: M1, M2 (minus resampling) and an M4 prototype are done: the plugin loads local .nam files and has a working UI (chain tiles, add/remove/bypass/drag-reorder, block controls, global knobs, meters, clip lights). The owner asked for M2 then M4 to get a prototype quickly. The IR loader (local .wav cab IRs) is also done, at the owner's request. Still to do for M4: the Add Block dialog with categories (the "+" opens a file browser for now), real block images, MIDI learn UI. Next: M3 (delay/reverb).
+- **Current milestone**: M1, M2 (minus resampling) and M3 (delay, reverb, compressor) are done, and M4 is done except real block images (the owner will provide them) and the MIDI learn UI (part of M7). The IR loader (local .wav cab IRs) is also done, at the owner's request. Agreed order from here: M5 (library, settings) then M7 (presets, undo/redo, MIDI learn); then M6, M8, M9.
 
 ## Fixed decisions (don't revisit without the owner)
 
 - Formats: VST3 and LV2 only. No standalone app, no CLAP, no AU.
 - Platforms: Linux and Windows, x86-64 only, AVX2/FMA required. No macOS, no ARM.
 - License: MIT. New source files start with `// SPDX-License-Identifier: MIT` and `// Copyright (c) 2026 singularity098`.
-- UI: DPF's NanoVG, very dark theme (gradient from near-black at the top to black at the bottom, translucent surfaces, purple accent that will become configurable). Theme tokens are at the top of `src/ui/NAMsayinUI.cpp`. The background gradient is dithered with a faint noise texture (`drawDither`), because a near-black gradient bands visibly in 8 bits. Draw in logical pixels and scale by `getScaleFactor()`.
+- UI: DPF's NanoVG, very dark theme: pure black window, flat near-black gray bars and panels (no gradient, owner's request), purple accent that will become configurable. Theme tokens are at the top of `src/ui/NAMsayinUI.cpp`. Draw in logical pixels and scale by `getScaleFactor()`.
+- Block panel: a large block image on the left (drawn placeholder art until real images exist), generic controls right-justified. The generic knobs may later be replaced by knobs on the image itself.
 - Zero latency by default; only blocks that need latency add it, and it's reported to the host.
 - Max 32 blocks; each block keeps a fixed parameter slot for its lifetime (automation/MIDI follow the block).
 - One split at a time; branch B may run on a second core.
-- v1 scope: local NAM blocks, delay, reverb (room/hall/plate), plus tuner, metronome, presets, settings, undo/redo.
+- v1 scope: local NAM blocks, local IR blocks, delay, reverb (room/hall/plate), compressor (studio style), plus tuner, metronome, presets, settings, undo/redo.
 - Primary test DAW: Reaper.
 
 ## Layout
@@ -37,7 +38,8 @@ src/engine/           Audio engine, independent of DPF (static library `namsayin
   Engine.*            Input stage, chain, tone stack, output, limiter, meters; lock-free chain swaps
   SpscQueue.hpp       Lock-free queue (retired graphs go back to the non-RT side through it)
   dsp/                Smoother, Biquad, ToneStack, Limiter, Meter
-  blocks/             Block implementations (NamBlock, IrBlock)
+  dsp/DelayLine.hpp   Delay line with Hermite reads, sine LFO, dry/wet mix law
+  blocks/             Block implementations (NamBlock, IrBlock, DelayBlock, ReverbBlock, CompressorBlock)
 src/state/            ChainState (the chain as plain data, JSON)
 src/plugin/           DistrhoPluginInfo.h + DSP side (Plugin subclass; thin wrapper around Engine)
 src/ui/               UI side (UI subclass, NanoVG). Immediate-mode: draw functions record hit areas, mouse handlers look them up
@@ -88,7 +90,8 @@ The file browser opens in the host's working directory. Final checks happen in R
 - The UI may run in a separate process (LV2), so DSP↔UI communication goes through parameters and state only — no direct pointers.
 - `CMAKE_CXX_EXTENSIONS` is ON because DPF's UI code uses `typeof`.
 - **Host parameter indices are DAW automation IDs — never reorder or remove them.** Globals come first, then 32 slots × 9 (bypass + 8). Parameters added later go after the slots (`kFirstLaterParam` in `src/engine/Params.hpp`).
-- Slot parameters are normalized 0..1 for the host; each block's `ParamSpec` maps them to real values.
+- Slot parameters are normalized 0..1 for the host; each block's `ParamSpec` maps them to real values. `Choice` params list their labels in `ParamSpec::choices`; the UI draws them as a button that steps through the choices.
+- Blocks get the host tempo through `Block::setTempo()` and can show a level in the UI through `Block::meter()` (one hidden output parameter per slot, `slotMeterParam()`).
 - Block `typeId`s are stored in presets and plugin state — never rename one.
 - Parameter values live in the host. `ChainState.params`/`bypass` are only for presets and undo; the UI pushes them to the host.
 - The chain reaches the DSP as the `chain` state string (JSON). `setState()` runs off the audio thread and builds the new graph there.

@@ -158,6 +158,9 @@ protected:
 
     void run(const float** const inputs, float** const outputs, const uint32_t frames) override
     {
+        const TimePosition& time = getTimePosition();
+        if (time.bbt.valid)
+            fEngine.setTempo(time.bbt.beatsPerMinute);
         fEngine.process(inputs, outputs, frames);
 
         const uint32_t latency = fEngine.latency();

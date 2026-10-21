@@ -48,7 +48,11 @@ enum LaterParam : uint32_t {
     kParamInstanceId,       // output: this plugin instance's random ID
     kParamChainRevision,    // input, hidden: bumped by the UI after writing the exchange file
 
-    kParamCount
+    // outputs: one meter per slot, for blocks that show a level (Block::meter(), e.g. compressor gain reduction)
+    kParamSlotMeterBase,
+    kParamSlotMeterEnd = kParamSlotMeterBase + kMaxBlocks,
+
+    kParamCount = kParamSlotMeterEnd
 };
 
 constexpr uint32_t slotBypassParam(int slot)
@@ -59,6 +63,11 @@ constexpr uint32_t slotBypassParam(int slot)
 constexpr uint32_t slotParam(int slot, int param)
 {
     return slotBypassParam(slot) + 1 + static_cast<uint32_t>(param);
+}
+
+constexpr uint32_t slotMeterParam(int slot)
+{
+    return kParamSlotMeterBase + static_cast<uint32_t>(slot);
 }
 
 constexpr bool isSlotParam(uint32_t index)

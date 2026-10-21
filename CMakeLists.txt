@@ -55,8 +55,11 @@ target_include_directories(fftconvolver SYSTEM PUBLIC ${FFTCONVOLVER_DIR})
 
 add_library(namsayin-engine STATIC
   src/engine/BlockRegistry.cpp
+  src/engine/blocks/CompressorBlock.cpp
+  src/engine/blocks/DelayBlock.cpp
   src/engine/blocks/IrBlock.cpp
   src/engine/blocks/NamBlock.cpp
+  src/engine/blocks/ReverbBlock.cpp
   src/engine/Engine.cpp
   src/engine/Params.cpp
   src/state/ChainExchange.cpp
@@ -97,10 +100,13 @@ if(NAMSAYIN_BUILD_TESTS)
   add_executable(namsayin-tests
     tests/TestMain.cpp
     tests/ChainStateTests.cpp
+    tests/CompressorBlockTests.cpp
+    tests/DelayBlockTests.cpp
     tests/DspTests.cpp
     tests/EngineTests.cpp
     tests/IrBlockTests.cpp
-    tests/NamBlockTests.cpp)
+    tests/NamBlockTests.cpp
+    tests/ReverbBlockTests.cpp)
   target_include_directories(namsayin-tests PRIVATE tests deps/doctest)
   target_link_libraries(namsayin-tests PRIVATE namsayin-engine)
   target_compile_options(namsayin-tests PRIVATE ${NAMSAYIN_WARNINGS})

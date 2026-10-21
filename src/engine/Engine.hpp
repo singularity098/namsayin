@@ -48,6 +48,9 @@ public:
     void setParameter(uint32_t index, float value);
     float getParameter(uint32_t index) const;
 
+    // RT. The host tempo for tempo-synced blocks; call before process() when the host reports one.
+    void setTempo(double bpm) { fTempo = bpm > 0.0 ? bpm : 120.0; }
+
     // RT. Two inputs and two outputs; they may alias.
     void process(const float* const* inputs, float* const* outputs, uint32_t frames);
 
@@ -113,6 +116,7 @@ private:
     float fFadeStep = 1.0f;
     float fRampStep = 1.0f;
     float fGlobalBypassMix = 0.0f;
+    double fTempo = 120.0;
     std::array<SlotState, kMaxBlocks> fSlots {};
 
     Smoother fInputGain, fOutputGain;

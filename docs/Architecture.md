@@ -1,6 +1,6 @@
 # NAMsayin v1 — Architecture and Milestones
 
-This plan covers version 1 as scoped in [Requirements.md](Requirements.md): local NAM blocks, a delay block and a reverb block, plus everything around them (chain, split/merge, tuner, metronome, presets, settings). Later features (Tone3000, IR loader, other effect categories) are not built in v1, but the design leaves room for them.
+This plan covers version 1 as scoped in [Requirements.md](Requirements.md): local NAM blocks, local IR blocks, a delay block, a reverb block and a compressor block, plus everything around them (chain, split/merge, tuner, metronome, presets, settings). Later features (Tone3000, IR loader, other effect categories) are not built in v1, but the design leaves room for them.
 
 ## 1. Tech stack
 
@@ -29,7 +29,7 @@ src/
     ChainGraph        Immutable processing graph built from a ChainState
     Block             Base class for every block
     BlockRegistry     Table of available block types (the "modular effects" hook)
-    blocks/           NamBlock, DelayBlock, ReverbBlock
+    blocks/           NamBlock, IrBlock, DelayBlock, ReverbBlock, CompressorBlock
     global/           InputStage, ToneStack (Bass/Mid/Treble), Limiter, Meters
     Tuner, Metronome
     ParallelWorker    Second-core thread for split branch B
@@ -82,8 +82,12 @@ public:
     virtual void setParam(int index, float value) = 0;
     virtual uint32_t latency() const { return 0; }
     virtual void reset() = 0;
+    virtual void setTempo(double bpm) {}            // host tempo, before every process()
+    virtual float meter() const { return 0; }       // a level the UI shows, e.g. gain reduction
 };
 ```
+
+A block's `meter()` reaches the UI through one output parameter per slot (`kParamSlotMeterBase + slot`).
 
 New effects are added by writing one class and one registry line. Removing an effect is deleting both. The Add Block dialog, parameter names and preset loader all read from the registry.
 
@@ -134,9 +138,23 @@ Each block is assigned a free slot when it is created and keeps it for its whole
 
 Parameters: time (ms, or a note value when synced), tempo sync on/off, feedback, mix, tone (low-pass in the feedback path), mode (mono / stereo / ping-pong), stereo spread, modulation depth. In stereo mode, left and right have separate lines, offset by the spread setting.
 
+- Time changes glide (a smoothed, fractionally read delay time), like a tape or analog delay, instead of clicking.
+- Synced, the Time knob picks from 14 note values (1/1 down to 1/32, with dotted and triplet values); the host tempo comes from DPF's `TimePosition`, 120 BPM when the host doesn't report one. Max delay is 4 s.
+- The feedback path has a fixed 40 Hz high-pass, the Tone low-pass and a soft limit above half scale, so 100% feedback stays bounded.
+- Ping-pong: the input (summed to mono) enters on the left, repeats alternate left and right.
+- Mix: the dry signal stays at full level up to 50%, and the wet signal reaches full level at 50% (also used by the reverb).
+
 ### 4.8 Reverb block
 
 An algorithmic reverb written in-house (Dattorro-style plate/hall network). Parameters: type (room / hall / plate), decay, pre-delay, damping, low cut, high cut, width, mix. Mono input gives a stereo-wide tail when the plugin is in stereo mode.
+
+- One figure-eight tank (Dattorro 1997) voiced three ways: Plate is the original sizes; Hall scales the tank by 1.45 with deeper, slower modulation; Room scales it to 0.42 with less diffusion and adds early reflections tapped from the pre-delay line.
+- Decay is the RT60 in seconds; the tank's decay gain is computed from it and the tank's loop time, so the set time holds for every type and sample rate (tested).
+- Buffers are sized for the largest voicing in `prepare()`, so changing type on the audio thread only changes read positions.
+
+### 4.8b Compressor block
+
+Added to v1 at the owner's request. Studio style, feed-forward: stereo-linked peak detector, soft-knee gain computer, attack/release smoothing of the gain in dB, then makeup gain and a dry/wet mix for parallel compression. Parameters: threshold, ratio, attack, release, knee, makeup, mix. Its gain reduction is shown in the block panel through the block meter.
 
 ### 4.9 Tuner
 
@@ -175,14 +193,14 @@ An algorithmic reverb written in-house (Dattorro-style plate/hall network). Para
 - Layout:
   - **Top bar**: preset menu and preset name, undo/redo, global bypass; on the right, the Fretbored link, metronome and tuner buttons.
   - **Middle**: the chain, left to right, with square block tiles and "+" boxes. A split shows as two rows that rejoin at the merge.
-  - **Below the chain**: the selected block's controls.
+  - **Below the chain**: the selected block's panel: a large block image on the left (placeholder art until real pedal/amp/cab images exist), the name and file above the controls, and the generic controls right-justified in one or more rows. The generic knobs may later go away in favour of turning knobs on the image itself.
   - **Bottom bar**: mono/stereo toggle, input, bass, middle, treble and output knobs, input/output meters with clip lights (click to reset), limiter on/off.
 - **Interactions**:
   - Drag a block to move it; drop indicators show where it lands.
   - Right-click a block: bypass, remove, MIDI learn.
   - Double-click a knob to reset it; Shift-drag for fine control.
 - **Dialogs**: Add Block (categories on the left), Settings, and the Tuner and Metronome panels (overlays).
-- A dark theme defined as colour tokens in one file, so it can be restyled.
+- A dark theme defined as colour tokens in one file, so it can be restyled: pure black window, flat near-black gray bars and panels.
 - The Fretbored link opens the browser through a small platform helper (`xdg-open` / `ShellExecute`).
 
 ## 8. Build, test and release
@@ -220,7 +238,7 @@ Each milestone ends with a working build, passing tests and a short demo.
 | M0 | **Project skeleton** | CMake + submodules; a pass-through plugin builds as VST3 and LV2 on Linux and Windows in CI; an empty resizable HiDPI NanoVG window; MIT license headers |
 | M1 | **Engine core** | Block interface and registry; ChainGraph with real-time-safe swap; parameter slots; state save/restore; input/tone stack/output/limiter/meters; global bypass; mono/stereo |
 | M2 | **NAM block** | A1 and A2 loading on a background thread; Full/Lite global and per block; normalization; sample-rate handling with latency reporting |
-| M3 | **Delay and reverb** | Both blocks with their parameters, stereo delay and tempo sync |
+| M3 | **Delay, reverb and compressor** | The three blocks with their parameters, stereo delay and tempo sync |
 | M4 | **Main UI** | Chain view with tiles, drag-and-drop, "+" and the Add Block dialog, block controls, bottom bar with knobs and meters, generic images, dark theme |
 | M5 | **Library and settings** | Settings panel; NAM directory scanning with zip support, rescan button, index cache; hashing and favorites; sidecar images |
 | M6 | **Split and merge** | One split with merge controls, latency alignment, branch B on a second core |
@@ -237,3 +255,6 @@ M2–M3 and M4 can overlap, as can M8 and M9.
 2. **Standalone app**: dropped for now; VST3 and LV2 only.
 3. **Reverb types**: room, hall and plate.
 4. **Test DAW**: Reaper is the primary host.
+5. **Compressor**: added to M3, studio style (owner's choice over a simple pedal-style one).
+6. **Theme**: no gradient; pure black window, flat near-black gray surfaces.
+7. **Block panel**: large block image on the left, generic knobs right-justified.

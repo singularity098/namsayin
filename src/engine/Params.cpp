@@ -3,6 +3,8 @@
 
 #include "engine/Params.hpp"
 
+#include <cstdio>
+
 namespace namsayin {
 
 namespace {
@@ -25,17 +27,39 @@ constexpr GlobalParamSpec kGlobalParams[kGlobalParamCount] = {
     { "Limiter Reduction", "limiter_gr",  "dB", 0.0f,   24.0f,  0.0f, kParamFlagOutput },
 };
 
-constexpr GlobalParamSpec kLaterParams[kParamCount - kFirstLaterParam] = {
+// Fixed part of the later parameters; the slot meters are generated in globalParamSpec()
+constexpr GlobalParamSpec kLaterParams[kParamSlotMeterBase - kFirstLaterParam] = {
     { "Running Slots 1-16",  "running_lo", "", 0.0f, 65535.0f, 0.0f, kParamFlagOutput | kParamFlagInteger },
     { "Running Slots 17-32", "running_hi", "", 0.0f, 65535.0f, 0.0f, kParamFlagOutput | kParamFlagInteger },
     { "Instance ID",         "instance_id", "", 0.0f, 16777215.0f, 0.0f, kParamFlagOutput | kParamFlagInteger | kParamFlagHidden },
     { "Chain Revision",      "chain_rev",   "", 0.0f, 16777215.0f, 0.0f, kParamFlagInteger | kParamFlagHidden },
 };
 
+struct SlotMeterSpecs {
+    char names[kMaxBlocks][24];
+    char symbols[kMaxBlocks][16];
+    GlobalParamSpec specs[kMaxBlocks];
+
+    SlotMeterSpecs()
+    {
+        for (int slot = 0; slot < kMaxBlocks; ++slot)
+        {
+            std::snprintf(names[slot], sizeof(names[slot]), "Slot %02d Meter", slot + 1);
+            std::snprintf(symbols[slot], sizeof(symbols[slot]), "s%02d_meter", slot + 1);
+            specs[slot] = { names[slot], symbols[slot], "", -60.0f, 60.0f, 0.0f, kParamFlagOutput | kParamFlagHidden };
+        }
+    }
+};
+
 } // namespace
 
 const GlobalParamSpec& globalParamSpec(uint32_t index)
 {
+    if (index >= kParamSlotMeterBase)
+    {
+        static const SlotMeterSpecs meters;
+        return meters.specs[index - kParamSlotMeterBase];
+    }
     return index >= kFirstLaterParam ? kLaterParams[index - kFirstLaterParam] : kGlobalParams[index];
 }
 

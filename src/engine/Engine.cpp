@@ -189,7 +189,10 @@ void Engine::process(const float* const* inputs, float* const* outputs, uint32_t
                                 std::memory_order_relaxed);
     uint32_t running = 0;
     for (const Node& node : fActive->nodes)
+    {
         running |= 1u << node.slot;
+        fParams[slotMeterParam(node.slot)].store(node.block->meter(), std::memory_order_relaxed);
+    }
     fParams[kParamRunningSlotsLow].store(static_cast<float>(running & 0xffffu), std::memory_order_relaxed);
     fParams[kParamRunningSlotsHigh].store(static_cast<float>(running >> 16), std::memory_order_relaxed);
     fParams[kParamOutClip].store(fOutMeters[0].clipping() || fOutMeters[1].clipping() ? 1.0f : 0.0f,
@@ -320,6 +323,7 @@ void Engine::processChain(uint32_t numChannels, uint32_t frames)
             }
         }
         slot.applyAll = false;
+        block.setTempo(fTempo);
 
         const float bypassTarget = param(slotBypassParam(node.slot)) >= 0.5f ? 1.0f : 0.0f;
         if (slot.bypassMix == bypassTarget)
