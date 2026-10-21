@@ -8,7 +8,7 @@ NAMsayin is a guitar rig plugin (VST3 + LV2) in C++20, built with DPF (plugin fr
 
 - **Requirements**: `docs/Requirements.md` — the owner's feature list plus agreed decisions. Treat it as the source of truth; record new decisions there.
 - **Architecture and milestones**: `docs/Architecture.md` — design, v1 milestones (M0–M10) and decisions log.
-- **Current milestone**: M1, M2 (minus resampling) and an M4 prototype are done: the plugin loads local .nam files and has a working UI (chain tiles, add/remove/bypass/drag-reorder, block controls, global knobs, meters, clip lights). The owner asked for M2 then M4 to get a prototype quickly. The IR loader (local .wav cab IRs) is also done, at the owner's request. M6 (split/merge) is done. Still to do for M4: the Add Block dialog with categories (the "+" opens a file browser for now), real block images, MIDI learn UI. Next, at the owner's request: M8 (tuner) and M9 (metronome); then M3 (delay/reverb).
+- **Current milestone**: M1, M2 (minus resampling) and an M4 prototype are done: the plugin loads local .nam files and has a working UI (chain tiles, add/remove/bypass/drag-reorder, block controls, global knobs, meters, clip lights). The owner asked for M2 then M4 to get a prototype quickly. The IR loader (local .wav cab IRs) is also done, at the owner's request. M6 (split/merge) and M8 (tuner) are done. Still to do for M4: the Add Block dialog with categories (the "+" opens a file browser for now), real block images, MIDI learn UI. Next, at the owner's request: M9 (metronome); then M3 (delay/reverb).
 
 ## Fixed decisions (don't revisit without the owner)
 
@@ -38,6 +38,7 @@ src/engine/           Audio engine, independent of DPF (static library `namsayin
   ParallelWorker.*    Thread that runs split branch B on a second core
   SpscQueue.hpp       Lock-free queue (retired graphs go back to the non-RT side through it)
   dsp/                Smoother, Biquad, ToneStack, Limiter, Meter, DelayLine
+  tuner/              PitchDetector (MPM + sub-cent refinement), Tuner (ring buffer from the audio thread, analysis off it)
   blocks/             Block implementations (NamBlock, IrBlock)
 src/state/            ChainState (the chain as plain data, JSON; the split is a block range + per-block branch tag)
 src/plugin/           DistrhoPluginInfo.h + DSP side (Plugin subclass; thin wrapper around Engine)
@@ -104,6 +105,7 @@ The file browser opens in the host's working directory. Final checks happen in R
 - NAM tests use the models in `deps/NeuralAmpModelerCore/example_models` (`NAMSAYIN_EXAMPLE_MODELS`).
 - The engine reports running slots through two output parameters (`kParamRunningSlotsLow/High`); the UI marks blocks that haven't started 2.5 s after a chain change, and shows a banner if none have.
 - **Reaper's LV2 hosting doesn't deliver the UI's state messages to the DSP** (confirmed by the owner; VST3 works). So the chain has a second route: the UI writes it to a per-instance file and bumps the hidden Chain Revision parameter; a DSP thread reads the file (`src/state/ChainExchange.*`). The DSP also keeps the chain itself (`DISTRHO_PLUGIN_WANT_FULL_STATE`) for project save/restore and writes the file so a reopened UI can read it. Test the fallback with a build configured with `-DCMAKE_CXX_FLAGS=-DNAMSAYIN_TEST_NO_STATE_MESSAGE` (UI never sends the state message) in jalv.
+- Tuner: see `docs/Architecture.md` 4.9. The plugin runs `Engine::analyzeTuner()` on its own thread every 20 ms while the tuner is on. Accuracy tests are in `tests/TunerTests.cpp`; keep them passing (±0.1 cent from 31 to 1319 Hz) when touching the detector.
 - Split/merge: see `docs/Architecture.md` 4.4. The merge controls are host parameters (after the slots). Parallel processing has no UI toggle until the Settings panel (M5).
 - Not done yet in the NAM block: resampling when the host rate differs from the model's training rate.
 - IR block: WAV files via NAM Core's `nam::detail::load_wav_ir` (PCM 16/24/32, float 32; channels stored contiguously), linearly resampled to the host rate, energy-normalized, convolved with FFTConvolver's `TwoStageFFTConvolver` (head 64, tail 2048; zero latency). Low/High Cut are off at the ends of their ranges.

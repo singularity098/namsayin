@@ -40,6 +40,7 @@ public:
         fInstanceId = 1 + random() % kMaxExchangeValue;
         fEngine.setParameter(kParamInstanceId, static_cast<float>(fInstanceId));
         fExchangeThread = std::thread([this] { watchExchange(); });
+        fTunerThread = std::thread([this] { runTuner(); });
     }
 
     ~NAMsayinPlugin() override
@@ -47,6 +48,8 @@ public:
         fStopExchange = true;
         if (fExchangeThread.joinable())
             fExchangeThread.join();
+        if (fTunerThread.joinable())
+            fTunerThread.join();
         std::remove(chainExchangePath(fInstanceId).c_str());
     }
 
@@ -208,14 +211,27 @@ private:
         }
     }
 
+    // The tuner's pitch analysis, off the audio thread (docs/Architecture.md 4.9)
+    void runTuner()
+    {
+        while (!fStopExchange)
+        {
+            const bool on = fEngine.getParameter(kParamTuner) >= 0.5f;
+            if (on || fEngine.getParameter(kParamTunerFrequency) != 0.0f)
+                fEngine.analyzeTuner();
+            std::this_thread::sleep_for(std::chrono::milliseconds(on ? 20 : 50));
+        }
+    }
+
     Engine fEngine;
     uint32_t fReportedLatency = 0;
 
     uint32_t fInstanceId = 0;
     mutable std::mutex fChainMutex;
     std::string fChainJson;
-    std::atomic<bool> fStopExchange { false };
+    std::atomic<bool> fStopExchange { false }; // stops both threads
     std::thread fExchangeThread;
+    std::thread fTunerThread;
 
     DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NAMsayinPlugin)
 };

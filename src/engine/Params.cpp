@@ -37,6 +37,12 @@ constexpr GlobalParamSpec kLaterParams[kParamCount - kFirstLaterParam] = {
     { "Merge Pan B",         "merge_pan_b",    "%",  -100.0f, 100.0f, 0.0f, kParamFlagNone },
     { "Merge Invert A",      "merge_invert_a", "",   0.0f,    1.0f,   0.0f, kParamFlagToggle },
     { "Merge Invert B",      "merge_invert_b", "",   0.0f,    1.0f,   0.0f, kParamFlagToggle },
+    { "Tuner",               "tuner",          "",   0.0f,    1.0f,   0.0f, kParamFlagToggle },
+    { "Tuner Mute",          "tuner_mute",     "",   0.0f,    1.0f,   1.0f, kParamFlagToggle },
+    { "Tuner Reference",     "tuner_ref",      "Hz", 415.0f,  466.0f, 440.0f, kParamFlagNone },
+    { "Tuner Strobe",        "tuner_strobe",   "",   0.0f,    1.0f,   0.0f, kParamFlagToggle | kParamFlagHidden },
+    { "Tuner Frequency",     "tuner_freq",     "Hz", 0.0f,    2000.0f, 0.0f, kParamFlagOutput },
+    { "Tuner Clarity",       "tuner_clarity",  "",   0.0f,    1.0f,   0.0f, kParamFlagOutput },
 };
 
 } // namespace

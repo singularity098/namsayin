@@ -12,6 +12,7 @@
 #include "engine/dsp/Meter.hpp"
 #include "engine/dsp/Smoother.hpp"
 #include "engine/dsp/ToneStack.hpp"
+#include "engine/tuner/Tuner.hpp"
 #include "state/ChainState.hpp"
 
 #include <array>
@@ -56,6 +57,10 @@ public:
 
     // Total latency of the active chain, in samples
     uint32_t latency() const { return fLatency.load(std::memory_order_relaxed); }
+
+    // Non-RT, any one thread. Runs the tuner's analysis on the latest input and publishes the result in the
+    // tuner output parameters. Call it every 20 ms or so while the tuner is on.
+    void analyzeTuner();
 
     // Any thread. Whether branch B of a split runs on a second core (default on). Takes effect from the next
     // setChain() if no worker thread was started yet.
@@ -117,6 +122,7 @@ private:
 
     const BlockRegistry& fRegistry;
     std::mutex fMutex; // non-RT callers only
+    std::mutex fTunerMutex; // analyzeTuner() vs prepare()
 
     double fSampleRate = 48000.0;
     uint32_t fMaxFrames = 0;
@@ -141,6 +147,8 @@ private:
     float fFadeStep = 1.0f;
     float fRampStep = 1.0f;
     float fGlobalBypassMix = 0.0f;
+    float fTunerMuteMix = 0.0f; // 1 = guitar muted by the tuner
+    bool fTunerOn = false;
     std::array<SlotState, kMaxBlocks> fSlots {};
 
     Smoother fInputGain, fOutputGain;
@@ -148,6 +156,7 @@ private:
     uint32_t fJobChannels = 0, fJobFrames = 0; // branch B job, for the worker
     ToneStack fToneStack;
     Limiter fLimiter;
+    Tuner fTuner;
     Meter fInMeters[2], fOutMeters[2];
 
     std::vector<float> fWork[2], fDry[2], fScratch[2];

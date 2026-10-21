@@ -57,6 +57,9 @@ constexpr float kMergeWidth = 64.0f;
 constexpr float kChainTop = kTopBarHeight + 24.0f;
 constexpr float kKnobRadius = 22.0f;
 constexpr uint kDoubleClickMs = 350;
+constexpr auto kTunerHold = std::chrono::milliseconds(1000); // the tuner keeps showing the last note this long
+constexpr float kTunerInTuneCents = 2.0f;
+
 // How long the audio engine gets to start a changed chain before the UI reports blocks that aren't running
 constexpr auto kStatusGrace = std::chrono::milliseconds(2500);
 
@@ -75,6 +78,8 @@ enum class Hit {
     Split,        // add a split
     Merge,        // select the merge
     MergeRemove,  // remove the split
+    SetValue,     // index = host parameter, set to `value` (real units)
+    Step,         // index = host parameter, add `value` (real units), clamped
     A2Size,       // index = position in the chain
     InClip,
     OutClip,
@@ -84,6 +89,7 @@ struct HitArea {
     Rect rect;
     Hit kind;
     int index;
+    float value = 0.0f;
 };
 
 // Where a dragged block can land: position `position` of `section`; `x` is where the block's tile would start
@@ -108,6 +114,8 @@ struct ChainLayout {
     std::vector<Rect> wires[2];       // items on each row in order, joined by signal-flow lines
     std::vector<DropPoint> drops;
 };
+
+const char* const kNoteNames[12] = { "C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B" };
 
 std::string fileStem(const std::string& path)
 {
@@ -167,6 +175,8 @@ protected:
             if (!fGotChainState)
                 loadExchangeChain();
         }
+        if (index == kParamTunerFrequency && value > 0.0f)
+            tunerReading(value);
         if (index == kParamInClip && value >= 0.5f)
             fInClipLatched = true;
         if (index == kParamOutClip && value >= 0.5f)
@@ -240,8 +250,15 @@ protected:
         fill();
         drawDither(scale);
         drawTopBar();
-        drawChain();
-        drawSelectedPanel();
+        if (fParams[kParamTuner] >= 0.5f)
+        {
+            drawTuner();
+        }
+        else
+        {
+            drawChain();
+            drawSelectedPanel();
+        }
         drawBottomBar();
 
         restore();
@@ -354,6 +371,14 @@ protected:
             return true;
         }
 
+        case Hit::SetValue:
+            setValue(static_cast<uint32_t>(hit->index), hit->value);
+            return true;
+
+        case Hit::Step:
+            setValue(static_cast<uint32_t>(hit->index), fParams[hit->index] + hit->value);
+            return true;
+
         case Hit::InClip:
             fInClipLatched = false;
             repaint();
@@ -405,6 +430,19 @@ protected:
 
     void uiIdle() override
     {
+        // the tuner animates (needle easing, strobe)
+        const auto now = std::chrono::steady_clock::now();
+        const float dt = std::min(0.1f, std::chrono::duration<float>(now - fLastIdle).count());
+        fLastIdle = now;
+        if (fParams[kParamTuner] >= 0.5f)
+        {
+            const float target = tunerActive() ? fTunerCents : 0.0f;
+            fNeedleCents += (target - fNeedleCents) * std::min(1.0f, dt * 12.0f);
+            for (int row = 0; row < 3; ++row)
+                fStrobePhase[row] += target * 5.0f * static_cast<float>(1 << row) * dt;
+            repaint();
+        }
+
         // redraw once the grace period ends, so blocks that didn't start get marked
         if (fStatusPending && statusSettled())
         {
@@ -483,6 +521,46 @@ private:
             }
         }
         repaint();
+    }
+
+    // Sets a global parameter in its real units, as one gesture
+    void setValue(uint32_t index, float value)
+    {
+        const GlobalParamSpec& spec = globalParamSpec(index);
+        setNormalized(index, (std::clamp(value, spec.min, spec.max) - spec.min) / (spec.max - spec.min), true);
+    }
+
+    // A new frequency from the tuner. Readings are median-filtered; a clear change of note starts over.
+    void tunerReading(float frequency)
+    {
+        if (fTunerHistory.size() > 0)
+        {
+            std::vector<float> sorted = fTunerHistory;
+            std::sort(sorted.begin(), sorted.end());
+            if (std::fabs(1200.0f * std::log2(frequency / sorted[sorted.size() / 2])) > 60.0f)
+                fTunerHistory.clear();
+        }
+        fTunerHistory.push_back(frequency);
+        if (fTunerHistory.size() > 5)
+            fTunerHistory.erase(fTunerHistory.begin());
+        std::vector<float> sorted = fTunerHistory;
+        std::sort(sorted.begin(), sorted.end());
+        fTunerFrequency = sorted[sorted.size() / 2];
+
+        const float midi = 69.0f + 12.0f * std::log2(fTunerFrequency / fParams[kParamTunerReference]);
+        const int note = static_cast<int>(std::lround(midi));
+        const float cents = (midi - note) * 100.0f;
+        if (note != fTunerNote || !tunerActive())
+            fTunerCents = cents;
+        else
+            fTunerCents += (cents - fTunerCents) * 0.35f;
+        fTunerNote = note;
+        fTunerSeenAt = std::chrono::steady_clock::now();
+    }
+
+    bool tunerActive() const
+    {
+        return fTunerNote >= 0 && std::chrono::steady_clock::now() - fTunerSeenAt < kTunerHold;
     }
 
     void setHostParameter(uint32_t index, float value)
@@ -782,6 +860,152 @@ private:
         label(16.0f, kTopBarHeight / 2, "NAMsayin", theme::text, 20.0f, ALIGN_LEFT | ALIGN_MIDDLE);
         drawButton({ fWidth - 96.0f, 10.0f, 80.0f, 28.0f }, "Bypass", fParams[kParamBypass] >= 0.5f, theme::accent,
                    Hit::Toggle, kParamBypass);
+        drawButton({ fWidth - 184.0f, 10.0f, 80.0f, 28.0f }, "Tuner", fParams[kParamTuner] >= 0.5f, theme::accent,
+                   Hit::Toggle, kParamTuner);
+    }
+
+    // Small button that sets a parameter to a value, or steps it
+    void drawValueButton(const Rect& r, const char* str, bool on, Hit kind, uint32_t index, float value)
+    {
+        drawButton(r, str, on, theme::accent, kind, static_cast<int>(index));
+        fHits.back().value = value;
+    }
+
+    void drawTuner()
+    {
+        const Rect panel { 16.0f, kTopBarHeight + 16.0f, fWidth - 32.0f,
+                           fHeight - kBottomBarHeight - kTopBarHeight - 32.0f };
+        fillRect(panel.x, panel.y, panel.w, panel.h, theme::panel, 10.0f);
+        const bool active = tunerActive();
+        const float cents = active ? fTunerCents : 0.0f;
+        const bool inTune = active && std::fabs(cents) <= kTunerInTuneCents;
+        const Color stateColor = !active ? theme::textDim : inTune ? theme::good
+                                                          : std::fabs(cents) <= 10.0f ? theme::warn : theme::accent;
+
+        // header: view, mute, reference pitch
+        const float hy = panel.y + 16.0f;
+        label(panel.x + 16.0f, hy + 14.0f, "Tuner", theme::text, 16.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        const bool strobe = fParams[kParamTunerStrobe] >= 0.5f;
+        drawValueButton({ panel.x + 96.0f, hy, 76.0f, 28.0f }, "Needle", !strobe, Hit::SetValue, kParamTunerStrobe, 0);
+        drawValueButton({ panel.x + 176.0f, hy, 76.0f, 28.0f }, "Strobe", strobe, Hit::SetValue, kParamTunerStrobe, 1);
+        drawButton({ panel.x + 272.0f, hy, 76.0f, 28.0f }, "Mute", fParams[kParamTunerMute] >= 0.5f, theme::accent,
+                   Hit::Toggle, kParamTunerMute);
+
+        char ref[32];
+        std::snprintf(ref, sizeof(ref), "A4 = %.0f Hz", fParams[kParamTunerReference]);
+        const float rx = panel.x + panel.w - 16.0f;
+        drawValueButton({ rx - 28.0f, hy, 28.0f, 28.0f }, "+", false, Hit::Step, kParamTunerReference, 1.0f);
+        label(rx - 84.0f, hy + 14.0f, ref, theme::text, 13.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        drawValueButton({ rx - 168.0f, hy, 28.0f, 28.0f }, "−", false, Hit::Step, kParamTunerReference, -1.0f);
+        fHits.push_back({ { rx - 136.0f, hy, 104.0f, 28.0f }, Hit::Knob, static_cast<int>(kParamTunerReference) });
+
+        // note, cents, frequency and guidance
+        const float cx = panel.x + panel.w / 2;
+        const float noteY = panel.y + 56.0f + (panel.h - 56.0f) * 0.28f;
+        if (fTunerNote >= 0)
+        {
+            fontSize(84.0f);
+            Rectangle<float> bounds;
+            const char* name = kNoteNames[((fTunerNote % 12) + 12) % 12];
+            textBounds(0, 0, name, nullptr, bounds);
+            const float w = bounds.getWidth();
+            label(cx - 10.0f, noteY, name, active ? stateColor : theme::textDim, 84.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+            char octave[16];
+            std::snprintf(octave, sizeof(octave), "%d", fTunerNote / 12 - 1);
+            label(cx - 10.0f + w / 2 + 4.0f, noteY + 22.0f, octave, theme::textDim, 26.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+
+            char info[64];
+            std::snprintf(info, sizeof(info), "%s%.1f ¢     %.2f Hz", cents >= 0 ? "+" : "−", std::fabs(cents),
+                          fTunerFrequency);
+            label(cx, noteY + 58.0f, info, theme::text, 15.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        }
+        else
+        {
+            label(cx, noteY, "—", theme::textDim, 84.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        }
+        const char* status = !active ? "Play a note" : inTune ? "In tune" : cents < 0 ? "Tune up ↑" : "Tune down ↓";
+        label(cx, noteY + 82.0f, status, stateColor, 14.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+
+        const float viewTop = noteY + 104.0f;
+        const float viewHeight = panel.y + panel.h - 16.0f - viewTop;
+        if (viewHeight < 40.0f)
+            return;
+        if (strobe)
+            drawStrobe({ cx - 300.0f, viewTop, 600.0f, std::min(viewHeight, 120.0f) }, active, inTune);
+        else
+            drawNeedle(cx, viewTop, std::min(viewHeight, 140.0f), inTune);
+    }
+
+    // Needle gauge: ±50 cents over a 120° arc, green zone for "in tune"
+    void drawNeedle(float cx, float top, float height, bool inTune)
+    {
+        const float radius = std::min(260.0f, height - 8.0f);
+        const float cy = top + radius + 4.0f;
+        constexpr float span = static_cast<float>(M_PI) / 3.0f; // each side
+        const float up = -static_cast<float>(M_PI) / 2.0f;
+        auto angleOf = [&](float c) { return up + std::clamp(c, -50.0f, 50.0f) / 50.0f * span; };
+
+        beginPath();
+        arc(cx, cy, radius, angleOf(-50), angleOf(50), CW);
+        strokeColor(theme::border);
+        strokeWidth(3.0f);
+        stroke();
+        beginPath();
+        arc(cx, cy, radius, angleOf(-kTunerInTuneCents), angleOf(kTunerInTuneCents), CW);
+        strokeColor(theme::good);
+        strokeWidth(6.0f);
+        stroke();
+
+        for (int c = -50; c <= 50; c += 10)
+        {
+            const float a = angleOf(static_cast<float>(c));
+            const float inner = radius - (c % 50 == 0 ? 16.0f : 9.0f);
+            beginPath();
+            moveTo(cx + std::cos(a) * inner, cy + std::sin(a) * inner);
+            lineTo(cx + std::cos(a) * (radius - 3.0f), cy + std::sin(a) * (radius - 3.0f));
+            strokeColor(theme::textDim);
+            strokeWidth(1.5f);
+            stroke();
+            if (c % 50 == 0)
+            {
+                char text[8];
+                std::snprintf(text, sizeof(text), c > 0 ? "+%d" : "%d", c);
+                label(cx + std::cos(a) * (radius - 30.0f), cy + std::sin(a) * (radius - 30.0f), text,
+                      theme::textDim, 11.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+            }
+        }
+
+        const float a = angleOf(fNeedleCents);
+        beginPath();
+        moveTo(cx, cy);
+        lineTo(cx + std::cos(a) * (radius + 6.0f), cy + std::sin(a) * (radius + 6.0f));
+        strokeColor(inTune ? theme::good : theme::text);
+        strokeWidth(2.5f);
+        stroke();
+        beginPath();
+        circle(cx, cy, 5.0f);
+        fillColor(theme::text);
+        fill();
+    }
+
+    // Strobe: three rows of bands (the fundamental and two octaves, like a Peterson strobe). They drift at a
+    // speed proportional to how far out of tune the note is, and stand still when it's in tune.
+    void drawStrobe(const Rect& r, bool active, bool inTune)
+    {
+        fillRect(r.x, r.y, r.w, r.h, theme::inset, 8.0f);
+        scissor(r.x, r.y, r.w, r.h);
+        const float rowHeight = r.h / 3.0f;
+        const Color color = !active ? theme::border : inTune ? theme::good : theme::accent;
+        for (int row = 0; row < 3; ++row)
+        {
+            const float period = 56.0f / static_cast<float>(1 << row) + 12.0f;
+            const float offset = std::fmod(std::fmod(fStrobePhase[row], period) + period, period);
+            globalAlpha(0.95f - row * 0.18f);
+            for (float x = r.x + offset - period; x < r.x + r.w; x += period)
+                fillRect(x, r.y + row * rowHeight + 3.0f, period / 2, rowHeight - 6.0f, color);
+        }
+        globalAlpha(1.0f);
+        resetScissor();
     }
 
     void layoutChain()
@@ -1202,6 +1426,16 @@ private:
     int fPressTile = -1;
     float fPressX = 0.0f, fPressY = 0.0f;
     bool fDraggingTile = false;
+
+    // tuner display
+    std::vector<float> fTunerHistory;
+    float fTunerFrequency = 0.0f;
+    float fTunerCents = 0.0f;
+    float fNeedleCents = 0.0f;
+    float fStrobePhase[3] {};
+    int fTunerNote = -1; // MIDI note
+    std::chrono::steady_clock::time_point fTunerSeenAt;
+    std::chrono::steady_clock::time_point fLastIdle = std::chrono::steady_clock::now();
 
     bool fInClipLatched = false;
     bool fOutClipLatched = false;

@@ -102,6 +102,12 @@ void Engine::prepare(double sampleRate, uint32_t maxFrames)
     fFadeStep = static_cast<float>(1.0 / (kSwapFadeSeconds * fSampleRate));
     fRampStep = static_cast<float>(1.0 / (kBypassRampSeconds * fSampleRate));
     fGlobalBypassMix = param(kParamBypass) >= 0.5f ? 1.0f : 0.0f;
+    fTunerOn = false;
+    fTunerMuteMix = 0.0f;
+    {
+        const std::lock_guard<std::mutex> tunerLock(fTunerMutex);
+        fTuner.prepare(fSampleRate);
+    }
 
     fInputGain.prepare(fSampleRate);
     fInputGain.snap(dbToGain(param(kParamInput)));
@@ -230,6 +236,16 @@ void Engine::process(const float* const* inputs, float* const* outputs, uint32_t
                                  std::memory_order_relaxed);
 }
 
+void Engine::analyzeTuner()
+{
+    const std::lock_guard<std::mutex> lock(fTunerMutex);
+    PitchDetector::Result result;
+    if (param(kParamTuner) >= 0.5f)
+        result = fTuner.analyze();
+    fParams[kParamTunerFrequency].store(static_cast<float>(result.frequency), std::memory_order_relaxed);
+    fParams[kParamTunerClarity].store(static_cast<float>(result.clarity), std::memory_order_relaxed);
+}
+
 void Engine::processChunk(const float* const* inputs, float* const* outputs, uint32_t frames)
 {
     const bool stereo = param(kParamInputMode) >= 0.5f;
@@ -249,6 +265,14 @@ void Engine::processChunk(const float* const* inputs, float* const* outputs, uin
     }
     fInMeters[0].process(fWork[0].data(), frames);
     fInMeters[1].process(fWork[stereo ? 1 : 0].data(), frames);
+
+    // The tuner reads the input before the chain
+    const bool tunerOn = param(kParamTuner) >= 0.5f;
+    if (tunerOn && !fTunerOn)
+        fTuner.restart();
+    fTunerOn = tunerOn;
+    if (tunerOn)
+        fTuner.push(fWork[0].data(), stereo ? fWork[1].data() : nullptr, frames);
 
     // Chain, with a fade out/in around graph swaps
     if (fFade == Fade::Idle)
@@ -291,10 +315,16 @@ void Engine::processChunk(const float* const* inputs, float* const* outputs, uin
     fToneStack.setGains(param(kParamBass), param(kParamMiddle), param(kParamTreble));
     fToneStack.process(work, numChannels, frames);
 
+    // Output level, and the tuner's mute (which only silences the guitar, not the metronome)
     fOutputGain.setTarget(dbToGain(param(kParamOutput)));
+    const float muteTarget = tunerOn && param(kParamTunerMute) >= 0.5f ? 1.0f : 0.0f;
     for (uint32_t i = 0; i < frames; ++i)
     {
-        const float g = fOutputGain.next();
+        if (fTunerMuteMix < muteTarget)
+            fTunerMuteMix = std::min(muteTarget, fTunerMuteMix + fRampStep);
+        else if (fTunerMuteMix > muteTarget)
+            fTunerMuteMix = std::max(muteTarget, fTunerMuteMix - fRampStep);
+        const float g = fOutputGain.next() * (1.0f - fTunerMuteMix);
         for (uint32_t ch = 0; ch < numChannels; ++ch)
             fWork[ch][i] *= g;
     }
@@ -309,8 +339,14 @@ void Engine::processChunk(const float* const* inputs, float* const* outputs, uin
     if (!stereo)
         std::memcpy(fWork[1].data(), fWork[0].data(), sizeof(float) * frames);
 
-    // Global bypass: crossfade to the untouched input
+    // Global bypass: crossfade to the untouched input (which the tuner mutes too)
     const float bypassTarget = param(kParamBypass) >= 0.5f ? 1.0f : 0.0f;
+    if (fTunerMuteMix > 0.0f)
+    {
+        for (int ch = 0; ch < 2; ++ch)
+            for (uint32_t i = 0; i < frames; ++i)
+                fDry[ch][i] *= 1.0f - fTunerMuteMix;
+    }
     for (uint32_t i = 0; i < frames; ++i)
     {
         if (fGlobalBypassMix < bypassTarget)

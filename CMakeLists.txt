@@ -59,6 +59,8 @@ add_library(namsayin-engine STATIC
   src/engine/blocks/NamBlock.cpp
   src/engine/Engine.cpp
   src/engine/ParallelWorker.cpp
+  src/engine/tuner/PitchDetector.cpp
+  src/engine/tuner/Tuner.cpp
   src/engine/Params.cpp
   src/state/ChainExchange.cpp
   src/state/ChainState.cpp)
@@ -102,7 +104,8 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/DspTests.cpp
     tests/EngineTests.cpp
     tests/IrBlockTests.cpp
-    tests/NamBlockTests.cpp)
+    tests/NamBlockTests.cpp
+    tests/TunerTests.cpp)
   target_include_directories(namsayin-tests PRIVATE tests deps/doctest)
   target_link_libraries(namsayin-tests PRIVATE namsayin-engine)
   target_compile_options(namsayin-tests PRIVATE ${NAMSAYIN_WARNINGS})

@@ -31,7 +31,8 @@ src/
     BlockRegistry     Table of available block types (the "modular effects" hook)
     blocks/           NamBlock, DelayBlock, ReverbBlock
     global/           InputStage, ToneStack (Bass/Mid/Treble), Limiter, Meters
-    Tuner, Metronome
+    tuner/            PitchDetector, Tuner (done, M8)
+    Metronome
     ParallelWorker    Second-core thread for split branch B (done, M6)
   state/              Plain data, shared by DSP and UI
     ChainState        Blocks, slots, split/merge, per-block settings (JSON)
@@ -141,11 +142,14 @@ An algorithmic reverb written in-house (Dattorro-style plate/hall network). Para
 
 ### 4.9 Tuner
 
-- The dry input (plus boost) is copied into a lock-free ring buffer, and the analysis runs on a DSP-side worker thread, not the audio thread.
-- Pitch detection: McLeod Pitch Method (as in Fretbored), with parabolic peak interpolation and an analysis window long enough for 31 Hz (~100 ms).
-- The detected frequency, confidence and cents are sent to the UI as output parameters, so this works even when an LV2 host runs the UI in a separate process. Traditional and strobe views are both drawn in the UI from these values.
+- The input (after the Input level, before the chain) is copied into a lock-free ring buffer, and the analysis runs on a DSP-side thread every 20 ms while the tuner is on, never on the audio thread (`engine/tuner/Tuner`). Stereo input is analysed as the sum of both channels.
+- The detector doesn't depend on the level, so quiet inputs work as well as loud ones (this is what the "boost" in the signal flow stands for): only a gate at -74 dBFS RMS decides whether there's anything to analyse.
+- Pitch detection (`engine/tuner/PitchDetector`): McLeod Pitch Method (as in Fretbored) on an ~85 ms window (4096 samples at 48 kHz, enough for 31 Hz), FFT autocorrelation and parabolic peak interpolation, which on its own is good to about ±0.4 cent. It is then refined: a Hann-weighted normalized cross-correlation over a whole number of periods, low-passed above the 6th harmonic, measured at the largest multiple of the period that fits and divided back. The refinement uses up to four windows of audio (~340 ms) when the note has been steady that long, which makes it far less sensitive to noise.
+- Only audio at a steady level is analysed: levels are compared in chunks of whole periods, and a window that isn't steady (a note starting, stopping or changing) gives no reading at all, rather than a wrong one. The UI keeps showing the last note for a second.
+- The detected frequency and clarity are output parameters, so this works when an LV2 host runs the UI in a separate process. The UI takes the median of the last five readings (starting over when the note clearly changes) and works out the note and cents from the reference pitch. Traditional (needle, ±50 cents, green within ±2 cents) and strobe (three rows of bands for the fundamental and two octaves, drifting at a speed proportional to the error) views are drawn in the UI; the view is a hidden parameter, so it's saved with the project.
+- While the tuner is on, the guitar is muted by default (Tuner Mute; also in global bypass); the metronome stays audible.
 - Reference pitch A4 is adjustable from 415 to 466 Hz.
-- **Accuracy target: ±0.1 cent from 31 Hz up to the 24th fret of the high E string (~1319 Hz)**, checked by automated tests with synthetic and recorded signals.
+- **Accuracy target: ±0.1 cent from 31 Hz up to the 24th fret of the high E string (~1319 Hz)**, checked by tests at 44.1, 48 and 96 kHz on every half semitone, with pure tones, harmonic-rich tones and noisy tones with a weak fundamental (worst case about 0.01 cent), and through the start and end of notes (a gated tone; a plucked-string-like note whose harmonics decay at different rates). No recorded signals yet: the tests are synthetic.
 
 ### 4.10 Metronome
 

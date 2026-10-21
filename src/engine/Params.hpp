@@ -57,6 +57,14 @@ enum LaterParam : uint32_t {
     kParamMergeInvertA,     // phase invert
     kParamMergeInvertB,
 
+    // tuner (M8)
+    kParamTuner,            // on/off
+    kParamTunerMute,        // mute the guitar while the tuner is on
+    kParamTunerReference,   // A4 in Hz
+    kParamTunerStrobe,      // hidden, UI only: strobe view instead of the needle
+    kParamTunerFrequency,   // output: detected frequency in Hz, 0 when there's no clear note
+    kParamTunerClarity,     // output: 0..1
+
     kParamCount
 };
 
