@@ -67,7 +67,7 @@ private:
 constexpr float kDbPerLog2 = 6.0205999f;
 constexpr double kPauseMs = 40.0;   // this long under the threshold re-arms the swell
 constexpr double kFadeMs = 150.0;   // once armed, what's left of the last note fades out over this
-constexpr double kDuckMs = 4.0;     // a new note cuts any remainder this fast before swelling
+constexpr double kDuckMs = 1.5;     // a new note cuts any remainder this fast before swelling (the pick masks it)
 constexpr float kRetriggerJump = 2.0f; // a pick attack: the fast envelope jumps above twice the slow one
 
 class SwellBlock : public Block {
