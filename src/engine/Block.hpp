@@ -110,6 +110,10 @@ public:
     // RT. The host tempo, called before every process(). 120 BPM when the host doesn't report one.
     virtual void setTempo(double /*bpm*/) {}
 
+    // RT. While the host's transport plays: the song position at the start of the coming process() buffer, in
+    // quarter notes from the start of the song. Tempo-synced LFOs lock their phase to it, so they land on the beat.
+    virtual void setSongPosition(double /*beats*/) {}
+
     // RT. A level the UI shows on the block (e.g. a compressor's gain reduction in dB); read after process().
     virtual float meter() const { return 0.0f; }
 

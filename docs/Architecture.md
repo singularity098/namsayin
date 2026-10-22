@@ -208,6 +208,7 @@ Shared DSP (`src/engine/dsp/`):
 Notes:
 
 - **Levels**: default settings stay within a few dB of bypass (drives a few dB louder, like a pedal set at unity-plus).
+- **Beat-locked LFOs**: while the host's transport plays, the engine passes each block the song position (quarter notes, at the start of each chunk) through `Block::setSongPosition()`. Synced tremolo, flanger, phaser and filter lock their LFO phase to it (cycles counted from the song's start; the tremolo's loudest point lands on the beat), only correcting when off by more than 0.1% of a cycle. Stopped, they run free at the synced rate.
 - **Noise gate key**: `Block::setRigInput()` gives every block the chain input (after the input level). With Key = Rig In, a gate after an amp opens and closes on the clean guitar.
 - **Momentary parameters** (`ParamScale::Momentary`, the looper's Rec/Dub, Play/Stop, Clear): 1 while held; blocks act on the 0 → 1 edge, so a MIDI footswitch's press/release maps directly. The UI holds a quick click for 80 ms so the press can't fall inside one audio buffer with its release.
 - **Looper**: a fixed buffer of 60 s at 48 kHz per channel (23 MB), allocated in `prepare()`. Its status (state, length, position) is encoded in the block meter (`LooperStatus`) and drawn in the panel (`MeterStyle::Looper`). The loop survives chain edits (the engine reuses the block) but not a sample-rate change.

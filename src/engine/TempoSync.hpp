@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <cmath>
+
 namespace namsayin {
 
 // Note values for tempo-synced knobs, longest first: 1/1 down to 1/32, with dotted and triplet values
@@ -19,6 +21,14 @@ int timeNoteIndex(float normalized);
 constexpr int kRateNoteCount = kNoteCount + 2;
 int rateNoteIndex(float normalized);
 const char* rateNoteName(int index);
+double rateNoteBeats(int index);          // length of one cycle in quarter notes
 double rateNoteHz(int index, double bpm); // one cycle per note
+
+// The phase (0..1) of a cycle of `cycleBeats` at song position `beats`, cycles counted from the song's start
+inline double songPhase(double beats, double cycleBeats)
+{
+    const double cycles = beats / cycleBeats;
+    return cycles - std::floor(cycles);
+}
 
 } // namespace namsayin

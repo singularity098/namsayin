@@ -72,6 +72,16 @@ public:
         }
     }
 
+    void setSongPosition(double beats) override
+    {
+        // synced: lock the LFO to the song, so each cycle (and each random step) starts on the beat
+        if (fSync)
+        {
+            const ParamSpec& spec = kFilterBlockDescriptor.params[kFilterParamRate];
+            fLfo.syncTo(songPhase(beats, rateNoteBeats(rateNoteIndex(spec.toNormalized(fRateHz)))) + 0.0);
+        }
+    }
+
     void process(float* const* io, uint32_t numChannels, uint32_t frames) override
     {
         if (fSnap)

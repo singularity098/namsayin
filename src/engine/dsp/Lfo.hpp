@@ -26,7 +26,17 @@ public:
         fStep = hz / fSampleRate;
     }
 
-    void reset(double phase = 0.0) { fPhase = phase; }
+    void reset(double phase = 0.0) { fPhase = phase - std::floor(phase); }
+
+    // Locks to an outside phase (the song position), but only moves when it's off by more than a hair: a steady
+    // tempo keeps it in step by itself, and nudging it back and forth would make the phase wrap twice
+    void syncTo(double phase)
+    {
+        double delta = phase - fPhase;
+        delta -= std::round(delta);
+        if (std::fabs(delta) > 0.001)
+            reset(phase);
+    }
 
     // Advances one sample; returns the new phase
     double advance()

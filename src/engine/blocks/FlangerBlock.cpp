@@ -81,6 +81,16 @@ public:
         }
     }
 
+    void setSongPosition(double beats) override
+    {
+        // synced: lock the LFO to the song, so the sweep starts from its bottom on the beat
+        if (fSync)
+        {
+            const ParamSpec& spec = kFlangerBlockDescriptor.params[kFlangerParamRate];
+            fLfo.syncTo(songPhase(beats, rateNoteBeats(rateNoteIndex(spec.toNormalized(fRateHz)))) + 0.75);
+        }
+    }
+
     void process(float* const* io, uint32_t numChannels, uint32_t frames) override
     {
         if (fSnap)

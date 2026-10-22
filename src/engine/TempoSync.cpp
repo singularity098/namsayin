@@ -54,10 +54,14 @@ const char* rateNoteName(int index)
     return noteName(index - 2);
 }
 
+double rateNoteBeats(int index)
+{
+    return index <= 0 ? 16.0 : (index == 1 ? 8.0 : noteBeats(index - 2));
+}
+
 double rateNoteHz(int index, double bpm)
 {
-    const double beats = index <= 0 ? 16.0 : (index == 1 ? 8.0 : noteBeats(index - 2));
-    return bpm / 60.0 / beats;
+    return bpm / 60.0 / rateNoteBeats(index);
 }
 
 } // namespace namsayin

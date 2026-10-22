@@ -947,3 +947,29 @@ TEST_CASE("rate sync goes down to four bars")
     CHECK(std::string(rateNoteName(rateNoteIndex(1.0f))) == "1/32");
     CHECK(rateNoteHz(rateNoteIndex(1.0f), 120.0) == doctest::Approx(16.0));
 }
+
+TEST_CASE("synced tremolo locks to the song position")
+{
+    auto block = make(kTremoloBlockDescriptor);
+    const ParamSpec& rate = kTremoloBlockDescriptor.params[kTremParamRate];
+    float n = 0.0f;
+    while (std::string(rateNoteName(rateNoteIndex(n))) != "1/4")
+        n += 0.01f;
+    block->setParam(kTremParamRate, rate.toValue(n));
+    block->setParam(kTremParamSync, 1.0f);
+    block->setParam(kTremParamDepth, 100.0f);
+    block->setTempo(120.0);
+    // the song starts 0.3 beats in; feed the position before each buffer, as the engine does
+    auto x = sine(3000.0, 0.5f, 48000);
+    const double beatsPerSample = 120.0 / 60.0 / kRate;
+    for (size_t t = 0; t < x[0].size(); t += 128)
+    {
+        block->setSongPosition(0.3 + static_cast<double>(t) * beatsPerSample);
+        float* io[1] = { x[0].data() + t };
+        block->process(io, 1, 128);
+    }
+    // loudest on the beats: beat 1 is at (1 - 0.3) beats = 0.35 s = sample 16800, then every 24000
+    const auto env = envelope(x[0], 240);
+    const size_t peak = std::max_element(env.begin() + 40, env.begin() + 140) - env.begin(); // 0.2..0.7 s
+    CHECK(std::abs(static_cast<int>(peak * 240 + 120) - 16800) < 480);
+}

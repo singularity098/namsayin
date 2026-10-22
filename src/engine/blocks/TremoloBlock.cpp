@@ -75,6 +75,16 @@ public:
         }
     }
 
+    void setSongPosition(double beats) override
+    {
+        // synced: lock the LFO to the song, so the loudest point lands on the beat
+        if (fSync)
+        {
+            const ParamSpec& spec = kTremoloBlockDescriptor.params[kTremParamRate];
+            fLfo.syncTo(songPhase(beats, rateNoteBeats(rateNoteIndex(spec.toNormalized(fRateHz)))) + 0.25);
+        }
+    }
+
     void process(float* const* io, uint32_t numChannels, uint32_t frames) override
     {
         if (fSnap)

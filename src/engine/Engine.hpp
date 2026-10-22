@@ -166,6 +166,8 @@ private:
     float fRampStep = 1.0f;
     float fGlobalBypassMix = 0.0f;
     double fTempo = 120.0;
+    bool fSongPlaying = false; // the host transport plays; fSongBeat is the position at the current chunk's start
+    double fSongBeat = 0.0;
     uint32_t fCcCount = 0;
     float fTunerMuteMix = 0.0f; // 1 = guitar muted by the tuner
     bool fTunerOn = false;
