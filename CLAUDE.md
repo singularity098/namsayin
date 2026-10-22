@@ -15,7 +15,7 @@ NAMsayin is a guitar rig plugin (VST3 + LV2) in C++20, built with DPF (plugin fr
 - Formats: VST3 and LV2 only. No standalone app, no CLAP, no AU.
 - Platforms: Linux and Windows, x86-64 only, AVX2/FMA required. No macOS, no ARM.
 - License: MIT. New source files start with `// SPDX-License-Identifier: MIT` and `// Copyright (c) 2026 singularity098`.
-- UI: DPF's NanoVG, very dark theme: pure black window; bars, panels, tiles, buttons and dialogs are black with hairline gray outlines (no gradient; owner's choice), purple accent (configurable in Settings). Font: Jost Light. Knobs: tick scale lit to the value, with a dot for the position. Theme tokens are at the top of `src/ui/NAMsayinUI.cpp`. Draw in logical pixels and scale by `getScaleFactor()`.
+- UI: DPF's NanoVG, very dark theme: pure black window; bars, panels, tiles, buttons and dialogs are black with hairline gray outlines (no gradient; owner's choice), blue accent by default (configurable in Settings; was purple), hairline icons. Font: Jost Light. Knobs: tick scale lit to the value, with a dot for the position. Theme tokens are at the top of `src/ui/NAMsayinUI.cpp`. Draw in logical pixels and scale by `getScaleFactor()`.
 - Block panel: a large block image on the left (drawn placeholder art until real images exist), generic controls right-justified. The generic knobs may later be replaced by knobs on the image itself.
 - Zero latency by default; only blocks that need latency add it, and it's reported to the host.
 - Max 32 blocks; each block keeps a fixed parameter slot for its lifetime (automation/MIDI follow the block).

@@ -43,7 +43,7 @@ TEST_CASE("settings fall back to defaults for missing or broken values")
     const Settings partial = Settings::fromJson(R"({"namDir": "/nam", "accent": "purple", "a2Lite": true})");
     CHECK(partial.namDir == "/nam");
     CHECK(partial.a2Lite);
-    CHECK(partial.accent == 0); // wrong type: default
+    CHECK(partial.accent == 1); // wrong type: default (blue)
     CHECK(partial.normalize);
 }
 

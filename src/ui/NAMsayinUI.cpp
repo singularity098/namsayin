@@ -61,8 +61,8 @@ const Color warn(0xf0, 0xc0, 0x40);
 const Color bad(0xe5, 0x48, 0x4d);
 // Highlight colour, chosen in Settings from these
 const Color accents[] = {
-    Color(0x9b, 0x5c, 0xff), // purple (default)
-    Color(0x4c, 0x8d, 0xff), // blue
+    Color(0x9b, 0x5c, 0xff), // purple
+    Color(0x4c, 0x8d, 0xff), // blue (default, Settings::accent)
     Color(0x2f, 0xbf, 0xa8), // teal
     Color(0x4c, 0xc9, 0x7a), // green
     Color(0xf0, 0xa0, 0x30), // amber
@@ -70,7 +70,7 @@ const Color accents[] = {
     Color(0xe0, 0x5c, 0xb0), // pink
 };
 constexpr int accentCount = sizeof(accents) / sizeof(accents[0]);
-Color accent = accents[0];
+Color accent = accents[1];
 // Placeholder block art, by kind of block
 const Color amp(0x8a, 0x5a, 0x3a);
 const Color cab(0x4a, 0x4a, 0x52);
@@ -2454,6 +2454,22 @@ private:
         fHits.push_back({ r, kind, index });
     }
 
+    // A small hairline "v", for buttons that open a menu or panel
+    void drawChevron(float cx, float cy, const Color& color)
+    {
+        beginPath();
+        moveTo(cx - 4.5f, cy - 2.0f);
+        lineTo(cx, cy + 2.5f);
+        lineTo(cx + 4.5f, cy - 2.0f);
+        strokeColor(color);
+        strokeWidth(1.2f);
+        lineCap(ROUND);
+        lineJoin(ROUND);
+        stroke();
+        lineCap(BUTT);
+        lineJoin(MITER);
+    }
+
     // An icon about 18 px across, centred on (cx, cy)
     void drawIcon(Icon icon, float cx, float cy, const Color& color, const Color& background)
     {
@@ -2461,7 +2477,7 @@ private:
         lineCap(ROUND);
         lineJoin(ROUND);
         strokeColor(color);
-        strokeWidth(1.8f);
+        strokeWidth(1.2f); // hairline, like the rest of the UI
         switch (icon)
         {
         case Icon::Power:
@@ -2477,7 +2493,7 @@ private:
 
         case Icon::Gear:
         {
-            // eight teeth around a ring
+            // eight teeth around a ring, outlined
             constexpr int teeth = 8;
             beginPath();
             for (int i = 0; i < teeth * 4; ++i)
@@ -2490,12 +2506,8 @@ private:
                     lineTo(cx + std::cos(a) * radius, cy + std::sin(a) * radius);
             }
             closePath();
-            fillColor(color);
-            fill();
-            beginPath();
             circle(cx, cy, 3.0f);
-            fillColor(background);
-            fill();
+            stroke();
             break;
         }
 
@@ -2539,7 +2551,7 @@ private:
                 moveTo(x0 + 3.0f * k, y0 + y * k);
                 lineTo(x0 + 29.0f * k, y0 + y * k);
             }
-            strokeWidth(1.4f);
+            strokeWidth(1.0f);
             stroke();
             beginPath();
             circle(x0 + 12.0f * k, y0 + 15.5f * k, 8.6f * k);
@@ -2549,14 +2561,13 @@ private:
             fill();
             beginPath();
             circle(x0 + 12.0f * k, y0 + 15.5f * k, 7.0f * k);
-            strokeWidth(1.2f);
+            strokeWidth(1.0f);
             stroke();
             beginPath();
-            circle(x0 + 12.0f * k, y0 + 15.5f * k, 4.6f * k);
-            circle(x0 + 24.0f * k, y0 + 8.5f * k, 4.2f * k);
-            circle(x0 + 24.0f * k, y0 + 22.5f * k, 4.2f * k);
-            fillColor(color);
-            fill();
+            circle(x0 + 12.0f * k, y0 + 15.5f * k, 3.4f * k);
+            circle(x0 + 24.0f * k, y0 + 8.5f * k, 3.6f * k);
+            circle(x0 + 24.0f * k, y0 + 22.5f * k, 3.6f * k);
+            stroke(); // outlined notes, to match the hairline icons
             break;
         }
         }
@@ -2967,10 +2978,12 @@ private:
 
         // preset menu with the preset's name (• when changed since it was saved or opened)
         constexpr float by = 12.0f, bh = 36.0f;
-        const std::string preset = presetName() + (presetModified() ? " •" : "") + "  ▾";
+        const std::string preset = presetName() + (presetModified() ? " •" : "");
         const Rect presetButton { logoRight + 28.0f, by, 280.0f, bh };
-        drawButton(presetButton, preset.c_str(), fDialog == Dialog::Menu && fMenuParam == kNoParam, theme::accent,
-                   Hit::PresetMenu, 0);
+        const bool presetMenuOpen = fDialog == Dialog::Menu && fMenuParam == kNoParam;
+        drawButton(presetButton, preset.c_str(), presetMenuOpen, theme::accent, Hit::PresetMenu, 0);
+        drawChevron(presetButton.x + presetButton.w - 20.0f, presetButton.y + presetButton.h / 2,
+                    presetMenuOpen ? theme::accent : theme::textDim);
         const Rect undo { presetButton.x + presetButton.w + 8.0f, by, 76.0f, bh };
         const Rect redo { undo.x + undo.w + 6.0f, by, 76.0f, bh };
         drawButton(undo, "Undo", false, theme::accent, Hit::Undo, 0);
@@ -3001,7 +3014,10 @@ private:
         const float pulse = beatPulse();
         if (running && pulse > 0.0f)
             fillRect(metro.x, metro.y, metro.w, metro.h, Color(255, 255, 255, 0.35f * pulse), 6.0f);
-        drawButton({ metro.x + metro.w + 2.0f, by, 26.0f, bh }, "▾", fMetroPanel, theme::accent, Hit::MetroPanel, 0);
+        const Rect metroPanel { metro.x + metro.w + 2.0f, by, 26.0f, bh };
+        drawButton(metroPanel, "", fMetroPanel, theme::accent, Hit::MetroPanel, 0);
+        drawChevron(metroPanel.x + metroPanel.w / 2, metroPanel.y + metroPanel.h / 2,
+                    fMetroPanel ? theme::accent : theme::text);
 
         // only when there's room next to the MIDI learn message
         if (fLearnParam < 0 || fWidth >= 1200.0f)
