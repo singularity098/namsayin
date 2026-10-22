@@ -64,7 +64,8 @@ src/state/            Plain data shared by DSP and UI, no DPF:
   UndoStack           undo/redo of chain snapshots
 src/plugin/           DistrhoPluginInfo.h + DSP side (Plugin subclass; thin wrapper around Engine)
 src/ui/               UI side (UI subclass, NanoVG). Immediate-mode: draw functions record hit areas, mouse handlers look them up.
-                      Tuner and metronome panels are overlays over the chain. OpenUrl.cpp keeps <windows.h> out of the DPF code
+                      Tuner and metronome panels are overlays over the chain. OpenUrl.cpp keeps <windows.h> and Vsync.cpp keeps
+                      GLX/Xlib out of the DPF code
                       BlockImages.cpp (generated) holds the built-in block images; ParamHelp.cpp the hover help texts
 tests/                doctest unit tests; TestSupport.hpp has a test block and an allocation counter
 docs/                 Requirements and architecture
@@ -153,5 +154,5 @@ The file browser opens in the host's working directory. Final checks happen in R
 - Presets store the global sound controls (input mode, input, bass, middle, treble, output, limiter) and the merge controls by parameter symbol; ones a preset lacks go back to their defaults on load. Embedded files live under `files/<hash>/` in the zip and are extracted to `cache/presets/<hash>/` with their sidecar images.
 - DPF's file browser doesn't open in the headless test setup (no desktop portal), so presets were tested there through the Recent list; check Open/Save As in Reaper.
 - Fretbored (the owner's other app, https://github.com/singularity098/fretbored) is the reference for the metronome and tuner features (`js/metronome.js`, `js/pitch.js`, `js/tuner.js`).
-- Redraw rate: on Linux the UI can only redraw once per host idle tick (pugl processes X11 events and exposes from the host's idle/timer callback; DPF asks VST3 hosts for 16 ms, LV2 hosts choose their own rate, jalv ~30 Hz). A frame costs well under 1 ms of CPU, so drawing isn't the bottleneck. Windows redraws from the native message loop.
+- Redraw rate: on Linux the UI can only redraw once per host idle tick (pugl processes X11 events and exposes from the host's idle/timer callback; DPF asks VST3 hosts for 16 ms, LV2 hosts choose their own rate, jalv ~30 Hz). A frame costs well under 1 ms of CPU, so drawing isn't the bottleneck. Windows redraws from the native message loop. The owner saw choppy dragging in Reaper on Linux in both LV2 and VST3. DPF leaves the GL swap interval at the driver default (usually vsync on), so each swap could block the host's GUI thread until the next refresh; the UI now turns vsync off for its window (`src/ui/Vsync.cpp`, GLX). Start the host with `NAMSAYIN_SHOW_FPS=1` to show a readout (idle ticks/s, frames/s, worst gap, draw time) to see what limits it. If the host's tick rate is the limit, the next step is a DPF patch registering the X11 connection with VST3's `IRunLoop` event handler (DPF only uses its timer).
 - Tone3000's site is blocked by this cloud environment's network policy, so its API docs can't be fetched here.

@@ -134,7 +134,8 @@ dpf_add_plugin(namsayin
     src/ui/BlockImages.cpp
     src/ui/ParamHelp.cpp
     src/ui/NAMsayinUI.cpp
-    src/ui/OpenUrl.cpp)
+    src/ui/OpenUrl.cpp
+    src/ui/Vsync.cpp)
 
 target_include_directories(namsayin PUBLIC src src/plugin)
 

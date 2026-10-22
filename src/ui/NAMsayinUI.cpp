@@ -6,6 +6,7 @@
 #include "BlockImages.hpp"
 #include "OpenUrl.hpp"
 #include "ParamHelp.hpp"
+#include "Vsync.hpp"
 #include "engine/BlockRegistry.hpp"
 #include "engine/Params.hpp"
 #include "engine/blocks/CompressorBlock.hpp"
@@ -535,6 +536,8 @@ protected:
 
     void onNanoDisplay() override
     {
+        const auto drawStart = std::chrono::steady_clock::now();
+        disableVsync(fVsyncDrawable);
         const float scale = static_cast<float>(getScaleFactor());
         fWidth = getWidth() / scale;
         fHeight = getHeight() / scale;
@@ -568,6 +571,8 @@ protected:
         else if (fDialog == Dialog::Menu)
             drawMenu();
         drawHelp();
+        if (fShowFps)
+            drawFps(drawStart);
 
         restore();
     }
@@ -1043,6 +1048,9 @@ protected:
 
     void uiIdle() override
     {
+        ++fIdleCount;
+        if (fShowFps)
+            repaint(); // the readout itself counts frames, so keep drawing
         if (fMomentaryReleasePending && std::chrono::steady_clock::now() - fMomentaryPressedAt >= kMomentaryMinHold)
             releaseMomentary();
         if (!fToast.empty() && std::chrono::steady_clock::now() - fToastAt > std::chrono::seconds(5))
@@ -2222,31 +2230,34 @@ private:
 
         case Icon::Fretbored:
         {
-            // the Fretbored app icon (its assets/icon.svg, a 32-unit square), drawn 20 px across
+            // the Fretbored app icon (its assets/icon.svg, a 32-unit square), flat in the icon colour like the
+            // others: three strings, a root note with its ring, and two notes. Gaps in the background colour keep
+            // the notes apart from the strings.
             const float k = 20.0f / 32.0f;
             const float x0 = cx - 10.0f, y0 = cy - 10.0f;
-            fillRect(x0, y0, 20.0f, 20.0f, Color(0x1a, 0x21, 0x32), 8.0f * k);
             beginPath();
             for (const float y : { 8.5f, 15.5f, 22.5f })
             {
                 moveTo(x0 + 3.0f * k, y0 + y * k);
                 lineTo(x0 + 29.0f * k, y0 + y * k);
             }
-            strokeColor(Color(0xe3, 0xe7, 0xef, 0.5f));
-            strokeWidth(1.6f * k);
+            strokeWidth(1.4f);
             stroke();
             beginPath();
-            circle(x0 + 12.0f * k, y0 + 15.5f * k, 7.0f * k);
-            strokeColor(Color(0xff, 0x7a, 0x59, 0.55f));
-            stroke();
-            beginPath();
-            circle(x0 + 12.0f * k, y0 + 15.5f * k, 5.0f * k);
-            fillColor(Color(0xff, 0x7a, 0x59));
+            circle(x0 + 12.0f * k, y0 + 15.5f * k, 8.6f * k);
+            circle(x0 + 24.0f * k, y0 + 8.5f * k, 5.8f * k);
+            circle(x0 + 24.0f * k, y0 + 22.5f * k, 5.8f * k);
+            fillColor(background);
             fill();
             beginPath();
+            circle(x0 + 12.0f * k, y0 + 15.5f * k, 7.0f * k);
+            strokeWidth(1.2f);
+            stroke();
+            beginPath();
+            circle(x0 + 12.0f * k, y0 + 15.5f * k, 4.6f * k);
             circle(x0 + 24.0f * k, y0 + 8.5f * k, 4.2f * k);
             circle(x0 + 24.0f * k, y0 + 22.5f * k, 4.2f * k);
-            fillColor(Color(0x7c, 0x6c, 0xff));
+            fillColor(color);
             fill();
             break;
         }
@@ -2317,6 +2328,30 @@ private:
     bool mouseBusy() const
     {
         return fDragParam >= 0 || fPressTile >= 0;
+    }
+
+    // Frame-rate readout (NAMSAYIN_SHOW_FPS=1 in the host's environment), to see how often the host lets the UI run
+    // and redraw: idle ticks and frames per second, the longest gap between frames, and the CPU time of a draw
+    void drawFps(std::chrono::steady_clock::time_point drawStart)
+    {
+        const auto now = std::chrono::steady_clock::now();
+        ++fFpsFrames;
+        fFpsMaxGap = std::max(fFpsMaxGap, std::chrono::duration<float, std::milli>(drawStart - fFpsLastFrame).count());
+        fFpsLastFrame = drawStart;
+        fFpsDrawMs += std::chrono::duration<float, std::milli>(now - drawStart).count();
+        const float elapsed = std::chrono::duration<float>(now - fFpsSince).count();
+        if (elapsed >= 1.0f)
+        {
+            std::snprintf(fFpsText, sizeof(fFpsText), "idle %.0f/s · frames %.0f/s · worst gap %.0f ms · draw %.2f ms",
+                          fIdleCount / elapsed, fFpsFrames / elapsed, fFpsMaxGap, fFpsDrawMs / std::max(1, fFpsFrames));
+            fFpsSince = now;
+            fIdleCount = 0;
+            fFpsFrames = 0;
+            fFpsMaxGap = 0.0f;
+            fFpsDrawMs = 0.0f;
+        }
+        fillRect(fWidth - 372.0f, fHeight - 24.0f, 364.0f, 18.0f, Color(0, 0, 0, 0.7f), 4.0f);
+        label(fWidth - 12.0f, fHeight - 15.0f, fFpsText, theme::warn, 11.0f, ALIGN_RIGHT | ALIGN_MIDDLE);
     }
 
     void drawHelp()
@@ -3965,6 +4000,20 @@ private:
     // hover help: the control under the mouse (kind -1: none with help) and since when
     static constexpr std::chrono::milliseconds kHelpDelay { 600 };
     int fHelpKind = -1;
+    uintptr_t fVsyncDrawable = 0;
+
+    // frame-rate readout (NAMSAYIN_SHOW_FPS)
+    const bool fShowFps = [] {
+        const char* value = std::getenv("NAMSAYIN_SHOW_FPS");
+        return value != nullptr && value[0] != '\0' && value[0] != '0';
+    }();
+    int fIdleCount = 0;
+    int fFpsFrames = 0;
+    float fFpsMaxGap = 0.0f;
+    float fFpsDrawMs = 0.0f;
+    std::chrono::steady_clock::time_point fFpsSince = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point fFpsLastFrame = std::chrono::steady_clock::now();
+    char fFpsText[96] = "measuring…";
     int fHelpIndex = -1;
     std::chrono::steady_clock::time_point fHelpSince;
     bool fHelpShown = false;
