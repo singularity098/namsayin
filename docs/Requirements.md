@@ -76,6 +76,7 @@
     - Saving keeps presets in the plugin's own preset folder (subfolders allowed), named in an in-app dialog rather than the system save dialog, and without embedded files (owner's decision, 2026-10-22)
     - Export writes a copy anywhere with the system save dialog; exported presets can embed everything they use (NAM files, IRs, images), so they can be shared
     - One saved preset can be marked as the default; new plugin instances load it
+    - The preset menu lists the saved presets as they're arranged in folders, instead of a Recent list (owner's decision, 2026-10-22)
     - When a preset references a NAM or IR file that no longer exists, the block is still added but grayed out, with a button to locate the file
 - Global bypass button
 - At the bottom of the application, we have:

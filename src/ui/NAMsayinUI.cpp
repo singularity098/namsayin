@@ -36,6 +36,7 @@
 #include <cstring>
 #include <filesystem>
 #include <map>
+#include <set>
 #include <memory>
 #include <string>
 #include <vector>
@@ -185,13 +186,16 @@ enum class MenuAction {
     PresetSaveAs,
     PresetExport, // a copy anywhere, with its files (system dialog)
     PresetEmbed,
-    PresetRecent, // arg = index in the recent list
+    PresetLoad,   // arg = index in fMenuPresets (the preset folder's presets)
 };
 
 struct MenuEntry {
     std::string label;
     MenuAction action;
     int arg = 0;
+    int depth = 0;       // indentation (preset folders)
+    bool folder = false; // a folder heading
+    bool current = false; // the open preset
 };
 
 // Editable text fields
@@ -485,9 +489,8 @@ public:
         loadSharedResources();
         fUiFont = createFontFromMemory("jost", kUiFontLight, kUiFontLightSize, false);
         fUiFontSmall = createFontFromMemory("jost-regular", kUiFontRegular, kUiFontRegularSize, false);
-        fUiFontBold = createFontFromMemory("jost-bold", kUiFontBold, kUiFontBoldSize, false);
         const FontId dejavu = nvgFindFont(getContext(), NANOVG_DEJAVU_SANS_TTF);
-        for (FontId font : { fUiFont, fUiFontSmall, fUiFontBold })
+        for (FontId font : { fUiFont, fUiFontSmall })
         {
             if (font >= 0)
                 nvgAddFallbackFontId(getContext(), font, dejavu); // ★, ▾
@@ -1852,22 +1855,53 @@ private:
         fMenuParam = kNoParam;
         std::vector<MenuEntry> entries {
             { "New", MenuAction::PresetNew },
-            { "Presets…", MenuAction::PresetBrowse },
             { "Save", MenuAction::PresetSave },
             { "Save As…", MenuAction::PresetSaveAs },
+            { "Manage Presets…", MenuAction::PresetBrowse },
             { "Files", MenuAction::None },
             { "Open File…", MenuAction::PresetOpen },
             { "Export…", MenuAction::PresetExport },
             { std::string("Embed files when exporting: ") + (fSettings.embedFiles ? "On" : "Off"),
               MenuAction::PresetEmbed },
         };
-        if (!fSettings.recentPresets.empty())
+
+        // the preset folder as it is on disk: top-level presets, then each folder with its presets (and subfolders)
+        // indented under it
+        const std::vector<PresetEntry> presets = listPresets(presetsDir());
+        fMenuPresets.clear();
+        entries.push_back({ presets.empty() ? "Presets (none saved yet)" : "Presets", MenuAction::None });
+        std::set<std::string> shownFolders;
+        for (const PresetEntry& preset : presets)
         {
-            entries.push_back({ "Recent", MenuAction::None });
-            for (size_t i = 0; i < fSettings.recentPresets.size(); ++i)
-                entries.push_back({ fileStem(fSettings.recentPresets[i]), MenuAction::PresetRecent, static_cast<int>(i) });
+            int depth = 0;
+            if (!preset.folder.empty())
+            {
+                size_t pos = 0;
+                for (;;)
+                {
+                    const size_t slash = preset.folder.find('/', pos);
+                    const std::string path = preset.folder.substr(0, slash);
+                    if (shownFolders.insert(path).second)
+                    {
+                        MenuEntry heading { path.substr(pos), MenuAction::None };
+                        heading.depth = depth;
+                        heading.folder = true;
+                        entries.push_back(std::move(heading));
+                    }
+                    ++depth;
+                    if (slash == std::string::npos)
+                        break;
+                    pos = slash + 1;
+                }
+            }
+            MenuEntry item { preset.name + (preset.path == fSettings.defaultPreset ? "  (default)" : ""),
+                             MenuAction::PresetLoad, static_cast<int>(fMenuPresets.size()) };
+            item.depth = depth;
+            item.current = preset.path == fChain.preset;
+            entries.push_back(std::move(item));
+            fMenuPresets.push_back(preset.path);
         }
-        openMenu(140.0f, kTopBarHeight - 6.0f, std::move(entries));
+        openMenu(fPresetButtonX, kTopBarHeight - 6.0f, std::move(entries));
     }
 
     void runMenu(int index)
@@ -1939,9 +1973,9 @@ private:
         case MenuAction::PresetEmbed:
             updateSettings([](Settings& settings) { settings.embedFiles = !settings.embedFiles; });
             break;
-        case MenuAction::PresetRecent:
-            if (entry.arg < static_cast<int>(fSettings.recentPresets.size()))
-                openPreset(fSettings.recentPresets[entry.arg]);
+        case MenuAction::PresetLoad:
+            if (entry.arg < static_cast<int>(fMenuPresets.size()))
+                openPreset(fMenuPresets[entry.arg]);
             break;
         }
     }
@@ -3013,9 +3047,7 @@ private:
     void drawTopBar()
     {
         surface(0, 0, fWidth, kTopBarHeight, 0.0f, Surface::Bar);
-        fontSize(24.0f);
-        if (fUiFontBold >= 0)
-            fontFaceId(fUiFontBold);
+        fontSize(24.0f); // the logo: large Jost Light
         fillColor(theme::text);
         textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
         const float logoRight = text(16.0f, kTopBarHeight / 2, "NAMsayin", nullptr);
@@ -3024,6 +3056,7 @@ private:
         constexpr float by = 12.0f, bh = 36.0f;
         const std::string preset = presetName() + (presetModified() ? " •" : "");
         const Rect presetButton { logoRight + 28.0f, by, 280.0f, bh };
+        fPresetButtonX = presetButton.x;
         const bool presetMenuOpen = fDialog == Dialog::Menu && fMenuParam == kNoParam;
         drawButton(presetButton, preset.c_str(), presetMenuOpen, theme::accent, Hit::PresetMenu, 0);
         drawChevron(presetButton.x + presetButton.w - 20.0f, presetButton.y + presetButton.h / 2,
@@ -4214,24 +4247,42 @@ private:
     void drawMenu()
     {
         fHits.push_back({ { 0, 0, fWidth, fHeight }, Hit::DialogBackdrop, 0 });
-        constexpr float itemH = 30.0f, menuW = 300.0f;
-        const float h = fMenu.size() * itemH + 8.0f;
+        constexpr float itemH = 30.0f, menuW = 300.0f, indent = 16.0f;
+        const float contentH = fMenu.size() * itemH + 8.0f;
+        const float h = std::min(contentH, fHeight - 16.0f); // a long preset list scrolls
         const float x = std::min(fMenuX, fWidth - menuW - 8.0f);
         const float y = std::min(fMenuY, fHeight - h - 8.0f);
+        fListScroll = std::clamp(fListScroll, 0.0f, contentH - h);
         surface(x, y, menuW, h, 8.0f, Surface::Dialog);
         fHits.push_back({ { x, y, menuW, h }, Hit::DialogPanel, 0 });
 
+        save();
+        scissor(x, y + 2.0f, menuW, h - 4.0f);
         for (size_t i = 0; i < fMenu.size(); ++i)
         {
-            const Rect r { x + 4.0f, y + 4.0f + i * itemH, menuW - 8.0f, itemH };
-            const bool heading = fMenu[i].action == MenuAction::None;
-            if (!heading && r.contains(fMouseX, fMouseY))
+            const MenuEntry& entry = fMenu[i];
+            const Rect r { x + 4.0f, y + 4.0f + i * itemH - fListScroll, menuW - 8.0f, itemH };
+            if (r.y + r.h < y || r.y > y + h)
+                continue;
+            const bool heading = entry.action == MenuAction::None;
+            const bool inside = fMouseY >= y && fMouseY < y + h;
+            if (!heading && inside && r.contains(fMouseX, fMouseY))
                 fillRect(r.x, r.y, r.w, r.h, theme::accent.withAlpha(0.3f), 5.0f);
-            label(r.x + 10.0f, r.y + r.h / 2, fMenu[i].label.c_str(), heading ? theme::textDim : theme::text,
-                  heading ? 11.0f : 13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+            const float tx = r.x + 10.0f + entry.depth * indent;
+            // folders dim, the open preset in the highlight colour
+            const Color color = heading ? theme::textDim : entry.current ? theme::accent : theme::text;
+            fontSize(heading && !entry.folder ? 11.0f : 13.0f);
+            const std::string text = fitText(entry.label, r.x + r.w - 8.0f - tx);
+            label(tx, r.y + r.h / 2, text.c_str(), color, heading && !entry.folder ? 11.0f : 13.0f,
+                  ALIGN_LEFT | ALIGN_MIDDLE);
             if (!heading)
-                fHits.push_back({ r, Hit::MenuItem, static_cast<int>(i) });
+            {
+                const float top = std::max(r.y, y), bottom = std::min(r.y + r.h, y + h);
+                if (bottom > top)
+                    fHits.push_back({ { r.x, top, r.w, bottom - top }, Hit::MenuItem, static_cast<int>(i) });
+            }
         }
+        restore();
     }
 
     void drawToast()
@@ -4637,7 +4688,6 @@ private:
     bool fBackgroundTried = false;
     FontId fUiFont = -1;      // Jost Light
     FontId fUiFontSmall = -1; // Jost Regular, for small text
-    FontId fUiFontBold = -1;  // Jost Bold, for the logo
     Category fDialogCategory = Category::LocalNam;
     FolderPicker fFolderPicker;
     Field fFolderField = kFieldNamDir;
@@ -4709,6 +4759,8 @@ private:
     bool fDefaultPending = false; // the default preset may still be loaded (a new instance)
     std::chrono::steady_clock::time_point fOpenedAt = std::chrono::steady_clock::now();
     std::vector<std::string> fPresetFolders;  // Save Preset dialog
+    std::vector<std::string> fMenuPresets;    // the preset menu's presets, by MenuEntry::arg
+    float fPresetButtonX = 140.0f;
     std::vector<PresetEntry> fPresetList;     // Presets dialog
     struct PresetRow {
         std::string folder; // a folder heading when path is empty
