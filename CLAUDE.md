@@ -8,7 +8,7 @@ NAMsayin is a guitar rig plugin (VST3 + LV2) in C++20, built with DPF (plugin fr
 
 - **Requirements**: `docs/Requirements.md` — the owner's feature list plus agreed decisions. Treat it as the source of truth; record new decisions there.
 - **Architecture and milestones**: `docs/Architecture.md` — design, v1 milestones (M0–M10) and decisions log.
-- **Current milestone**: M1, M2 (minus resampling), M3 (delay, reverb, compressor), M5 (library, settings), M6 (split/merge), M7 (presets, undo/redo, MIDI learn), M8 (tuner) and M9 (metronome) are done, and M4 is done except real block images (the owner is providing them; the Doubler has one). The IR loader (local .wav cab IRs) and the Doppelganger Delay (echoes alternate flanger/chorus; `docs/Architecture.md` 4.7b) are also done, at the owner's request, and so is the pedal set, including the second set of 18 (`docs/Requirements.md` "Pedals", Architecture 4.11; owner's call: no rush to v1). Next: M10 (v1.0 release: performance, DAW testing, docs).
+- **Current milestone**: M1, M2 (minus resampling), M3 (delay, reverb, compressor), M5 (library, settings), M6 (split/merge), M7 (presets, undo/redo, MIDI learn), M8 (tuner) and M9 (metronome) are done, and M4 is done except real block images (the owner is providing them; the Doubler has one). The IR loader (local .wav cab IRs) and the Doppelganger Delay (echoes alternate flanger/chorus; `docs/Architecture.md` 4.7b) are also done, at the owner's request, and so is the pedal set, including the second set of 18 and six more synths (`docs/Requirements.md` "Pedals", Architecture 4.11; owner's call: no rush to v1). Next: M10 (v1.0 release: performance, DAW testing, docs).
 
 ## Fixed decisions (don't revisit without the owner)
 
@@ -45,7 +45,8 @@ src/engine/           Audio engine, independent of DPF (static library `namsayin
                       Waveshapers (clipping curves), PitchShifter (delay-line voices), Fdn (8-line reverb tank),
                       PitchTracker (YIN, real time; synth, harmonizer, octave), PeriodFinder (autocorrelation;
                       pitch-synchronous splices for the pitch shifter, chords included)
-                      Oversampler (polyphase IIR half-band, 4x, zero latency), OnsetDetector (new pick attacks)
+                      Oversampler (polyphase IIR half-band, 4x, zero latency), OnsetDetector (new pick attacks),
+                      Oscillator (PolyBLEP saw and pulse for the synths)
   dsp/DelayLine.hpp   Delay line with Hermite reads, sine LFO, dry/wet mix law; AlignmentDelay (split branches)
   tuner/              PitchDetector (MPM + sub-cent refinement), Tuner (ring buffer from the audio thread, analysis off it)
   metronome/          Metronome (sample-accurate, free and DAW sync), ClickSamples.cpp (generated)
@@ -54,7 +55,8 @@ src/engine/           Audio engine, independent of DPF (static library `namsayin
                       auto swell, ring mod, rotary, octave, pitch shifter, whammy, poly octave, spring reverb,
                       shimmer, freeze, tape echo, ducking delay, synth, looper, harmonizer, filter; second set: gated fuzz,
                       envelope drive, kill switch, barber pole, warble, slicer, bloom and gated reverb, reverse and pitch
-                      delay, beat repeat, detune, capo, arpeggiator, organ, sustainer, robot filter, talk box)
+                      delay, beat repeat, detune, capo, arpeggiator, organ, sustainer, robot filter, talk box;
+                      SynthBlocks: super saw, FM, fold, acid, string machine and chip synths)
 src/state/            Plain data shared by DSP and UI, no DPF:
   ChainState          the chain (JSON; the split is a block range + per-block branch tag)
   ChainExchange       chain file route for hosts that drop UI state messages
@@ -128,7 +130,7 @@ The file browser opens in the host's working directory. Final checks happen in R
 - Tempo sync is generic: a descriptor's `syncParam`/`syncedParam`/`syncedIsRate` make the UI show note values (`TempoSync.hpp`); the block maps the knob itself. While the host plays, `Block::setSongPosition()` gives the position in quarter notes; synced LFOs lock to it (`Lfo::syncTo`), so they land on the beat.
 - A `Choice` parameter's list must never grow or shrink once released: its normalized values would map to other choices in saved projects. Add a new block type instead.
 - Every control needs a hover help text in `src/ui/ParamHelp.cpp` (plain English: what it does and how to use it), and so does every block type (`blockTypeHelp()`: what it is, what it's for, where it goes in the chain; shown when hovering a tile or a block in Add Block); `tests/ParamHelpTests.cpp` fails for a block type, block control or global control without one. Help is keyed by typeId and control name, so renaming a control means renaming its help entry.
-- `tests/BlockSanityTests.cpp` runs every registered block at default, extreme and random settings (finite, bounded, no allocation, silent for silence). New blocks get behaviour tests too (`tests/PedalTests.cpp`, `tests/MorePedalTests.cpp` for the second set).
+- `tests/BlockSanityTests.cpp` runs every registered block at default, extreme and random settings (finite, bounded, no allocation, silent for silence). New blocks get behaviour tests too (`tests/PedalTests.cpp`, `tests/MorePedalTests.cpp` for the second set, `tests/SynthTests.cpp` for the synths).
 - Block `typeId`s are stored in presets and plugin state — never rename one.
 - Parameter values live in the host. `ChainState.params`/`bypass` are only for presets and undo; the UI pushes them to the host.
 - The chain reaches the DSP as the `chain` state string (JSON). `setState()` runs off the audio thread and builds the new graph there.

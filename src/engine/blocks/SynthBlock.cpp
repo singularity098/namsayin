@@ -3,6 +3,7 @@
 
 #include "engine/blocks/SynthBlock.hpp"
 
+#include "engine/dsp/Oscillator.hpp"
 #include "engine/dsp/PitchTracker.hpp"
 #include "engine/dsp/Smoother.hpp"
 #include "engine/dsp/Svf.hpp"
@@ -18,22 +19,6 @@ constexpr const char* kWaveNames[] = { "Square", "Saw", "Pulse", "Sub" };
 constexpr const char* kOctaveNames[] = { "-2", "-1", "0", "+1" };
 
 constexpr float kEnvOctaves = 5.0f;
-
-// PolyBLEP: subtracts the step's aliasing around each discontinuity of a naive saw or square
-double polyBlep(double t, double dt)
-{
-    if (t < dt)
-    {
-        t /= dt;
-        return t + t - t * t - 1.0;
-    }
-    if (t > 1.0 - dt)
-    {
-        t = (t - 1.0) / dt;
-        return t * t + t + t + 1.0;
-    }
-    return 0.0;
-}
 
 class SynthBlock : public Block {
 public:
@@ -135,26 +120,14 @@ private:
         switch (fWave)
         {
         case SynthWave::Saw:
-            return static_cast<float>(2.0 * fPhase - 1.0 - polyBlep(fPhase, dt));
+            return blepSaw(fPhase, dt);
         case SynthWave::Pulse:
-            return square(fPhase, dt, 0.25);
+            return blepPulse(fPhase, dt, 0.25);
         case SynthWave::Sub:
-            return static_cast<float>(0.6 * (2.0 * fPhase - 1.0 - polyBlep(fPhase, dt))
-                                      + 0.6 * square(fSubPhase, 0.5 * dt, 0.5));
+            return 0.6f * blepSaw(fPhase, dt) + 0.6f * blepPulse(fSubPhase, 0.5 * dt, 0.5);
         default:
-            return square(fPhase, dt, 0.5);
+            return blepPulse(fPhase, dt, 0.5);
         }
-    }
-
-    static float square(double phase, double dt, double width)
-    {
-        double v = phase < width ? 1.0 : -1.0;
-        v += polyBlep(phase, dt);
-        double falling = phase - width;
-        if (falling < 0.0)
-            falling += 1.0;
-        v -= polyBlep(falling, dt);
-        return static_cast<float>(v);
     }
 
     void updateAmp()

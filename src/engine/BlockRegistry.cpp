@@ -30,6 +30,7 @@
 #include "engine/blocks/RotaryBlock.hpp"
 #include "engine/blocks/SpringReverbBlock.hpp"
 #include "engine/blocks/SynthBlock.hpp"
+#include "engine/blocks/SynthBlocks.hpp"
 #include "engine/blocks/TalkBoxBlock.hpp"
 #include "engine/blocks/TremoloBlock.hpp"
 #include "engine/blocks/VolumeBlocks.hpp"
@@ -120,6 +121,12 @@ const BlockRegistry& BlockRegistry::builtin()
         &kOrganBlockDescriptor,
         &kSustainerBlockDescriptor,
         &kSynthBlockDescriptor,
+        &kSuperSawBlockDescriptor,
+        &kFmSynthBlockDescriptor,
+        &kFoldSynthBlockDescriptor,
+        &kAcidSynthBlockDescriptor,
+        &kStringSynthBlockDescriptor,
+        &kChipSynthBlockDescriptor,
         &kFilterBlockDescriptor,
         &kRobotFilterBlockDescriptor,
         &kWahBlockDescriptor,

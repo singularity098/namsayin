@@ -32,6 +32,22 @@ struct BlockHelp {
     "How wide the " what " spreads across the stereo field. 0% keeps both sides the same (centred); 100% makes "    \
     "left and right move differently for a wide, swirling sound. Only works when the plugin is in Stereo mode."
 
+// Shared by the synths
+#define SYNTH_ATTACK_HELP                                                                                             \
+    "How quickly each note fades in. Short attacks follow your pick; long ones swell in slowly, like a bowed or "     \
+    "pad sound."
+#define SYNTH_RELEASE_HELP                                                                                            \
+    "How long the synth keeps sounding after your note stops. Short releases follow the guitar closely; long ones "   \
+    "let notes ring and blend into each other, like a pad."
+#define SYNTH_OCTAVE_HELP                                                                                             \
+    "Moves the synth up or down by octaves from the note you play. -1 and -2 give bass lines from guitar notes; "     \
+    "+1 makes a higher lead."
+#define SYNTH_GLIDE_HELP                                                                                              \
+    "How long the synth slides from one note to the next, in milliseconds. Short times jump straight to each note; "  \
+    "long ones give a smooth, portamento-like slide."
+#define SYNTH_MIX_HELP                                                                                                \
+    "Blends the synth with your guitar. 100% is the synth only; lower values layer it with your dry playing."
+
 constexpr BlockHelp kBlockHelp[] = {
     // Local NAM
     { "nam", "Input",
@@ -1062,6 +1078,131 @@ constexpr BlockHelp kBlockHelp[] = {
     { "talkbox", "Mix", MIX_HELP("talking sound") },
     { "talkbox", "Level",
       "Output volume of the effect, to make up for the volume the vowels take away. 0 dB leaves it as it is." },
+
+    // Super Saw
+    { "supersaw", "Detune",
+      "How far apart the seven saws are tuned. A little gives a rich, chorused tone; more gives the huge, "
+      "shimmering trance-lead sound; very high values sound wild and out of tune." },
+    { "supersaw", "Width", WIDTH_HELP("saws") },
+    { "supersaw", "Cutoff",
+      "The filter's brightness when you play softly. Turn it down for a darker, warmer pad; up for a bright, "
+      "cutting lead." },
+    { "supersaw", "Resonance",
+      "Emphasis at the filter's cutoff. Low values sound smooth; higher values add a vocal, whistling peak." },
+    { "supersaw", "Env",
+      "How much harder playing opens the filter. Higher values make the synth brighten as you dig in, like a real "
+      "instrument." },
+    { "supersaw", "Attack", SYNTH_ATTACK_HELP },
+    { "supersaw", "Release", SYNTH_RELEASE_HELP },
+    { "supersaw", "Octave", SYNTH_OCTAVE_HELP },
+    { "supersaw", "Glide", SYNTH_GLIDE_HELP },
+    { "supersaw", "Mix", SYNTH_MIX_HELP },
+
+    // FM Synth
+    { "fmsynth", "Ratio",
+      "The modulator's pitch against your note, which picks the kind of sound: 1:1 and 1:2 give electric pianos "
+      "and brassy tones, 1:0.5 deep basses, 1:3.5 and 1:7 bells and metallic, clangy sounds." },
+    { "fmsynth", "Index",
+      "How bright and complex the tone is at the pick. 0 is a pure sine; higher values add more and more "
+      "harmonics, up to buzzy and metallic." },
+    { "fmsynth", "Decay",
+      "How quickly the brightness falls after each pick, from Index down to Sustain. Short decays give plucked, "
+      "piano-like notes; long ones keep the tone bright." },
+    { "fmsynth", "Sustain",
+      "How much of the brightness stays while the note is held, after the Decay. 0% fades to a pure, soft tone; "
+      "100% keeps it as bright as the pick." },
+    { "fmsynth", "Feedback",
+      "Lets the modulator modulate itself, adding grit and noise-like edges to the tone. 0% is clean." },
+    { "fmsynth", "Attack", SYNTH_ATTACK_HELP },
+    { "fmsynth", "Release", SYNTH_RELEASE_HELP },
+    { "fmsynth", "Octave", SYNTH_OCTAVE_HELP },
+    { "fmsynth", "Glide", SYNTH_GLIDE_HELP },
+    { "fmsynth", "Mix", SYNTH_MIX_HELP },
+
+    // Fold Synth
+    { "foldsynth", "Fold",
+      "How hard the sine is folded. Low values are soft and round; higher values fold the wave over and over into "
+      "bright, rich, ringing harmonics." },
+    { "foldsynth", "Env",
+      "How much digging in adds to the fold, so harder picks sound brighter and more complex. 0% keeps the same "
+      "tone whatever you play." },
+    { "foldsynth", "Symmetry",
+      "Shifts the wave before folding, so it folds unevenly. Away from 0% it adds hollow, even harmonics and a "
+      "more nasal tone." },
+    { "foldsynth", "Gate",
+      "Follow makes the synth follow your playing's loudness. Pluck pings on each pick and dies away over Decay, "
+      "darkening as it fades, for a woody, bongo-like sound." },
+    { "foldsynth", "Decay",
+      "With Pluck: how long each ping takes to die away. Short decays give percussive plinks; long ones ring like "
+      "a struck bar." },
+    { "foldsynth", "Tone",
+      "How bright the gate gets when fully open. Lower it for a softer, warmer sound; raise it for more sparkle." },
+    { "foldsynth", "Octave", SYNTH_OCTAVE_HELP },
+    { "foldsynth", "Glide", SYNTH_GLIDE_HELP },
+    { "foldsynth", "Mix", SYNTH_MIX_HELP },
+
+    // Acid Synth
+    { "acidsynth", "Wave",
+      "Saw is the buzzier, classic acid sound; Square is hollower and rounder, with a woodier, more reedy squelch." },
+    { "acidsynth", "Cutoff",
+      "The filter's resting point. Low settings give a dark, rubbery bass; higher ones a brighter tone. The "
+      "envelope opens it from here on each pick." },
+    { "acidsynth", "Resonance",
+      "How much the filter squeals at its cutoff. High settings give the famous squelchy, rubbery acid sound." },
+    { "acidsynth", "Env Mod",
+      "How far the filter snaps open on each pick before it closes again. More gives a bigger 'wow' on every "
+      "note." },
+    { "acidsynth", "Decay",
+      "How quickly the filter closes after each pick. Short decays give tight, plucky blips; long ones a slow, "
+      "wah-like sweep." },
+    { "acidsynth", "Accent",
+      "How much harder picks open the filter further and make it ring more. Dig in on some notes to make them "
+      "jump out of the line." },
+    { "acidsynth", "Drive",
+      "Overdrives the oscillator into the filter, for a thicker, more aggressive acid sound." },
+    { "acidsynth", "Octave", SYNTH_OCTAVE_HELP },
+    { "acidsynth", "Glide",
+      "The slide between notes. Acid lines live on slides: around 50-100 ms gives the classic slurred bass "
+      "line; short times jump between notes." },
+    { "acidsynth", "Mix", SYNTH_MIX_HELP },
+
+    // String Machine
+    { "stringsynth", "Low",
+      "The level of the voice an octave below your note. Adds body and warmth, like a cello section." },
+    { "stringsynth", "Mid",
+      "The level of the voice at your note: the core of the string sound, like a viola section." },
+    { "stringsynth", "High",
+      "The level of the voice an octave above your note. Adds a bright, airy violin shimmer." },
+    { "stringsynth", "Ensemble",
+      "The string machine's chorus, which makes one voice sound like a whole section. Turn it up for a lush, "
+      "swirling 70s sound; down for a thinner, organ-like tone." },
+    { "stringsynth", "Tone",
+      "Brightness of the strings. Turn it down for soft, distant strings; up for a brighter, buzzier sound." },
+    { "stringsynth", "Attack", SYNTH_ATTACK_HELP },
+    { "stringsynth", "Release", SYNTH_RELEASE_HELP },
+    { "stringsynth", "Octave", SYNTH_OCTAVE_HELP },
+    { "stringsynth", "Mix", SYNTH_MIX_HELP },
+
+    // Chip Synth
+    { "chipsynth", "Wave",
+      "The console's waveforms: thin, nasal pulses at 12% and 25%, a hollow 50% square, or the stepped, "
+      "flute-like triangle used for basses." },
+    { "chipsynth", "Arp",
+      "Plays a fast arpeggio from your note, the way old games faked chords: an octave, a major or minor chord, or "
+      "a fifth. Off plays your note only." },
+    { "chipsynth", "Arp Rate",
+      "How fast the arpeggio cycles, in notes per second. Fast rates blur into a chord-like warble; slower ones "
+      "sound like separate notes." },
+    { "chipsynth", "Quantize",
+      "Snaps your notes to the nearest semitone, as a game console plays them, so bends jump in steps. Turn it off "
+      "to follow your bends and vibrato smoothly." },
+    { "chipsynth", "Vibrato",
+      "A vibrato that fades in shortly after each note, like a game's held lead notes. 0% is off." },
+    { "chipsynth", "Crush",
+      "The console's coarse volume and sample steps. Turn it up for a grittier, more lo-fi 8-bit sound; 0% is "
+      "clean." },
+    { "chipsynth", "Octave", SYNTH_OCTAVE_HELP },
+    { "chipsynth", "Mix", SYNTH_MIX_HELP },
 };
 
 #undef MIX_HELP
@@ -1299,6 +1440,30 @@ constexpr TypeHelp kTypeHelp[] = {
       "A talk box: formant filters that make the guitar sound like it's saying vowels. Map Position to an "
       "expression pedal to make it talk, let your picking open it (Envelope), or sweep it with the LFO. Put it "
       "after drive, where there are more harmonics to shape." },
+    { "supersaw",
+      "A huge, detuned synth: seven saws slightly out of tune with each other and spread across the stereo field, "
+      "the classic trance lead and big pad sound. Play single notes; it follows your pitch and your dynamics. Put "
+      "it first in the chain, or after a compressor for an even level." },
+    { "fmsynth",
+      "An FM synth: one sine modulating another, for electric pianos, glassy bells, plucky basses and metallic "
+      "tones that brighten on every pick and mellow as they ring. Ratio picks the kind of sound. Play single notes; "
+      "put it first in the chain." },
+    { "foldsynth",
+      "A west-coast style synth: a sine folded into rich harmonics as you dig in, through a low-pass gate that "
+      "follows your playing or pings on each pick like a struck wooden bar. Play single notes; put it first in the "
+      "chain." },
+    { "acidsynth",
+      "An acid bass synth in the style of the 303: a saw or square through a squelchy resonant filter that snaps "
+      "open on every pick, with slides between notes. Play single-note lines, often an octave down; put it first "
+      "in the chain, and try a distortion after it." },
+    { "stringsynth",
+      "A 70s string machine: saws in three octaves through a lush ensemble chorus, with slow swells, for warm, "
+      "sweeping string pads. Play single notes or slow lines; it follows your pitch. Put it first in the chain and "
+      "add reverb after it." },
+    { "chipsynth",
+      "An 8-bit game console synth: thin pulse waves or a stepped triangle, notes snapped to semitones, fast "
+      "arpeggios that fake chords, and a delayed vibrato, for chiptune leads and basses. Play single notes; put it "
+      "first in the chain." },
 };
 
 struct GlobalHelp {

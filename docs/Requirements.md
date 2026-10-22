@@ -103,4 +103,5 @@ v1 is not rushed: before the v1 release, build a wide set of built-in pedals, fr
 - Each block has at most 16 controls (its parameter slot; 8 when the pedals were built)
 - Status: all of the above are built (see Architecture 4.11). Vibrato is a Chorus type (and the Phaser's Vibe at full mix); tone tuning by ear is the owner's
 - Second set (owner's choice from Claude's suggestions, 2026-10-22): reverse delay, envelope-controlled drive, warble (Mood / Warped Vinyl style), gated fuzz (Fuzz Factory style), bloom reverb, pitch-shifting delay, arpeggiator, slicer (step volume pattern), barber-pole phaser, talk box; plus kill switch / stutter, infinite sustain (sustainer), glitch / beat repeat, gated reverb, detune (micro-pitch), capo / drop tuner, guitar-to-organ, sample-and-hold "robot" filter. Status: all built (Architecture 4.11)
+- More synths (owner's request, 2026-10-22: "other similar synth pedals which have unique sounds", after liking the Synth): Super Saw, FM Synth, Fold Synth (west coast), Acid Synth (303 style), String Machine, Chip Synth (8-bit). Status: all built (Architecture 4.11)
 

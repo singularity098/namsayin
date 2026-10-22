@@ -120,6 +120,7 @@ add_library(namsayin-engine STATIC
   src/engine/blocks/RotaryBlock.cpp
   src/engine/blocks/SpringReverbBlock.cpp
   src/engine/blocks/SynthBlock.cpp
+  src/engine/blocks/SynthBlocks.cpp
   src/engine/blocks/TalkBoxBlock.cpp
   src/engine/blocks/TremoloBlock.cpp
   src/engine/blocks/VolumeBlocks.cpp
@@ -204,6 +205,7 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/PresetTests.cpp
     tests/ReverbBlockTests.cpp
     tests/SettingsTests.cpp
+    tests/SynthTests.cpp
     tests/TunerTests.cpp
     tests/UndoStackTests.cpp
     src/ui/ParamHelp.cpp)
