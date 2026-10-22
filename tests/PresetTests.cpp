@@ -131,3 +131,46 @@ TEST_CASE("embedding fails cleanly when a file can't be read; a non-preset file 
 
     CHECK_FALSE(loadPresetFile(fixture.model, nullptr, &error));
 }
+
+TEST_CASE("preset folder: paths from folder and name, listing, inside checks")
+{
+    const fs::path dir = fs::temp_directory_path() / "namsayin-test-preset-folder";
+    fs::remove_all(dir);
+
+    CHECK(presetPath(dir, "", "Clean") == dir / "Clean.namsayin");
+    CHECK(presetPath(dir, " Amps / Fender ", " Twin ") == dir / "Amps" / "Fender" / "Twin.namsayin");
+    CHECK(presetPath(dir, "Amps\\Fender", "Twin.namsayin") == dir / "Amps" / "Fender" / "Twin.namsayin");
+    CHECK(presetPath(dir, "//", "Ünïcode") == dir / pathFromUtf8("Ünïcode.namsayin"));
+    CHECK_FALSE(presetPath(dir, "", "  "));
+    CHECK_FALSE(presetPath(dir, "", "a/b"));
+    CHECK_FALSE(presetPath(dir, "", "what?"));
+    CHECK_FALSE(presetPath(dir, "..", "Escape"));
+    CHECK_FALSE(presetPath(dir, "Amps/../..", "Escape"));
+
+    Preset preset;
+    for (const auto& [folder, name] : { std::pair { "", "zeta" }, { "", "Alpha" }, { "Clean", "Twin" },
+                                        { "Clean/Fender", "Deluxe" }, { "Lead", "Plexi" } })
+        REQUIRE(savePresetFile(pathToUtf8(*presetPath(dir, folder, name)), preset, false));
+    fs::create_directories(dir / "Empty");
+    std::ofstream(dir / "notes.txt") << "not a preset";
+
+    const std::vector<PresetEntry> presets = listPresets(dir);
+    REQUIRE(presets.size() == 5);
+    CHECK(presets[0].name == "Alpha");
+    CHECK(presets[0].folder == "");
+    CHECK(presets[1].name == "zeta");
+    CHECK(presets[2].folder == "Clean");
+    CHECK(presets[3].folder == "Clean/Fender");
+    CHECK(presets[3].name == "Deluxe");
+    CHECK(presets[4].folder == "Lead");
+    CHECK(pathFromUtf8(presets[4].path) == dir / "Lead" / "Plexi.namsayin");
+
+    CHECK(listPresetFolders(dir) == std::vector<std::string> { "Clean", "Clean/Fender", "Empty", "Lead" });
+    CHECK(listPresets(dir / "missing").empty());
+
+    CHECK(isInsideDir(dir, dir / "Clean" / "Twin.namsayin"));
+    CHECK(isInsideDir(dir, dir / "New" / "Not yet.namsayin"));
+    CHECK_FALSE(isInsideDir(dir, dir));
+    CHECK_FALSE(isInsideDir(dir, dir.parent_path() / "elsewhere.namsayin"));
+    CHECK_FALSE(isInsideDir(dir, dir / ".." / "elsewhere.namsayin"));
+}

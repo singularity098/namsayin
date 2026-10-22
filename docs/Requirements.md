@@ -73,7 +73,9 @@
     - A search box at the top of the dialog searches every category at once (built-in blocks, NAM models and IRs); search boxes have an × to clear them (owner's request, 2026-10-22)
 - There is also a button to load a Tone3000 NAM from the clipboard when adding a block
 - A menu is present at the top of the application to save and load presets
-    - Presets can embed everything they use (NAM files, IRs, images), so they can be shared
+    - Saving keeps presets in the plugin's own preset folder (subfolders allowed), named in an in-app dialog rather than the system save dialog, and without embedded files (owner's decision, 2026-10-22)
+    - Export writes a copy anywhere with the system save dialog; exported presets can embed everything they use (NAM files, IRs, images), so they can be shared
+    - One saved preset can be marked as the default; new plugin instances load it
     - When a preset references a NAM or IR file that no longer exists, the block is still added but grayed out, with a button to locate the file
 - Global bypass button
 - At the bottom of the application, we have:

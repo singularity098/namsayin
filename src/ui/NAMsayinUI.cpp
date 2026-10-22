@@ -88,7 +88,7 @@ const Color pedalOther(0x70, 0x70, 0x7a);
 // Kinds of box, for surface(): each has its own outline brightness
 enum class Surface { Bar, Panel, Tile, Button, Dialog, Inset };
 
-constexpr float kTopBarHeight = 48.0f;
+constexpr float kTopBarHeight = 60.0f;
 constexpr float kBottomBarHeight = 132.0f;
 constexpr float kTileSize = 120.0f;
 constexpr float kSplitTileSize = 100.0f; // tiles are smaller with a split, to fit two rows
@@ -100,7 +100,7 @@ constexpr float kChainTop = kTopBarHeight + 24.0f;
 constexpr float kKnobRadius = 22.0f;
 // Block panel: one cell per control, right-justified next to the block image
 constexpr float kCellWidth = 96.0f;
-constexpr float kCellHeight = 116.0f;
+constexpr float kCellHeight = 128.0f;
 constexpr float kPanelMargin = 16.0f;
 constexpr uint kDoubleClickMs = 350;
 constexpr auto kTunerHold = std::chrono::milliseconds(1000); // the tuner keeps showing the last note this long
@@ -162,6 +162,10 @@ enum class Hit {
     MenuItem,       // index = position in fMenu
     Locate,         // index = position in the chain
     UseLibraryMatch, // index = position in the chain
+    SaveFolder,     // Save Preset dialog: index = folder in fPresetFolders, -1 for the top level
+    SaveConfirm,
+    PresetRow,      // Presets dialog: index = row in fPresetRows
+    PresetDefault,  // index = row in fPresetRows: make it the default (again: no default)
 };
 
 // What a context or preset menu item does
@@ -173,9 +177,11 @@ enum class MenuAction {
     ToggleBypass,
     RemoveBlock,
     PresetNew,
-    PresetOpen,
+    PresetBrowse, // the preset folder's list
+    PresetOpen,   // a preset file anywhere (system dialog)
     PresetSave,
     PresetSaveAs,
+    PresetExport, // a copy anywhere, with its files (system dialog)
     PresetEmbed,
     PresetRecent, // arg = index in the recent list
 };
@@ -191,13 +197,15 @@ enum Field {
     kFieldSearch,
     kFieldNamDir,
     kFieldIrDir,
+    kFieldPresetName,   // Save Preset dialog
+    kFieldPresetFolder,
     kFieldCount
 };
 
-enum class Dialog { None, AddBlock, Settings, Menu };
+enum class Dialog { None, AddBlock, Settings, Menu, SavePreset, Presets };
 
 // What a file picked in the file browser is for
-enum class BrowseTarget { AddBlock, NamDir, IrDir, OpenPreset, SavePreset, Locate };
+enum class BrowseTarget { AddBlock, NamDir, IrDir, OpenPreset, ExportPreset, Locate };
 
 struct HitArea {
     Rect rect;
@@ -475,8 +483,9 @@ public:
         loadSharedResources();
         fUiFont = createFontFromMemory("jost", kUiFontLight, kUiFontLightSize, false);
         fUiFontSmall = createFontFromMemory("jost-regular", kUiFontRegular, kUiFontRegularSize, false);
+        fUiFontBold = createFontFromMemory("jost-bold", kUiFontBold, kUiFontBoldSize, false);
         const FontId dejavu = nvgFindFont(getContext(), NANOVG_DEJAVU_SANS_TTF);
-        for (FontId font : { fUiFont, fUiFontSmall })
+        for (FontId font : { fUiFont, fUiFontSmall, fUiFontBold })
         {
             if (font >= 0)
                 nvgAddFallbackFontId(getContext(), font, dejavu); // ★, ▾
@@ -489,6 +498,7 @@ public:
         }
 
         fSettings = Settings::load();
+        fDefaultPending = !fSettings.defaultPreset.empty();
         fSettingsTime = fileTime(Settings::defaultPath());
         applySettings();
         rescan();
@@ -539,7 +549,8 @@ protected:
             return;
         if (std::optional<ChainState> chain = ChainState::fromJson(value))
         {
-            fGotChainState = true;
+            // an empty state is a new instance's (it may still get the default preset); a saved chain is never empty
+            fGotChainState = value[0] != '\0';
             fChain = std::move(*chain);
             fSavedChain = fChain; // the host's state: nothing to mark as modified, nothing to undo
             fUndo.clear();
@@ -559,11 +570,11 @@ protected:
         case BrowseTarget::OpenPreset:
             openPreset(filename);
             return;
-        case BrowseTarget::SavePreset: {
+        case BrowseTarget::ExportPreset: {
             std::string path = filename;
             if (!lowerCase(path).ends_with(Preset::kExtension))
                 path += Preset::kExtension;
-            savePreset(path);
+            exportPreset(path);
             return;
         }
         case BrowseTarget::Locate:
@@ -628,6 +639,10 @@ protected:
             drawSettingsDialog();
         else if (fDialog == Dialog::Menu)
             drawMenu();
+        else if (fDialog == Dialog::SavePreset)
+            drawSavePresetDialog();
+        else if (fDialog == Dialog::Presets)
+            drawPresetsDialog();
         drawHelp();
         if (fShowFps)
             drawFps(drawStart);
@@ -868,6 +883,36 @@ protected:
             sendChain(); // the DSP reads the setting when it builds the chain
             return true;
 
+        case Hit::SaveFolder:
+            fFields[kFieldPresetFolder] = hit->index >= 0 && hit->index < static_cast<int>(fPresetFolders.size())
+                                            ? fPresetFolders[hit->index] : std::string();
+            focusField(kFieldPresetName);
+            repaint();
+            return true;
+
+        case Hit::SaveConfirm:
+            confirmSavePreset();
+            return true;
+
+        case Hit::PresetRow:
+            if (hit->index < static_cast<int>(fPresetRows.size()) && !fPresetRows[hit->index].path.empty())
+            {
+                const std::string path = fPresetRows[hit->index].path;
+                closeDialog();
+                openPreset(path);
+            }
+            return true;
+
+        case Hit::PresetDefault:
+            if (hit->index < static_cast<int>(fPresetRows.size()))
+            {
+                const std::string path = fPresetRows[hit->index].path;
+                updateSettings([&path](Settings& settings) {
+                    settings.defaultPreset = settings.defaultPreset == path ? std::string() : path;
+                });
+            }
+            return true;
+
         case Hit::SettingsAccent:
             updateSettings([accent = hit->index](Settings& settings) { settings.accent = accent; });
             return true;
@@ -1007,9 +1052,11 @@ protected:
             std::string& text = fFields[fFocusedField];
             if (ev.key == kKeyBackspace)
                 popUtf8(text);
+            else if (ev.key == kKeyEnter && fDialog == Dialog::SavePreset)
+                confirmSavePreset();
             else if (ev.key == kKeyEnter)
                 blurField(true);
-            else if (ev.key == kKeyEscape && fFocusedField == kFieldSearch)
+            else if (ev.key == kKeyEscape && (fFocusedField == kFieldSearch || fDialog == Dialog::SavePreset))
                 closeDialog();
             else if (ev.key == kKeyEscape)
                 blurField(false);
@@ -1137,6 +1184,9 @@ protected:
             repaint();
         }
         pollFolderPicker();
+        // give the host a moment to deliver a saved chain before deciding this is a new instance
+        if (fDefaultPending && fInstanceId != 0 && std::chrono::steady_clock::now() - fOpenedAt > std::chrono::seconds(1))
+            loadDefaultPreset();
 
         // Settings are shared by all instances: pick up changes made by another one
         const auto now = std::chrono::steady_clock::now();
@@ -1531,10 +1581,11 @@ private:
         return preset;
     }
 
+    // Saves into the preset folder, without embedding the files (Export makes a copy with them)
     void savePreset(const std::string& path)
     {
         std::string error;
-        if (!savePresetFile(path, currentPreset(), fSettings.embedFiles, &error))
+        if (!savePresetFile(path, currentPreset(), false, &error))
         {
             showToast("Couldn't save the preset: " + error);
             return;
@@ -1544,6 +1595,58 @@ private:
         updateSettings([&path](Settings& settings) { settings.addRecentPreset(path); });
         sendChain();
         showToast("Saved " + fileStem(path));
+    }
+
+    void exportPreset(const std::string& path)
+    {
+        std::string error;
+        if (!savePresetFile(path, currentPreset(), fSettings.embedFiles, &error))
+        {
+            showToast("Couldn't export the preset: " + error);
+            return;
+        }
+        showToast("Exported " + fileStem(path) + (fSettings.embedFiles ? " with its files" : ""));
+    }
+
+    // Save As: the dialog for a name and a folder in the preset folder
+    void openSavePresetDialog()
+    {
+        const std::filesystem::path dir = presetsDir();
+        fPresetFolders = listPresetFolders(dir);
+        fFields[kFieldPresetName] = fChain.preset.empty() ? std::string() : fileStem(fChain.preset);
+        fFields[kFieldPresetFolder].clear();
+        if (!fChain.preset.empty() && isInsideDir(dir, pathFromUtf8(fChain.preset)))
+        {
+            std::string folder = pathToUtf8(pathFromUtf8(fChain.preset).parent_path().lexically_relative(dir));
+            std::replace(folder.begin(), folder.end(), '\\', '/');
+            fFields[kFieldPresetFolder] = folder == "." ? std::string() : folder;
+        }
+        openDialog(Dialog::SavePreset);
+        focusField(kFieldPresetName);
+    }
+
+    void confirmSavePreset()
+    {
+        const std::optional<std::filesystem::path> path =
+            presetPath(presetsDir(), fFields[kFieldPresetFolder], fFields[kFieldPresetName]);
+        if (!path)
+            return; // the dialog says what's wrong
+        closeDialog();
+        savePreset(pathToUtf8(*path));
+    }
+
+    // New plugin instances load the default preset (Settings::defaultPreset). The UI does it, since presets set host
+    // parameters: once it knows the instance, if the host gave it no chain (a new instance rather than a saved one).
+    void loadDefaultPreset()
+    {
+        fDefaultPending = false;
+        const std::string path = fSettings.defaultPreset;
+        const std::optional<std::string> exchange = readChainExchange(fInstanceId);
+        if (path.empty() || fGotChainState || !fChain.blocks.empty() || fChain.split || !fileExists(path)
+            || (exchange && !exchange->empty()))
+            return;
+        openPreset(path);
+        fUndo.clear(); // the starting point, not an edit
     }
 
     void openPreset(const std::string& path)
@@ -1747,10 +1850,14 @@ private:
         fMenuParam = kNoParam;
         std::vector<MenuEntry> entries {
             { "New", MenuAction::PresetNew },
-            { "Open…", MenuAction::PresetOpen },
+            { "Presets…", MenuAction::PresetBrowse },
             { "Save", MenuAction::PresetSave },
             { "Save As…", MenuAction::PresetSaveAs },
-            { std::string("Embed files when saving: ") + (fSettings.embedFiles ? "On" : "Off"), MenuAction::PresetEmbed },
+            { "Files", MenuAction::None },
+            { "Open File…", MenuAction::PresetOpen },
+            { "Export…", MenuAction::PresetExport },
+            { std::string("Embed files when exporting: ") + (fSettings.embedFiles ? "On" : "Off"),
+              MenuAction::PresetEmbed },
         };
         if (!fSettings.recentPresets.empty())
         {
@@ -1796,21 +1903,29 @@ private:
         case MenuAction::PresetNew:
             newPreset();
             break;
+        case MenuAction::PresetBrowse:
+            fPresetList = listPresets(presetsDir());
+            openDialog(Dialog::Presets);
+            break;
         case MenuAction::PresetOpen:
             browse(BrowseTarget::OpenPreset, "Open a NAMsayin preset (.namsayin)", presetDir());
             break;
         case MenuAction::PresetSave:
-            if (!fChain.preset.empty())
+            // presets opened from elsewhere are saved into the preset folder with Save As
+            if (!fChain.preset.empty() && isInsideDir(presetsDir(), pathFromUtf8(fChain.preset)))
             {
                 savePreset(fChain.preset);
                 break;
             }
             [[fallthrough]];
-        case MenuAction::PresetSaveAs: {
-            fBrowseTarget = BrowseTarget::SavePreset;
+        case MenuAction::PresetSaveAs:
+            openSavePresetDialog();
+            break;
+        case MenuAction::PresetExport: {
+            fBrowseTarget = BrowseTarget::ExportPreset;
             FileBrowserOptions options;
             options.saving = true;
-            options.title = "Save the preset";
+            options.title = "Export the preset";
             const std::string name = presetName() + Preset::kExtension;
             options.defaultName = name.c_str();
             const std::string dir = presetDir();
@@ -2279,12 +2394,29 @@ private:
     // text in Regular rather than Light so it stays readable. Hides NanoVG::fontSize for everything in this class.
     void fontSize(float size)
     {
-        constexpr float kFontScale = 1.3f;
+        constexpr float kFontScale = 1.69f;
         constexpr float kSmallBelow = 13.0f; // layout sizes under this are small text
         NanoVG::fontSize(size * kFontScale);
         const FontId face = size < kSmallBelow ? fUiFontSmall : fUiFont;
         if (face >= 0)
             fontFaceId(face);
+    }
+
+    // `str` shortened with … to fit `width` at the current font size
+    std::string fitText(const std::string& str, float width)
+    {
+        Rectangle<float> bounds;
+        if (textBounds(0, 0, str.c_str(), nullptr, bounds) <= width)
+            return str;
+        std::string text = str;
+        while (!text.empty())
+        {
+            popUtf8(text);
+            const std::string candidate = text + "…";
+            if (textBounds(0, 0, candidate.c_str(), nullptr, bounds) <= width)
+                return candidate;
+        }
+        return "…";
     }
 
     void label(float x, float y, const char* str, const Color& color, float size, int align)
@@ -2621,11 +2753,11 @@ private:
             stroke();
         }
 
-        label(cx, cy + kKnobRadius + 16.0f, name, theme::textDim, 12.0f, ALIGN_CENTER | ALIGN_MIDDLE);
-        label(cx, cy + kKnobRadius + 31.0f, valueText(index).c_str(), theme::text, 12.0f,
+        label(cx, cy + kKnobRadius + 18.0f, name, theme::textDim, 12.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        label(cx, cy + kKnobRadius + 38.0f, valueText(index).c_str(), theme::text, 12.0f,
               ALIGN_CENTER | ALIGN_MIDDLE);
 
-        fHits.push_back({ { cx - kKnobRadius - 6, cy - kKnobRadius - 6, 2 * kKnobRadius + 12, 2 * kKnobRadius + 40 },
+        fHits.push_back({ { cx - kKnobRadius - 6, cy - kKnobRadius - 6, 2 * kKnobRadius + 12, 2 * kKnobRadius + 48 },
                           Hit::Knob, static_cast<int>(index) });
     }
 
@@ -2663,13 +2795,13 @@ private:
         const float level = std::clamp(db / maxDb, 0.0f, 1.0f);
         if (level > 0.0f)
             fillRect(x, y, w, h * level, theme::warn, 2.0f);
-        label(cx, cy + kKnobRadius + 16.0f, name, theme::textDim, 12.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        label(cx, cy + kKnobRadius + 18.0f, name, theme::textDim, 12.0f, ALIGN_CENTER | ALIGN_MIDDLE);
         char text[24];
         if (db >= 0.05f)
             std::snprintf(text, sizeof(text), "-%.1f dB", db);
         else
             std::snprintf(text, sizeof(text), "0.0 dB");
-        label(cx, cy + kKnobRadius + 31.0f, text, theme::text, 12.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        label(cx, cy + kKnobRadius + 38.0f, text, theme::text, 12.0f, ALIGN_CENTER | ALIGN_MIDDLE);
     }
 
     // Placeholder art until real images exist: a pedal, an amp head or a speaker cab, fitted into the rect
@@ -2826,45 +2958,54 @@ private:
     void drawTopBar()
     {
         surface(0, 0, fWidth, kTopBarHeight, 0.0f, Surface::Bar);
-        label(16.0f, kTopBarHeight / 2, "NAMsayin", theme::text, 20.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        fontSize(24.0f);
+        if (fUiFontBold >= 0)
+            fontFaceId(fUiFontBold);
+        fillColor(theme::text);
+        textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
+        const float logoRight = text(16.0f, kTopBarHeight / 2, "NAMsayin", nullptr);
 
         // preset menu with the preset's name (• when changed since it was saved or opened)
+        constexpr float by = 12.0f, bh = 36.0f;
         const std::string preset = presetName() + (presetModified() ? " •" : "") + "  ▾";
-        drawButton({ 140.0f, 10.0f, 220.0f, 28.0f }, preset.c_str(), fDialog == Dialog::Menu && fMenuParam == kNoParam,
-                   theme::accent, Hit::PresetMenu, 0);
-        drawButton({ 368.0f, 10.0f, 56.0f, 28.0f }, "Undo", false, theme::accent, Hit::Undo, 0);
-        drawButton({ 430.0f, 10.0f, 56.0f, 28.0f }, "Redo", false, theme::accent, Hit::Redo, 0);
+        const Rect presetButton { logoRight + 28.0f, by, 280.0f, bh };
+        drawButton(presetButton, preset.c_str(), fDialog == Dialog::Menu && fMenuParam == kNoParam, theme::accent,
+                   Hit::PresetMenu, 0);
+        const Rect undo { presetButton.x + presetButton.w + 8.0f, by, 76.0f, bh };
+        const Rect redo { undo.x + undo.w + 6.0f, by, 76.0f, bh };
+        drawButton(undo, "Undo", false, theme::accent, Hit::Undo, 0);
+        drawButton(redo, "Redo", false, theme::accent, Hit::Redo, 0);
         if (!fUndo.canUndo())
-            fillRect(368.0f, 10.0f, 56.0f, 28.0f, theme::background.withAlpha(0.6f), 6.0f);
+            fillRect(undo.x, undo.y, undo.w, undo.h, theme::background.withAlpha(0.6f), 6.0f);
         if (!fUndo.canRedo())
-            fillRect(430.0f, 10.0f, 56.0f, 28.0f, theme::background.withAlpha(0.6f), 6.0f);
+            fillRect(redo.x, redo.y, redo.w, redo.h, theme::background.withAlpha(0.6f), 6.0f);
 
         if (fLearnParam >= 0)
         {
             const std::string text = "MIDI learn: move a controller for " + paramName(fLearnParam) + "  (Esc cancels)";
-            label(500.0f, kTopBarHeight / 2, text.c_str(), theme::accent, 13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+            label(redo.x + redo.w + 16.0f, kTopBarHeight / 2, text.c_str(), theme::accent, 13.0f,
+                  ALIGN_LEFT | ALIGN_MIDDLE);
         }
         // icon buttons on the right; hovering shows what they do
-        const Rect bypass { fWidth - 50.0f, 10.0f, 34.0f, 28.0f };
+        constexpr float iw = 40.0f, step = 46.0f;
+        const Rect bypass { fWidth - 16.0f - iw, by, iw, bh };
         drawIconButton(bypass, Icon::Power, fParams[kParamBypass] >= 0.5f, Hit::Toggle, kParamBypass);
-        drawIconButton({ bypass.x - 40.0f, 10.0f, 34.0f, 28.0f }, Icon::Gear, fDialog == Dialog::Settings,
-                       Hit::OpenSettings, 0);
-        drawIconButton({ bypass.x - 80.0f, 10.0f, 34.0f, 28.0f }, Icon::TuningFork, fParams[kParamTuner] >= 0.5f,
+        drawIconButton({ bypass.x - step, by, iw, bh }, Icon::Gear, fDialog == Dialog::Settings, Hit::OpenSettings, 0);
+        drawIconButton({ bypass.x - 2 * step, by, iw, bh }, Icon::TuningFork, fParams[kParamTuner] >= 0.5f,
                        Hit::Toggle, kParamTuner);
 
         // Metronome: on/off, flashing on every beat, and ▾ for its panel
         const bool running = fParams[kParamMetronome] >= 0.5f;
-        const Rect metro { bypass.x - 144.0f, 10.0f, 34.0f, 28.0f };
+        const Rect metro { bypass.x - 3 * step - 30.0f, by, iw, bh };
         drawIconButton(metro, Icon::Metronome, running, Hit::Toggle, kParamMetronome);
         const float pulse = beatPulse();
         if (running && pulse > 0.0f)
             fillRect(metro.x, metro.y, metro.w, metro.h, Color(255, 255, 255, 0.35f * pulse), 6.0f);
-        drawButton({ metro.x + metro.w + 2.0f, 10.0f, 22.0f, 28.0f }, "▾", fMetroPanel, theme::accent, Hit::MetroPanel,
-                   0);
+        drawButton({ metro.x + metro.w + 2.0f, by, 26.0f, bh }, "▾", fMetroPanel, theme::accent, Hit::MetroPanel, 0);
 
         // only when there's room next to the MIDI learn message
         if (fLearnParam < 0 || fWidth >= 1200.0f)
-            drawIconButton({ metro.x - 40.0f, 10.0f, 34.0f, 28.0f }, Icon::Fretbored, false, Hit::Fretbored, 0);
+            drawIconButton({ metro.x - step, by, iw, bh }, Icon::Fretbored, false, Hit::Fretbored, 0);
     }
 
     // 1 right after a beat, fading to 0 over 150 ms
@@ -3529,15 +3670,15 @@ private:
                          : notRunning ? "Not running"
                          : path.empty() ? (type ? type->displayName : block.typeId)
                          : fileStem(path);
-        if (name.size() > 16)
-            name = name.substr(0, 15) + "…";
-        label(kTileSize / 2, 94, name.c_str(), missing || notRunning ? theme::bad : theme::text, 12.0f,
+        fontSize(12.0f);
+        name = fitText(name, kTileSize - 12.0f);
+        label(kTileSize / 2, 92, name.c_str(), missing || notRunning ? theme::bad : theme::text, 12.0f,
               ALIGN_CENTER | ALIGN_MIDDLE);
         globalAlpha(1.0f);
 
         char slotText[16];
         std::snprintf(slotText, sizeof(slotText), "S%02d", block.slot + 1);
-        label(kTileSize / 2, 110, slotText, theme::textDim, 10.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        label(kTileSize / 2, 109, slotText, theme::textDim, 9.0f, ALIGN_CENTER | ALIGN_MIDDLE);
 
         // bypass (top left) and remove (top right)
         beginPath();
@@ -3598,7 +3739,7 @@ private:
         // Layout: the block image on the left, the controls right-justified in rows. Use fewer columns (more
         // rows) when one row would leave the image small and there's height for it; in a small window, narrow
         // the cells instead.
-        constexpr float kHeaderHeight = 52.0f;
+        constexpr float kHeaderHeight = 64.0f;
         const float imageMax = height - 2 * kPanelMargin;
         const float rowsSpace = height - kHeaderHeight - kPanelMargin;
         const int rowsAvailable = std::max(1, static_cast<int>(rowsSpace / kCellHeight));
@@ -3632,9 +3773,9 @@ private:
         // Header: name and file, above the controls
         const float textX = imageSize >= 60.0f ? imageX + imageSize + kPanelMargin : left + kPanelMargin;
         const std::string path = block.config.value("path", std::string());
-        label(textX, top + 26.0f, path.empty() ? type->displayName : fileStem(path).c_str(), theme::text, 16.0f,
+        label(textX, top + 28.0f, path.empty() ? type->displayName : fileStem(path).c_str(), theme::text, 16.0f,
               ALIGN_LEFT | ALIGN_MIDDLE);
-        label(textX, top + 46.0f, path.empty() ? categoryName(type->category) : path.c_str(), theme::textDim, 11.0f,
+        label(textX, top + 54.0f, path.empty() ? categoryName(type->category) : path.c_str(), theme::textDim, 11.0f,
               ALIGN_LEFT | ALIGN_MIDDLE);
 
         if (!path.empty() && !fileExists(path))
@@ -3700,8 +3841,8 @@ private:
         fHits.push_back({ { 0, 0, fWidth, fHeight }, Hit::DialogBackdrop, 0 });
         fillRect(0, 0, fWidth, fHeight, theme::overlay);
 
-        const float w = std::min(680.0f, fWidth - 64.0f);
-        const float h = std::min(440.0f, fHeight - 64.0f);
+        const float w = std::min(820.0f, fWidth - 64.0f);
+        const float h = std::min(520.0f, fHeight - 64.0f);
         const float x = (fWidth - w) / 2, y = (fHeight - h) / 2;
         surface(x, y, w, h, 12.0f, Surface::Dialog);
         fHits.push_back({ { x, y, w, h }, Hit::DialogPanel, 0 });
@@ -3712,7 +3853,7 @@ private:
         fHits.push_back({ close, Hit::DialogClose, 0 });
 
         // categories on the left
-        const float listX = x + 12.0f, listTop = y + 52.0f, listW = 190.0f;
+        const float listX = x + 12.0f, listTop = y + 52.0f, listW = 210.0f;
         const bool searching = !fFields[kFieldSearch].empty();
         drawTextField({ listX + listW + 16.0f, y + 11.0f, close.x - 8.0f - (listX + listW + 16.0f), 30.0f },
                       kFieldSearch, "Search all blocks, models and IRs", true);
@@ -4013,7 +4154,7 @@ private:
     void drawMenu()
     {
         fHits.push_back({ { 0, 0, fWidth, fHeight }, Hit::DialogBackdrop, 0 });
-        constexpr float itemH = 28.0f, menuW = 260.0f;
+        constexpr float itemH = 30.0f, menuW = 300.0f;
         const float h = fMenu.size() * itemH + 8.0f;
         const float x = std::min(fMenuX, fWidth - menuW - 8.0f);
         const float y = std::min(fMenuY, fHeight - h - 8.0f);
@@ -4055,12 +4196,193 @@ private:
         label(fWidth / 2, y + 16.0f, fToast.c_str(), theme::text, 13.0f, ALIGN_CENTER | ALIGN_MIDDLE);
     }
 
+    // Save As: a name and a folder inside the preset folder, with the existing folders to pick from
+    void drawSavePresetDialog()
+    {
+        fHits.push_back({ { 0, 0, fWidth, fHeight }, Hit::DialogBackdrop, 0 });
+        fillRect(0, 0, fWidth, fHeight, theme::overlay);
+
+        const float w = std::min(660.0f, fWidth - 64.0f);
+        const float h = std::min(420.0f, fHeight - 48.0f);
+        const float x = (fWidth - w) / 2, y = (fHeight - h) / 2;
+        surface(x, y, w, h, 12.0f, Surface::Dialog);
+        fHits.push_back({ { x, y, w, h }, Hit::DialogPanel, 0 });
+
+        label(x + 20.0f, y + 26.0f, "Save Preset", theme::text, 16.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        const Rect close { x + w - 40.0f, y + 10.0f, 30.0f, 30.0f };
+        label(close.x + 15.0f, close.y + 15.0f, "×", theme::textDim, 22.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        fHits.push_back({ close, Hit::DialogClose, 0 });
+
+        const float labelX = x + 24.0f, controlX = x + 110.0f, controlW = x + w - 24.0f - controlX;
+        float row = y + 60.0f;
+        label(labelX, row + 14.0f, "Name", theme::textDim, 13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        drawTextField({ controlX, row, controlW, 28.0f }, kFieldPresetName, "Preset name", true);
+        row += 40.0f;
+        label(labelX, row + 14.0f, "Folder", theme::textDim, 13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        drawTextField({ controlX, row, controlW, 28.0f }, kFieldPresetFolder, "Top level", true);
+        row += 36.0f;
+        label(controlX, row + 6.0f, "Pick a folder below, or type a new one (use / for subfolders: Clean/Fender)",
+              theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        row += 18.0f;
+
+        // the existing folders
+        constexpr float folderH = 26.0f;
+        const float listY = row, listH = y + h - 92.0f - row;
+        const float contentH = (fPresetFolders.size() + 1) * folderH;
+        fListScroll = std::clamp(fListScroll, 0.0f, std::max(0.0f, contentH - listH));
+        save();
+        scissor(controlX, listY, controlW, listH);
+        for (int i = -1; i < static_cast<int>(fPresetFolders.size()); ++i)
+        {
+            const float ry = listY + (i + 1) * folderH - fListScroll;
+            if (ry + folderH < listY || ry > listY + listH)
+                continue;
+            const std::string& folder = i < 0 ? std::string() : fPresetFolders[i];
+            const Rect r { controlX, ry, controlW, folderH - 2.0f };
+            const bool selected = fFields[kFieldPresetFolder] == folder;
+            const bool hover = r.contains(fMouseX, fMouseY) && fMouseY >= listY && fMouseY < listY + listH;
+            if (selected)
+                fillRect(r.x, r.y, r.w, r.h, theme::accent.withAlpha(0.25f), 5.0f);
+            else if (hover)
+                fillRect(r.x, r.y, r.w, r.h, theme::tileHover, 5.0f);
+            label(r.x + 10.0f, r.y + r.h / 2, i < 0 ? "Top level" : folder.c_str(), i < 0 ? theme::textDim : theme::text,
+                  13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+            const float top = std::max(r.y, listY), bottom = std::min(r.y + r.h, listY + listH);
+            if (bottom > top)
+                fHits.push_back({ { r.x, top, r.w, bottom - top }, Hit::SaveFolder, i });
+        }
+        restore();
+
+        // what Save will do
+        const std::optional<std::filesystem::path> path =
+            presetPath(presetsDir(), fFields[kFieldPresetFolder], fFields[kFieldPresetName]);
+        const bool noName = fFields[kFieldPresetName].find_first_not_of(" \t") == std::string::npos;
+        std::string status;
+        Color statusColor = theme::textDim;
+        if (noName)
+        {
+            status = "Type a name for the preset.";
+        }
+        else if (!path)
+        {
+            status = "Names and folders can't contain < > : \" / \\ | ? * or end with a dot.";
+            statusColor = theme::bad;
+        }
+        else if (fileExists(pathToUtf8(*path)))
+        {
+            status = "There's already a preset with this name here. Save replaces it.";
+            statusColor = theme::warn;
+        }
+        else
+        {
+            status = "Saved presets don't include their NAM and IR files. Use Export to share one.";
+        }
+        label(x + 24.0f, y + h - 74.0f, status.c_str(), statusColor, 12.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+
+        const Rect saveButton { x + w - 24.0f - 96.0f, y + h - 52.0f, 96.0f, 30.0f };
+        const Rect cancel { saveButton.x - 104.0f, saveButton.y, 96.0f, 30.0f };
+        drawButton(cancel, "Cancel", false, theme::accent, Hit::DialogClose, 0);
+        if (path)
+            drawButton(saveButton, "Save", true, theme::accent, Hit::SaveConfirm, 0);
+        else
+            label(saveButton.x + saveButton.w / 2, saveButton.y + saveButton.h / 2, "Save", theme::textDim, 13.0f,
+                  ALIGN_CENTER | ALIGN_MIDDLE);
+    }
+
+    // The saved presets, by folder: click one to load it; Default marks the one new plugin instances start with
+    void drawPresetsDialog()
+    {
+        fHits.push_back({ { 0, 0, fWidth, fHeight }, Hit::DialogBackdrop, 0 });
+        fillRect(0, 0, fWidth, fHeight, theme::overlay);
+
+        const float w = std::min(700.0f, fWidth - 64.0f);
+        const float h = std::min(480.0f, fHeight - 48.0f);
+        const float x = (fWidth - w) / 2, y = (fHeight - h) / 2;
+        surface(x, y, w, h, 12.0f, Surface::Dialog);
+        fHits.push_back({ { x, y, w, h }, Hit::DialogPanel, 0 });
+
+        label(x + 20.0f, y + 26.0f, "Presets", theme::text, 16.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        const Rect close { x + w - 40.0f, y + 10.0f, 30.0f, 30.0f };
+        label(close.x + 15.0f, close.y + 15.0f, "×", theme::textDim, 22.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        fHits.push_back({ close, Hit::DialogClose, 0 });
+        const std::string folderText = pathToUtf8(presetsDir());
+        label(x + 20.0f, y + 48.0f, folderText.c_str(), theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+
+        fPresetRows.clear();
+        std::string folder;
+        for (const PresetEntry& entry : fPresetList)
+        {
+            if (entry.folder != folder)
+            {
+                folder = entry.folder;
+                fPresetRows.push_back({ folder, {}, {} });
+            }
+            fPresetRows.push_back({ entry.folder, entry.path, entry.name });
+        }
+
+        const float listX = x + 16.0f, listW = w - 32.0f, listY = y + 66.0f, listH = h - 66.0f - 40.0f;
+        if (fPresetRows.empty())
+        {
+            label(listX + 4.0f, listY + 16.0f, "No saved presets yet. Choose Save in the preset menu to keep a sound here.",
+                  theme::textDim, 13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        }
+
+        constexpr float rowH = 38.0f, headingH = 28.0f;
+        float contentH = 0.0f;
+        for (const PresetRow& row : fPresetRows)
+            contentH += row.path.empty() ? headingH : rowH;
+        fListScroll = std::clamp(fListScroll, 0.0f, std::max(0.0f, contentH - listH));
+
+        save();
+        scissor(listX, listY, listW, listH);
+        float ry = listY - fListScroll;
+        for (int i = 0; i < static_cast<int>(fPresetRows.size()) && ry < listY + listH; ++i)
+        {
+            const PresetRow& row = fPresetRows[i];
+            const float y0 = ry;
+            ry += row.path.empty() ? headingH : rowH;
+            if (ry < listY)
+                continue;
+            if (row.path.empty())
+            {
+                label(listX + 4.0f, y0 + headingH - 9.0f, row.folder.c_str(), theme::accent, 11.0f,
+                      ALIGN_LEFT | ALIGN_MIDDLE);
+                continue;
+            }
+            const Rect r { listX, y0, listW, rowH - 4.0f };
+            const bool hover = r.contains(fMouseX, fMouseY) && fMouseY >= listY && fMouseY < listY + listH;
+            surface(r.x, r.y, r.w, r.h, 6.0f, Surface::Tile, hover);
+            const bool current = row.path == fChain.preset;
+            label(r.x + 14.0f, r.y + r.h / 2, row.name.c_str(), current ? theme::accent : theme::text, 13.0f,
+                  ALIGN_LEFT | ALIGN_MIDDLE);
+
+            const bool isDefault = row.path == fSettings.defaultPreset;
+            const Rect def { r.x + r.w - 92.0f, r.y + 5.0f, 84.0f, r.h - 10.0f };
+            if (isDefault || hover)
+                drawButton(def, "Default", isDefault, theme::accent, Hit::PresetDefault, i);
+            const float top = std::max(r.y, listY), bottom = std::min(r.y + r.h, listY + listH);
+            if (bottom > top)
+            {
+                fHits.push_back({ { r.x, top, r.w - 100.0f, bottom - top }, Hit::PresetRow, i });
+                if (isDefault || hover)
+                    fHits.push_back({ { def.x, std::max(def.y, listY), def.w,
+                                        std::min(def.y + def.h, listY + listH) - std::max(def.y, listY) },
+                                      Hit::PresetDefault, i });
+            }
+        }
+        restore();
+
+        label(x + 20.0f, y + h - 20.0f,
+              "Click a preset to load it. The Default preset loads when you add NAMsayin to a track.",
+              theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+    }
+
     void drawSettingsDialog()
     {
         fHits.push_back({ { 0, 0, fWidth, fHeight }, Hit::DialogBackdrop, 0 });
         fillRect(0, 0, fWidth, fHeight, theme::overlay);
 
-        const float w = std::min(640.0f, fWidth - 64.0f);
+        const float w = std::min(800.0f, fWidth - 64.0f);
         const float h = std::min(420.0f, fHeight - 48.0f);
         const float x = (fWidth - w) / 2, y = (fHeight - h) / 2;
         surface(x, y, w, h, 12.0f, Surface::Dialog);
@@ -4072,7 +4394,7 @@ private:
         fHits.push_back({ close, Hit::DialogClose, 0 });
 
         const float labelX = x + 24.0f;
-        const float controlX = x + 200.0f;
+        const float controlX = x + 220.0f;
         const float controlW = x + w - 24.0f - controlX;
         float row = y + 64.0f;
         constexpr float rowH = 44.0f;
@@ -4253,6 +4575,7 @@ private:
     std::chrono::steady_clock::time_point fToastAt;
     FontId fUiFont = -1;      // Jost Light
     FontId fUiFontSmall = -1; // Jost Regular, for small text
+    FontId fUiFontBold = -1;  // Jost Bold, for the logo
     Category fDialogCategory = Category::LocalNam;
     FolderPicker fFolderPicker;
     Field fFolderField = kFieldNamDir;
@@ -4321,6 +4644,16 @@ private:
 
     uint32_t fInstanceId = 0;
     bool fGotChainState = false;
+    bool fDefaultPending = false; // the default preset may still be loaded (a new instance)
+    std::chrono::steady_clock::time_point fOpenedAt = std::chrono::steady_clock::now();
+    std::vector<std::string> fPresetFolders;  // Save Preset dialog
+    std::vector<PresetEntry> fPresetList;     // Presets dialog
+    struct PresetRow {
+        std::string folder; // a folder heading when path is empty
+        std::string path;
+        std::string name;
+    };
+    std::vector<PresetRow> fPresetRows;       // drawn last, for hit indices
 
     std::chrono::steady_clock::time_point fChainChangedAt = std::chrono::steady_clock::now();
     bool fStatusPending = true;

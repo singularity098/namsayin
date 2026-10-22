@@ -23,6 +23,7 @@ TEST_CASE("settings round-trip through JSON and a file")
     settings.favorites = { "00112233445566778899aabbccddeeff", "ffeeddccbbaa99887766554433221100" };
     settings.embedFiles = false;
     settings.recentPresets = { "/a.namsayin", "/b.namsayin" };
+    settings.defaultPreset = "/presets/Clean/Twin.namsayin";
 
     CHECK(Settings::fromJson(settings.toJson()) == settings);
 

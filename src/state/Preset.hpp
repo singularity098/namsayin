@@ -5,6 +5,7 @@
 
 #include "state/ChainState.hpp"
 
+#include <filesystem>
 #include <functional>
 #include <map>
 #include <optional>
@@ -49,5 +50,30 @@ struct LoadedPreset {
 std::optional<LoadedPreset> loadPresetFile(const std::string& path,
                                            const std::function<std::string(const std::string& hash)>& findByHash,
                                            std::string* error = nullptr);
+
+// The user's preset folder, presets/ in configDir(). Save keeps presets here, in subfolders if wanted, without the
+// files they use; Export writes a copy anywhere, with the files embedded so it can be shared.
+std::filesystem::path presetsDir();
+
+struct PresetEntry {
+    std::string path;   // UTF-8
+    std::string folder; // relative to the preset folder, '/'-separated; "" at the top
+    std::string name;   // file name without the extension
+};
+
+// Every preset under `dir`, sorted by folder and then name (ignoring case)
+std::vector<PresetEntry> listPresets(const std::filesystem::path& dir);
+
+// Every subfolder of `dir`, relative and '/'-separated, sorted (ignoring case)
+std::vector<std::string> listPresetFolders(const std::filesystem::path& dir);
+
+// The file for a preset called `name` in `folder` ('/'-separated, relative to `dir`; "" for the top). Spaces around
+// the name and each folder are trimmed. Nullopt for an empty name, or a name or folder that can't be a file name on
+// Linux and Windows ("..", or one of < > : " / \ | ? *).
+std::optional<std::filesystem::path> presetPath(const std::filesystem::path& dir, const std::string& folder,
+                                                const std::string& name);
+
+// Whether `path` is somewhere inside `dir`
+bool isInsideDir(const std::filesystem::path& dir, const std::filesystem::path& path);
 
 } // namespace namsayin

@@ -23,6 +23,7 @@ std::string Settings::toJson() const
         { "accent", accent },
         { "favorites", favorites },
         { "embedFiles", embedFiles },
+        { "defaultPreset", defaultPreset },
         { "recentPresets", recentPresets },
     }.dump(2);
 }
@@ -55,6 +56,7 @@ Settings Settings::fromJson(std::string_view text)
         get("accent", settings.accent);
         get("favorites", settings.favorites);
         get("embedFiles", settings.embedFiles);
+        get("defaultPreset", settings.defaultPreset);
         get("recentPresets", settings.recentPresets);
     }
     catch (const json::exception&)

@@ -23,7 +23,8 @@ struct Settings {
     bool parallel = true;        // run split branch B on a second core
     int accent = 0;              // index into the UI's accent colours
     std::set<std::string> favorites; // content hashes (XXH3-128, hex)
-    bool embedFiles = true;      // presets are saved with the files they use
+    bool embedFiles = true;      // exported presets carry the files they use (saved ones never do)
+    std::string defaultPreset;   // loaded into new plugin instances; empty for none
     std::vector<std::string> recentPresets; // most recent first
 
     static constexpr size_t kMaxRecentPresets = 8;

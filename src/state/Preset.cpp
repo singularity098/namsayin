@@ -10,6 +10,8 @@
 #include <miniz.h>
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <set>
 #include <system_error>
@@ -231,6 +233,120 @@ std::optional<LoadedPreset> loadPresetFile(const std::string& path,
     preset->chain.preset = path;
     loaded.preset = std::move(*preset);
     return loaded;
+}
+
+namespace {
+
+std::string lowered(std::string text)
+{
+    std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return std::tolower(c); });
+    return text;
+}
+
+std::string trimmed(const std::string& text)
+{
+    const size_t first = text.find_first_not_of(" \t");
+    if (first == std::string::npos)
+        return {};
+    return text.substr(first, text.find_last_not_of(" \t") - first + 1);
+}
+
+// A file or folder name that works on Linux and Windows
+bool validName(const std::string& name)
+{
+    if (name.empty() || name == "." || name == ".." || name.back() == '.')
+        return false;
+    for (const unsigned char c : name)
+    {
+        if (c < 32 || std::string_view("<>:\"/\\|?*").find(static_cast<char>(c)) != std::string_view::npos)
+            return false;
+    }
+    return true;
+}
+
+std::string relativeFolder(const fs::path& dir, const fs::path& folder)
+{
+    std::error_code ec;
+    const fs::path relative = fs::relative(folder, dir, ec);
+    if (ec || relative == ".")
+        return {};
+    std::string text = pathToUtf8(relative);
+    std::replace(text.begin(), text.end(), '\\', '/');
+    return text;
+}
+
+} // namespace
+
+fs::path presetsDir()
+{
+    return configDir() / "presets";
+}
+
+std::vector<PresetEntry> listPresets(const fs::path& dir)
+{
+    std::vector<PresetEntry> presets;
+    std::error_code ec;
+    for (auto it = fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, ec);
+         !ec && it != fs::recursive_directory_iterator(); it.increment(ec))
+    {
+        if (!it->is_regular_file(ec) || lowered(pathToUtf8(it->path().extension())) != Preset::kExtension)
+            continue;
+        presets.push_back({ pathToUtf8(it->path()), relativeFolder(dir, it->path().parent_path()),
+                            pathToUtf8(it->path().stem()) });
+    }
+    std::sort(presets.begin(), presets.end(), [](const PresetEntry& a, const PresetEntry& b) {
+        const std::string fa = lowered(a.folder), fb = lowered(b.folder);
+        return fa != fb ? fa < fb : lowered(a.name) < lowered(b.name);
+    });
+    return presets;
+}
+
+std::vector<std::string> listPresetFolders(const fs::path& dir)
+{
+    std::vector<std::string> folders;
+    std::error_code ec;
+    for (auto it = fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, ec);
+         !ec && it != fs::recursive_directory_iterator(); it.increment(ec))
+    {
+        if (it->is_directory(ec))
+            folders.push_back(relativeFolder(dir, it->path()));
+    }
+    std::sort(folders.begin(), folders.end(),
+              [](const std::string& a, const std::string& b) { return lowered(a) < lowered(b); });
+    return folders;
+}
+
+std::optional<fs::path> presetPath(const fs::path& dir, const std::string& folder, const std::string& name)
+{
+    const std::string fileName = trimmed(name);
+    if (!validName(fileName))
+        return std::nullopt;
+    fs::path path = dir;
+    size_t pos = 0;
+    while (pos <= folder.size())
+    {
+        const size_t end = std::min(folder.find_first_of("/\\", pos), folder.size());
+        const std::string part = trimmed(folder.substr(pos, end - pos));
+        if (!part.empty())
+        {
+            if (!validName(part))
+                return std::nullopt;
+            path /= pathFromUtf8(part);
+        }
+        pos = end + 1;
+    }
+    // a name that already ends in the extension keeps it once
+    std::string file = fileName;
+    if (!lowered(file).ends_with(Preset::kExtension))
+        file += Preset::kExtension;
+    return path / pathFromUtf8(file);
+}
+
+bool isInsideDir(const fs::path& dir, const fs::path& path)
+{
+    std::error_code ec;
+    const fs::path relative = fs::weakly_canonical(path, ec).lexically_relative(fs::weakly_canonical(dir, ec));
+    return !ec && !relative.empty() && *relative.begin() != ".." && relative != ".";
 }
 
 } // namespace namsayin

@@ -4,7 +4,8 @@
 """Regenerates src/ui/FontData.cpp from resources/fonts/Jost[wght].ttf.
 
 Jost (SIL Open Font License, resources/fonts/OFL.txt) is a variable font. NanoVG reads only a font's default
-instance, so this makes static instances at the WEIGHTS and embeds them: Light for most text, Regular for small text.
+instance, so this makes static instances at the WEIGHTS and embeds them: Light for most text, Regular for small text,
+Bold for the logo.
 Glyphs Jost lacks (★, ▾) fall back to DPF's DejaVu.
 
 Needs fontTools. Run from the repository root after changing the font or the weight: python3 tools/embed_font.py
@@ -18,7 +19,7 @@ from fontTools.varLib import instancer
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "resources" / "fonts" / "Jost[wght].ttf"
 OUT = ROOT / "src" / "ui" / "FontData.cpp"
-WEIGHTS = {"kUiFontLight": 300, "kUiFontRegular": 400}
+WEIGHTS = {"kUiFontLight": 300, "kUiFontRegular": 400, "kUiFontBold": 700}
 
 lines = [
     "// SPDX-License-Identifier: MIT",
