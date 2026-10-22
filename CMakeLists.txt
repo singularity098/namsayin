@@ -80,6 +80,7 @@ add_library(namsayin-engine STATIC
   src/engine/blocks/DriveBlocks.cpp
   src/engine/blocks/EchoBlocks.cpp
   src/engine/blocks/EqBlocks.cpp
+  src/engine/blocks/FilterBlock.cpp
   src/engine/blocks/FlangerBlock.cpp
   src/engine/blocks/GateBlock.cpp
   src/engine/blocks/IrBlock.cpp

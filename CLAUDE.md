@@ -43,6 +43,7 @@ src/engine/           Audio engine, independent of DPF (static library `namsayin
   SpscQueue.hpp       Lock-free queue (retired graphs go back to the non-RT side through it)
   dsp/                Smoother, Biquad, ToneStack, Limiter, Meter, Lfo (+ RandomLfo), Svf (+ OnePole, EnvelopeFollower),
                       Waveshapers (clipping curves), PitchShifter (delay-line voices), Fdn (8-line reverb tank),
+                      PitchTracker (zero-crossing, real time; synth and harmonizer)
                       Oversampler (polyphase IIR half-band, 4x, zero latency)
   dsp/DelayLine.hpp   Delay line with Hermite reads, sine LFO, dry/wet mix law; AlignmentDelay (split branches)
   tuner/              PitchDetector (MPM + sub-cent refinement), Tuner (ring buffer from the audio thread, analysis off it)
@@ -50,7 +51,7 @@ src/engine/           Audio engine, independent of DPF (static library `namsayin
   blocks/             Block implementations (NAM, IR, delay, reverb, compressor, gate, EQs, chorus, flanger, phaser,
                       tremolo, doubler, wah, auto wah, boost, overdrive, distortion, fuzz, bitcrusher, volume,
                       auto swell, ring mod, rotary, octave, pitch shifter, whammy, poly octave, spring reverb,
-                      shimmer, freeze, tape echo, ducking delay, synth, looper, ...)
+                      shimmer, freeze, tape echo, ducking delay, synth, looper, harmonizer, filter)
 src/state/            Plain data shared by DSP and UI, no DPF:
   ChainState          the chain (JSON; the split is a block range + per-block branch tag)
   ChainExchange       chain file route for hosts that drop UI state messages

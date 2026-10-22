@@ -55,4 +55,25 @@ enum PolyOctaveParam {
     kPolyOctParamCount
 };
 
+// Harmonizer: one or two voices a scale interval away from the played note, in a key and scale, so a "third above"
+// is major or minor as the scale needs. It follows single notes (dsp/PitchTracker.hpp) to know the note; the
+// shifting itself works on anything. Notes outside the scale use their nearest scale note's interval.
+extern const BlockDescriptor kHarmonizerBlockDescriptor;
+
+enum HarmonizerParam {
+    kHarmParamKey,    // choice: C .. B
+    kHarmParamScale,  // choice: harmonizerScale()
+    kHarmParamVoice1, // choice: scale steps, -Oct .. +Oct
+    kHarmParamLevel1, // %
+    kHarmParamVoice2, // choice
+    kHarmParamLevel2, // %
+    kHarmParamDry,    // %
+    kHarmParamWindow, // ms
+    kHarmParamCount
+};
+
+// The semitones from the played note (MIDI note number `note`) to the note `steps` scale steps away, for a key
+// (0 = C) and scale (index into the Scale choice)
+int harmonySemitones(int note, int key, int scale, int steps);
+
 } // namespace namsayin

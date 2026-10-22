@@ -13,6 +13,7 @@
 #include "engine/blocks/DoublerBlock.hpp"
 #include "engine/blocks/EchoBlocks.hpp"
 #include "engine/blocks/EqBlocks.hpp"
+#include "engine/blocks/FilterBlock.hpp"
 #include "engine/blocks/FlangerBlock.hpp"
 #include "engine/blocks/GateBlock.hpp"
 #include "engine/blocks/LooperBlock.hpp"
@@ -733,4 +734,59 @@ TEST_CASE("looper buttons act on presses, not releases")
     block->setParam(kLooperParamRecDub, 0.0f); // release: nothing
     testing::runBlock(*block, x);
     CHECK(looperStatus(*block).state == LooperState::Recording);
+}
+
+TEST_CASE("harmonizer intervals follow the scale")
+{
+    // C major (key 0, scale 0): a third above C (60) is E (+4), above D (62) is F (+3), above B (71) is D (+3)
+    CHECK(harmonySemitones(60, 0, 0, 2) == 4);
+    CHECK(harmonySemitones(62, 0, 0, 2) == 3);
+    CHECK(harmonySemitones(71, 0, 0, 2) == 3);
+    // a fifth above B in C major is F (a diminished fifth: +6); an octave is 12; a third below E is C (-4)
+    CHECK(harmonySemitones(71, 0, 0, 4) == 6);
+    CHECK(harmonySemitones(64, 0, 0, 7) == 12);
+    CHECK(harmonySemitones(64, 0, 0, -2) == -4);
+    CHECK(harmonySemitones(60, 0, 0, -7) == -12);
+    // A minor (key 9, scale 1): a third above A is C (+3)
+    CHECK(harmonySemitones(69, 9, 1, 2) == 3);
+    // a note outside the scale (C# in C major) takes C's interval
+    CHECK(harmonySemitones(61, 0, 0, 2) == 4);
+}
+
+TEST_CASE("harmonizer adds a diatonic third")
+{
+    auto block = make(kHarmonizerBlockDescriptor); // C major, a third above
+    block->setParam(kHarmParamDry, 0.0f);
+    // D (293.66 Hz): a minor third above is F (349.23 Hz)
+    auto x = sine(293.66, 0.3f, 48000);
+    testing::runBlock(*block, x);
+    CHECK(bandAt(x[0], 349.23, 24000, 48000) > 4.0 * bandAt(x[0], 293.66, 24000, 48000));
+    // E (329.63 Hz): a minor third above is G (392 Hz)
+    auto e = sine(329.63, 0.3f, 48000);
+    testing::runBlock(*block, e);
+    CHECK(bandAt(e[0], 392.0, 24000, 48000) > 4.0 * bandAt(e[0], 329.63, 24000, 48000));
+}
+
+TEST_CASE("filter types, and its sweep")
+{
+    auto block = make(kFilterBlockDescriptor);
+    block->setParam(kFilterParamDepth, 0.0f);
+    block->setParam(kFilterParamCutoff, 1000.0f);
+    block->setParam(kFilterParamResonance, 0.7071f);
+    CHECK(sineGainDb(*block, 100.0) == doctest::Approx(0.0).epsilon(0.05));
+    CHECK(sineGainDb(*block, 8000.0) < -30.0);
+    block->setParam(kFilterParamType, 2.0f); // high-pass
+    CHECK(sineGainDb(*block, 100.0) < -30.0);
+    block->setParam(kFilterParamType, 3.0f); // notch
+    CHECK(sineGainDb(*block, 1000.0) < -30.0);
+    CHECK(std::fabs(sineGainDb(*block, 100.0)) < 0.5);
+
+    // swept low-pass: a high tone comes and goes
+    block->setParam(kFilterParamType, 0.0f);
+    block->setParam(kFilterParamDepth, 100.0f);
+    block->setParam(kFilterParamRate, 2.0f);
+    auto x = sine(3000.0, 0.3f, 48000);
+    testing::runBlock(*block, x);
+    const auto env = envelope(x[0], 480);
+    CHECK(*std::max_element(env.begin(), env.end()) > 10.0 * *std::min_element(env.begin(), env.end()));
 }

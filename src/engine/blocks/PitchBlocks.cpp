@@ -6,6 +6,7 @@
 #include "engine/dsp/Biquad.hpp"
 #include "engine/dsp/DelayLine.hpp"
 #include "engine/dsp/PitchShifter.hpp"
+#include "engine/dsp/PitchTracker.hpp"
 #include "engine/dsp/Smoother.hpp"
 
 #include <algorithm>
@@ -304,7 +305,129 @@ private:
     bool fSnap = true;
 };
 
+// ---------------------------------------------------------------------------------------------------------------------
+
+constexpr const char* kKeyNames[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+constexpr const char* kScaleNames[] = { "Major", "Minor", "Dorian", "Mixolydian", "Lydian", "Phrygian", "Harm. Minor" };
+constexpr int kScales[][7] = {
+    { 0, 2, 4, 5, 7, 9, 11 }, // major
+    { 0, 2, 3, 5, 7, 8, 10 }, // natural minor
+    { 0, 2, 3, 5, 7, 9, 10 }, // dorian
+    { 0, 2, 4, 5, 7, 9, 10 }, // mixolydian
+    { 0, 2, 4, 6, 7, 9, 11 }, // lydian
+    { 0, 1, 3, 5, 7, 8, 10 }, // phrygian
+    { 0, 2, 3, 5, 7, 8, 11 }, // harmonic minor
+};
+constexpr int kScaleCount = sizeof(kScales) / sizeof(kScales[0]);
+constexpr const char* kVoiceNames[] = { "-Oct", "-7th", "-6th", "-5th", "-4th", "-3rd", "-2nd", "Unison",
+                                        "+2nd", "+3rd", "+4th", "+5th", "+6th", "+7th", "+Oct" };
+constexpr int kVoiceCount = 15; // steps -7 .. +7
+
+class HarmonizerBlock : public PitchBase<2> {
+public:
+    HarmonizerBlock()
+    {
+        fLevel[0].snap(1.0f);
+        fLevel[1].snap(0.0f);
+        fDry.snap(1.0f);
+    }
+
+    void prepare(double sampleRate, uint32_t maxFrames) override
+    {
+        for (Smoother* s : { &fLevel[0], &fLevel[1], &fDry })
+            s->prepare(sampleRate);
+        for (Smoother& s : fShift)
+            s.prepare(sampleRate, 0.015);
+        fTracker.prepare(sampleRate);
+        PitchBase::prepare(sampleRate, maxFrames);
+        fSnap = true;
+    }
+
+    void setParam(int index, float value) override
+    {
+        const int choice = static_cast<int>(value);
+        switch (index)
+        {
+        case kHarmParamKey:    fKey = std::clamp(choice, 0, 11); break;
+        case kHarmParamScale:  fScale = std::clamp(choice, 0, kScaleCount - 1); break;
+        case kHarmParamVoice1: fSteps[0] = std::clamp(choice, 0, kVoiceCount - 1) - 7; break;
+        case kHarmParamLevel1: fLevel[0].setTarget(value / 100.0f); break;
+        case kHarmParamVoice2: fSteps[1] = std::clamp(choice, 0, kVoiceCount - 1) - 7; break;
+        case kHarmParamLevel2: fLevel[1].setTarget(value / 100.0f); break;
+        case kHarmParamDry:    fDry.setTarget(value / 100.0f); break;
+        case kHarmParamWindow: setWindowMs(value); break;
+        }
+    }
+
+    void process(float* const* io, uint32_t numChannels, uint32_t frames) override
+    {
+        if (fSnap)
+        {
+            fSnap = false;
+            for (Smoother* s : { &fLevel[0], &fLevel[1], &fDry })
+                s->snap(s->target());
+        }
+        for (uint32_t i = 0; i < frames; ++i)
+        {
+            float in = io[0][i];
+            if (numChannels > 1)
+                in = 0.5f * (in + io[1][i]);
+            fTracker.process(in);
+            if (fTracker.hz() > 0.0)
+            {
+                // the played note, to the nearest semitone; the harmony is relative to it, so bends carry over
+                const int note = static_cast<int>(std::lround(69.0 + 12.0 * std::log2(fTracker.hz() / 440.0)));
+                for (int v = 0; v < 2; ++v)
+                    fShift[v].setTarget(static_cast<float>(harmonySemitones(note, fKey, fScale, fSteps[v])));
+            }
+            const double ratios[2] = { semitonesToRatio(fShift[0].next()), semitonesToRatio(fShift[1].next()) };
+            const float levels[2] = { fLevel[0].next(), fLevel[1].next() };
+            const float dry = fDry.next();
+            for (uint32_t ch = 0; ch < numChannels; ++ch)
+            {
+                const float x = io[ch][i];
+                fLines[ch].write(x);
+                float wet = 0.0f;
+                for (int v = 0; v < 2; ++v)
+                    wet += fVoices[ch][v].read(fLines[ch], ratios[v]) * levels[v];
+                io[ch][i] = x * dry + wet;
+            }
+        }
+    }
+
+    void reset() override
+    {
+        PitchBase::reset();
+        fTracker.reset();
+        fSnap = true;
+    }
+
+private:
+    int fKey = 0;
+    int fScale = 0;
+    int fSteps[2] = { 2, 4 };
+    PitchTracker fTracker;
+    Smoother fShift[2];
+    Smoother fLevel[2], fDry;
+    bool fSnap = true;
+};
+
 } // namespace
+
+int harmonySemitones(int note, int key, int scale, int steps)
+{
+    const int* degrees = kScales[std::clamp(scale, 0, kScaleCount - 1)];
+    const int pc = ((note - key) % 12 + 12) % 12;
+    // the scale degree at or just below the note
+    int degree = 0;
+    for (int d = 0; d < 7; ++d)
+        if (degrees[d] <= pc)
+            degree = d;
+    const int target = degree + steps;
+    const int octaves = target >= 0 ? target / 7 : -((-target + 6) / 7);
+    const int wrapped = target - octaves * 7;
+    return degrees[wrapped] + 12 * octaves - degrees[degree];
+}
 
 int whammyIntervalCount()
 {
@@ -364,6 +487,28 @@ const BlockDescriptor kPolyOctaveBlockDescriptor = {
         ParamSpec { "Window", "ms", 15.0f, 100.0f, 50.0f, ParamScale::Log },
     },
     [] { return std::unique_ptr<Block>(new PolyOctaveBlock()); },
+};
+
+} // namespace namsayin
+
+namespace namsayin {
+
+const BlockDescriptor kHarmonizerBlockDescriptor = {
+    "harmonizer",
+    "Harmonizer",
+    Category::PitchSynth,
+    kHarmParamCount,
+    {
+        ParamSpec { "Key", "", 0.0f, 11.0f, 0.0f, ParamScale::Choice, kKeyNames },
+        ParamSpec { "Scale", "", 0.0f, static_cast<float>(kScaleCount - 1), 0.0f, ParamScale::Choice, kScaleNames },
+        ParamSpec { "Voice 1", "", 0.0f, static_cast<float>(kVoiceCount - 1), 9.0f, ParamScale::Choice, kVoiceNames },
+        ParamSpec { "Level 1", "%", 0.0f, 100.0f, 100.0f, ParamScale::Linear },
+        ParamSpec { "Voice 2", "", 0.0f, static_cast<float>(kVoiceCount - 1), 11.0f, ParamScale::Choice, kVoiceNames },
+        ParamSpec { "Level 2", "%", 0.0f, 100.0f, 0.0f, ParamScale::Linear },
+        ParamSpec { "Dry", "%", 0.0f, 100.0f, 100.0f, ParamScale::Linear },
+        ParamSpec { "Window", "ms", 15.0f, 100.0f, 40.0f, ParamScale::Log },
+    },
+    [] { return std::unique_ptr<Block>(new HarmonizerBlock()); },
 };
 
 } // namespace namsayin

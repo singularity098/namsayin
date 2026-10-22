@@ -3,7 +3,7 @@
 
 #include "engine/blocks/SynthBlock.hpp"
 
-#include "engine/dsp/Biquad.hpp"
+#include "engine/dsp/PitchTracker.hpp"
 #include "engine/dsp/Smoother.hpp"
 #include "engine/dsp/Svf.hpp"
 
@@ -17,10 +17,6 @@ namespace {
 constexpr const char* kWaveNames[] = { "Square", "Saw", "Pulse", "Sub" };
 constexpr const char* kOctaveNames[] = { "-2", "-1", "0", "+1" };
 
-constexpr double kMinHz = 40.0;
-constexpr double kMaxHz = 1500.0;
-constexpr float kHysteresis = 0.3f; // of the envelope
-constexpr float kGateLevel = 0.003f;
 constexpr float kEnvOctaves = 5.0f;
 
 // PolyBLEP: subtracts the step's aliasing around each discontinuity of a naive saw or square
@@ -47,8 +43,7 @@ public:
     {
         fSampleRate = sampleRate;
         fMix.prepare(sampleRate);
-        fInputHighPass.setHighPass(sampleRate, 60.0);
-        fEnvelope.prepare(sampleRate, 1.0, 80.0);
+        fTracker.prepare(sampleRate);
         updateAmp();
         updateGlide();
         reset();
@@ -93,7 +88,8 @@ public:
             float in = io[0][i];
             if (numChannels > 1)
                 in = 0.5f * (in + io[1][i]);
-            track(in);
+            if (fTracker.process(in))
+                fTargetHz = fTracker.hz();
 
             // the oscillator glides to the tracked pitch
             fHz += (fTargetHz - fHz) * fGlideCoef;
@@ -108,8 +104,8 @@ public:
             const float osc = oscillator(dt);
 
             // amplitude: the guitar's envelope, with Attack as a swell at the start of each note
-            const float env = fEnvelope.value();
-            const bool on = env > kGateLevel;
+            const float env = fTracker.envelope();
+            const bool on = fTracker.sounding();
             const float level = std::min(1.0f, env * 4.0f);
             fAmp += ((on ? level : 0.0f) - fAmp) * (on && level > fAmp ? fAmpAttack : fAmpRelease);
 
@@ -125,54 +121,15 @@ public:
 
     void reset() override
     {
-        fInputHighPass.reset();
-        fTrackFilter.reset();
-        fEnvelope.reset();
+        fTracker.reset();
         fFilter.reset();
-        fArmed = false;
-        fPrevious = 0.0f;
-        fSinceCrossing = 0.0;
-        fLastPeriod = 0.0;
         fTargetHz = fHz = 110.0;
         fPhase = fSubPhase = 0.0;
         fAmp = 0.0f;
-        setTrackFilter(800.0);
         fSnap = true;
     }
 
 private:
-    // Zero-crossing pitch tracking: arm on a swing below -hysteresis, trigger on the next upward zero crossing
-    // (interpolated between samples); the period is the time between triggers.
-    void track(float in)
-    {
-        const float x = fTrackFilter.process(fInputHighPass.process(in));
-        const float env = fEnvelope.process(x);
-        fSinceCrossing += 1.0;
-        if (x < -kHysteresis * env)
-            fArmed = true;
-        if (fArmed && fPrevious < 0.0f && x >= 0.0f && env > kGateLevel)
-        {
-            fArmed = false;
-            const double fraction = fPrevious / (fPrevious - x); // where between the samples it crossed
-            const double now = fSinceCrossing - 1.0 + fraction;
-            const double hz = fSampleRate / now;
-            if (hz >= kMinHz && hz <= kMaxHz)
-            {
-                // a period close to the last one is trusted at once; a jump needs a second period to agree, so a
-                // stray crossing from a harmonic doesn't make the synth blip
-                if (fLastPeriod > 0.0 && std::fabs(now / fLastPeriod - 1.0) < 0.12)
-                {
-                    fTargetHz = hz;
-                    // keep the tracking filter just above the note, so harmonics can't make extra crossings
-                    setTrackFilter(std::clamp(hz * 1.5, 120.0, 1800.0));
-                }
-                fLastPeriod = now;
-            }
-            fSinceCrossing = 1.0 - fraction;
-        }
-        fPrevious = x;
-    }
-
     float oscillator(double dt) const
     {
         switch (fWave)
@@ -200,8 +157,6 @@ private:
         return static_cast<float>(v);
     }
 
-    void setTrackFilter(double hz) { fTrackFilter.setLowPass(fSampleRate, std::min(hz, 0.45 * fSampleRate)); }
-
     void updateAmp()
     {
         fAmpAttack = 1.0f - EnvelopeFollower::coef(fSampleRate, std::max(1.0f, fAttackMs));
@@ -219,14 +174,9 @@ private:
     float fAttackMs = 5.0f;
     float fGlideMs = 10.0f;
 
-    Biquad fInputHighPass, fTrackFilter;
-    EnvelopeFollower fEnvelope;
+    PitchTracker fTracker;
     Svf fFilter;
     Smoother fMix;
-    bool fArmed = false;
-    float fPrevious = 0.0f;
-    double fSinceCrossing = 0.0;
-    double fLastPeriod = 0.0;
     double fTargetHz = 110.0, fHz = 110.0;
     double fGlideCoef = 1.0;
     double fPhase = 0.0, fSubPhase = 0.0;

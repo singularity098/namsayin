@@ -12,6 +12,7 @@
 #include "engine/blocks/DriveBlocks.hpp"
 #include "engine/blocks/EchoBlocks.hpp"
 #include "engine/blocks/EqBlocks.hpp"
+#include "engine/blocks/FilterBlock.hpp"
 #include "engine/blocks/FlangerBlock.hpp"
 #include "engine/blocks/GateBlock.hpp"
 #include "engine/blocks/IrBlock.hpp"
@@ -94,7 +95,9 @@ const BlockRegistry& BlockRegistry::builtin()
         &kPolyOctaveBlockDescriptor,
         &kPitchShifterBlockDescriptor,
         &kWhammyBlockDescriptor,
+        &kHarmonizerBlockDescriptor,
         &kSynthBlockDescriptor,
+        &kFilterBlockDescriptor,
         &kWahBlockDescriptor,
         &kAutoWahBlockDescriptor,
     });
