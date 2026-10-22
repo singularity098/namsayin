@@ -41,6 +41,7 @@
 - Every knob and control has a highly detailed but easy to understand plain-English explanation of what it does and how to use it, shown in a translucent popup when the mouse hovers over it (owner's request, 2026-10-22)
 - The signal chain may be split into 2 at any point, and then merged back into 1 at any other point, allowing for effects to run in parallel, or multiple NAM simultaneously
     - Only one split at a time
+    - A small split icon appears on the signal line between blocks while the mouse is over the gap; clicking it adds an empty split there (owner's request, 2026-10-22)
     - The merge has controls for A/B balance, level, pan and phase invert per branch
     - The two branches are time-aligned at the merge if their latencies differ
 - The blocks in the signal chain are square shaped, and we will use provided images (later possibly as small thumbnails on the tiles)
@@ -69,6 +70,7 @@
     - Pitch/Synth
     - Filter
     - Wah
+    - A search box at the top of the dialog searches every category at once (built-in blocks, NAM models and IRs); search boxes have an × to clear them (owner's request, 2026-10-22)
 - There is also a button to load a Tone3000 NAM from the clipboard when adding a block
 - A menu is present at the top of the application to save and load presets
     - Presets can embed everything they use (NAM files, IRs, images), so they can be shared

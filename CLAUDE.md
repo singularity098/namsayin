@@ -63,7 +63,7 @@ src/state/            Plain data shared by DSP and UI, no DPF:
   Preset              .namsayin preset files (zip: preset.json + embedded files), missing-file resolution
   UndoStack           undo/redo of chain snapshots
 src/plugin/           DistrhoPluginInfo.h + DSP side (Plugin subclass; thin wrapper around Engine)
-src/ui/               UI side (UI subclass, NanoVG). Immediate-mode: draw functions record hit areas, mouse handlers look them up.
+src/ui/               UI side (UI subclass, NanoVG). FolderPicker: the system folder dialog (DPF's only picks files). Immediate-mode: draw functions record hit areas, mouse handlers look them up.
                       Tuner and metronome panels are overlays over the chain. OpenUrl.cpp keeps <windows.h> and Vsync.cpp keeps
                       GLX/Xlib out of the DPF code
                       BlockImages.cpp (generated) holds the built-in block images; ParamHelp.cpp the hover help texts

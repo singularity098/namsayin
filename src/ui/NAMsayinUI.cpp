@@ -4,6 +4,7 @@
 #include "DistrhoUI.hpp"
 
 #include "BlockImages.hpp"
+#include "FolderPicker.hpp"
 #include "OpenUrl.hpp"
 #include "ParamHelp.hpp"
 #include "Vsync.hpp"
@@ -118,7 +119,7 @@ enum class Hit {
     TileBypass,
     TileRemove,
     AddBlock,     // index = Section
-    Split,        // add a split
+    Split,        // add an empty split; index = position in the chain
     Merge,        // select the merge
     MergeRemove,  // remove the split
     SetValue,     // index = host parameter, set to `value` (real units)
@@ -139,11 +140,12 @@ enum class Hit {
     DialogClose,
     DialogCategory, // index = Category
     DialogItem,     // index = position in the current category's item list
-    LibraryItem,    // index = row in the visible library list
-    LibraryStar,    // index = row in the visible library list
+    ListRow,        // index = row in fRows (the library list or the search results)
+    ListStar,       // index = row in fRows
     LibraryFavorites,
     LibraryBrowse,
     TextField,      // index = Field
+    FieldClear,     // index = Field: empty it
     OpenSettings,
     SettingsChoose, // index = Field (the folder field it fills)
     SettingsRescan,
@@ -217,7 +219,7 @@ struct ChainLayout {
     float height = kTileSize;
     std::vector<Rect> tiles;          // per block index
     Rect add[4];                      // "+" per Section; w == 0 if there's none
-    Rect split;                       // "Split" button (no split yet)
+    std::vector<float> splitGaps;     // no split yet: centre of the gap before each block and before the "+"
     Rect merge;                       // merge tile (split)
     float forkX = 0.0f;               // where the chain splits
     std::vector<Rect> wires[2];       // items on each row in order, joined by signal-flow lines
@@ -337,10 +339,10 @@ std::string lowerCase(std::string text)
     return text;
 }
 
-// Whether every space-separated word of `query` appears in `entry` (case-insensitive)
-bool matchesSearch(const LibraryEntry& entry, const std::string& query)
+// Whether every space-separated word of `query` appears in `text` (case-insensitive)
+bool matchesWords(const std::string& text, const std::string& query)
 {
-    const std::string haystack = lowerCase(entry.name + " " + entry.folder + " " + entry.info);
+    const std::string haystack = lowerCase(text);
     size_t pos = 0;
     const std::string q = lowerCase(query);
     while (pos < q.size())
@@ -354,6 +356,16 @@ bool matchesSearch(const LibraryEntry& entry, const std::string& query)
         pos = end + 1;
     }
     return true;
+}
+
+bool matchesSearch(const LibraryEntry& entry, const std::string& query)
+{
+    return matchesWords(entry.name + " " + entry.folder + " " + entry.info, query);
+}
+
+bool matchesSearch(const BlockDescriptor& type, const std::string& query)
+{
+    return matchesWords(std::string(type.displayName) + " " + categoryName(type.category), query);
 }
 
 // Removes the last UTF-8 character
@@ -389,6 +401,14 @@ const BlockDescriptor* blockTypeForFile(const char* filename)
         return &kIrBlockDescriptor;
     return nullptr;
 }
+
+// One row of the Add Block dialog's list (a library folder, or the search results): a category heading, a built-in
+// block type, or a library file (`type` is then the NAM or IR block)
+struct AddRow {
+    const char* heading = nullptr;
+    const BlockDescriptor* type = nullptr;
+    const LibraryEntry* entry = nullptr;
+};
 
 // One built-in block type in the Add Block dialog. (Local NAM and Local IR show the library instead.)
 struct AddItem {
@@ -516,7 +536,7 @@ protected:
         }
         if (fBrowseTarget == BrowseTarget::NamDir || fBrowseTarget == BrowseTarget::IrDir)
         {
-            // DPF's browser picks files, so the folder is the one the picked file is in
+            // without a system folder picker, DPF's browser picks a file and the folder is the one it's in
             const Field field = fBrowseTarget == BrowseTarget::NamDir ? kFieldNamDir : kFieldIrDir;
             fFields[field] = pathToUtf8(pathFromUtf8(filename).parent_path());
             commitField(field);
@@ -602,7 +622,8 @@ protected:
         const HitArea* hit = hitAt(x, y);
 
         // clicking anywhere but the focused field ends editing it
-        if (fFocusedField >= 0 && !(hit && hit->kind == Hit::TextField && hit->index == fFocusedField))
+        if (fFocusedField >= 0
+            && !(hit && (hit->kind == Hit::TextField || hit->kind == Hit::FieldClear) && hit->index == fFocusedField))
             blurField(true);
 
         if (hit == nullptr)
@@ -665,12 +686,8 @@ protected:
 
         case Hit::Split: {
             beginEdit();
-            // around the selected block if there is one (it goes into branch A), otherwise at the end
-            const int count = static_cast<int>(fChain.blocks.size());
-            if (fSelected >= 0 && fSelected < count)
-                fChain.addSplit(fSelected, fSelected + 1);
-            else
-                fChain.addSplit(count, count);
+            // an empty split at the gap that was clicked: both branches start empty
+            fChain.addSplit(hit->index, hit->index);
             for (uint32_t index = kParamMergeBalance; index <= kParamMergeInvertB; ++index)
                 setHostParameter(index, globalParamSpec(index).def);
             fMergeSelected = true;
@@ -717,6 +734,7 @@ protected:
 
         case Hit::DialogCategory:
             fDialogCategory = static_cast<Category>(hit->index);
+            fFields[kFieldSearch].clear(); // leave the search results for the category
             fListScroll = 0.0f;
             repaint();
             return true;
@@ -731,21 +749,22 @@ protected:
             return true;
         }
 
-        case Hit::LibraryItem: {
-            if (hit->index >= static_cast<int>(fVisibleEntries.size()))
+        case Hit::ListRow: {
+            if (hit->index >= static_cast<int>(fRows.size()) || fRows[hit->index].type == nullptr)
                 return true;
-            const LibraryEntry entry = *fVisibleEntries[hit->index];
-            const bool ir = fDialogCategory == Category::LocalIr;
+            const AddRow row = fRows[hit->index];
+            nlohmann::json config = nlohmann::json::object();
+            if (row.entry)
+                config = { { "path", row.entry->path }, { "hash", row.entry->hash } };
             closeDialog();
-            addBlock(ir ? &kIrBlockDescriptor : &kNamBlockDescriptor,
-                     { { "path", entry.path }, { "hash", entry.hash } });
+            addBlock(row.type, std::move(config));
             return true;
         }
 
-        case Hit::LibraryStar: {
-            if (hit->index >= static_cast<int>(fVisibleEntries.size()))
+        case Hit::ListStar: {
+            if (hit->index >= static_cast<int>(fRows.size()) || fRows[hit->index].entry == nullptr)
                 return true;
-            const std::string hash = fVisibleEntries[hit->index]->hash;
+            const std::string hash = fRows[hit->index].entry->hash;
             updateSettings([&hash](Settings& settings) {
                 if (!settings.favorites.erase(hash))
                     settings.favorites.insert(hash);
@@ -776,15 +795,23 @@ protected:
             repaint();
             return true;
 
+        case Hit::FieldClear:
+            fFields[hit->index].clear();
+            fFocusedField = hit->index;
+            if (hit->index == kFieldSearch)
+                fListScroll = 0.0f;
+            repaint();
+            return true;
+
         case Hit::OpenSettings:
             openDialog(Dialog::Settings);
             return true;
 
         case Hit::SettingsChoose: {
             const bool nam = hit->index == kFieldNamDir;
-            browse(nam ? BrowseTarget::NamDir : BrowseTarget::IrDir,
-                   nam ? "Pick any file in your NAM folder" : "Pick any file in your IR folder",
-                   nam ? fSettings.namDir : fSettings.irDir);
+            fFolderField = static_cast<Field>(hit->index);
+            fFolderPicker.open(nam ? "Choose your NAM folder" : "Choose your IR folder",
+                               nam ? fSettings.namDir : fSettings.irDir, getWindow().getNativeWindowHandle());
             return true;
         }
 
@@ -947,6 +974,8 @@ protected:
                 popUtf8(text);
             else if (ev.key == kKeyEnter)
                 blurField(true);
+            else if (ev.key == kKeyEscape && fFocusedField == kFieldSearch)
+                closeDialog();
             else if (ev.key == kKeyEscape)
                 blurField(false);
             else if ((ev.mod & kModifierControl) && (ev.key == 'v' || ev.key == 'V'))
@@ -1068,6 +1097,7 @@ protected:
             fScanning = fScanner.busy();
             repaint();
         }
+        pollFolderPicker();
 
         // Settings are shared by all instances: pick up changes made by another one
         const auto now = std::chrono::steady_clock::now();
@@ -1808,6 +1838,13 @@ private:
     {
         fDialog = dialog;
         fListScroll = 0.0f;
+        if (dialog == Dialog::AddBlock)
+        {
+            // ready to type a new search
+            fFields[kFieldSearch].clear();
+            fFocusedField = kFieldSearch;
+            fFieldBeforeEdit.clear();
+        }
         repaint();
     }
 
@@ -1816,6 +1853,29 @@ private:
         blurField(true);
         fDialog = Dialog::None;
         repaint();
+    }
+
+    // The NAM/IR folder picker has closed: use its folder, or pick a file in the folder if the system has no picker
+    void pollFolderPicker()
+    {
+        std::string path;
+        switch (fFolderPicker.poll(path))
+        {
+        case FolderPicker::Status::Picked:
+            fFields[fFolderField] = path;
+            commitField(fFolderField);
+            repaint();
+            break;
+        case FolderPicker::Status::Unavailable: {
+            const bool nam = fFolderField == kFieldNamDir;
+            browse(nam ? BrowseTarget::NamDir : BrowseTarget::IrDir,
+                   nam ? "Pick any file in your NAM folder" : "Pick any file in your IR folder",
+                   nam ? fSettings.namDir : fSettings.irDir);
+            break;
+        }
+        default:
+            break;
+        }
     }
 
     void browse(BrowseTarget target, const char* title, const std::string& startDir)
@@ -2299,6 +2359,10 @@ private:
             const char* name = type->params[static_cast<size_t>(param)].name;
             return { name, blockParamHelp(type->typeId, name) };
         }
+        case Hit::Split:
+            return { "Split",
+                     "Splits the chain here into two parallel paths, A and B, which both start empty. Add blocks to "
+                     "each with its +; the merge after them mixes the two back together. One split at a time." };
         case Hit::MetroAccent:
             return { "Beat " + std::to_string(hit.index + 1), globalParamHelp(kParamMetroAccent1) };
         case Hit::MetroGrouping:
@@ -3136,7 +3200,8 @@ private:
         if (!split)
         {
             addTile(Section::Pre, 0, x);
-            l.split = { x + step, l.rowY[0] + l.tile / 2 - 18.0f, 72.0f, 36.0f };
+            for (const DropPoint& drop : l.drops)
+                l.splitGaps.push_back(drop.x - kTileGap / 2);
             return;
         }
 
@@ -3214,8 +3279,8 @@ private:
             if (l.add[s].w > 0.0f)
                 drawAddTile(l.add[s], static_cast<Section>(s));
         }
-        if (!fChain.split)
-            drawSplitButton(l.split);
+        if (!fChain.split && !fDraggingTile)
+            drawSplitGaps();
 
         if (fDraggingTile && fPressTile >= 0 && fPressTile < count)
         {
@@ -3229,7 +3294,7 @@ private:
         resetScissor();
 
         if (count == 0 && !fChain.split)
-            label(l.split.x + l.split.w + 24.0f, l.rowY[0] + kTileSize / 2, "Click + to add a block",
+            label(l.add[0].x + l.add[0].w + 24.0f, l.rowY[0] + kTileSize / 2, "Click + to add a block",
                   theme::textDim, 14.0f, ALIGN_LEFT | ALIGN_MIDDLE);
 
         bool anyRunning = false;
@@ -3254,23 +3319,41 @@ private:
             fHits.push_back({ r, Hit::AddBlock, static_cast<int>(section) });
     }
 
-    void drawSplitButton(const Rect& r)
+    // A small split icon on the signal line between two blocks, shown while the mouse is over the gap
+    void drawSplitGaps()
     {
-        const bool hover = r.contains(fMouseX, fMouseY);
-        fillRect(r.x, r.y, r.w, r.h, hover ? theme::tileHover : theme::tile, 8.0f);
-        // fork icon
-        const float ix = r.x + 14.0f, iy = r.y + r.h / 2;
-        beginPath();
-        moveTo(ix - 4.0f, iy);
-        lineTo(ix + 2.0f, iy);
-        lineTo(ix + 8.0f, iy - 6.0f);
-        moveTo(ix + 2.0f, iy);
-        lineTo(ix + 8.0f, iy + 6.0f);
-        strokeColor(theme::text);
-        strokeWidth(1.5f);
-        stroke();
-        label(r.x + 44.0f, iy, "Split", theme::text, 13.0f, ALIGN_CENTER | ALIGN_MIDDLE);
-        fHits.push_back({ r, Hit::Split, 0 });
+        const ChainLayout& l = fLayout;
+        const float cy = l.rowY[0] + l.tile / 2;
+        for (size_t k = 0; k < l.splitGaps.size(); ++k)
+        {
+            const float cx = l.splitGaps[k];
+            // the gap and a little of the tiles either side, so it's easy to hit
+            const Rect zone { cx - kTileGap / 2 - 3.0f, l.rowY[0], kTileGap + 6.0f, l.tile };
+            fHits.push_back({ zone, Hit::Split, static_cast<int>(k) });
+            if (!zone.contains(fMouseX, fMouseY) || fDialog != Dialog::None)
+                continue;
+            beginPath();
+            circle(cx, cy, 10.0f);
+            fillColor(theme::background);
+            fill();
+            strokeColor(theme::accent);
+            strokeWidth(1.0f);
+            stroke();
+            // fork: one line in, two out
+            beginPath();
+            moveTo(cx - 5.0f, cy);
+            lineTo(cx - 1.0f, cy);
+            lineTo(cx + 4.5f, cy - 4.0f);
+            moveTo(cx - 1.0f, cy);
+            lineTo(cx + 4.5f, cy + 4.0f);
+            strokeColor(theme::accent);
+            strokeWidth(1.2f);
+            lineCap(ROUND);
+            lineJoin(ROUND);
+            stroke();
+            lineCap(BUTT);
+            lineJoin(MITER);
+        }
     }
 
     void drawMergeTile()
@@ -3527,12 +3610,15 @@ private:
 
         // categories on the left
         const float listX = x + 12.0f, listTop = y + 52.0f, listW = 190.0f;
+        const bool searching = !fFields[kFieldSearch].empty();
+        drawTextField({ listX + listW + 16.0f, y + 11.0f, close.x - 8.0f - (listX + listW + 16.0f), 30.0f },
+                      kFieldSearch, "Search all blocks, models and IRs", true);
         const float rowH = std::min(26.0f, (h - 64.0f) / kCategoryCount);
         for (int c = 0; c < kCategoryCount; ++c)
         {
             const auto category = static_cast<Category>(c);
             const Rect r { listX, listTop + c * rowH, listW, rowH - 2.0f };
-            const bool selected = category == fDialogCategory;
+            const bool selected = category == fDialogCategory && !searching;
             const bool available = isLibraryCategory(category) || !addItems(category).empty();
             if (selected)
                 fillRect(r.x, r.y, r.w, r.h, theme::accent.withAlpha(0.25f), 5.0f);
@@ -3543,8 +3629,13 @@ private:
             fHits.push_back({ r, Hit::DialogCategory, c });
         }
 
-        // the category's blocks on the right
+        // the category's blocks on the right, or what matches the search in every category
         const float itemsX = listX + listW + 16.0f, itemsW = x + w - 16.0f - itemsX;
+        if (searching)
+        {
+            drawSearchResults(itemsX, listTop, itemsW, y + h - 12.0f - listTop);
+            return;
+        }
         if (isLibraryCategory(fDialogCategory))
         {
             drawLibraryList(itemsX, listTop, itemsW, y + h - 12.0f - listTop);
@@ -3582,9 +3673,12 @@ private:
         }
     }
 
-    // A single-line text field. Click to edit; Enter or clicking elsewhere ends editing.
-    void drawTextField(const Rect& r, Field field, const char* placeholder)
+    // A single-line text field. Click to edit; Enter or clicking elsewhere ends editing. A clearable field shows an ×
+    // to empty it while it has text.
+    void drawTextField(const Rect& r, Field field, const char* placeholder, bool clearable = false)
     {
+        const bool clearButton = clearable && !fFields[field].empty();
+        const float textRight = clearButton ? 26.0f : 0.0f; // room for the ×
         const bool focused = fFocusedField == field;
         fillRect(r.x, r.y, r.w, r.h, theme::inset, 6.0f);
         beginPath();
@@ -3594,14 +3688,14 @@ private:
         stroke();
 
         save();
-        scissor(r.x + 6.0f, r.y, r.w - 12.0f, r.h);
+        scissor(r.x + 6.0f, r.y, r.w - 12.0f - textRight, r.h);
         const std::string& text = fFields[field];
         fontSize(13.0f);
         textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
         Rectangle<float> bounds;
         const float textWidth = text.empty() ? 0.0f : textBounds(0, 0, text.c_str(), nullptr, bounds);
         // keep the end (and the cursor) in view while typing
-        const float tx = r.x + 10.0f - std::max(0.0f, textWidth - (r.w - 24.0f));
+        const float tx = r.x + 10.0f - std::max(0.0f, textWidth - (r.w - 24.0f - textRight));
         if (text.empty() && !focused)
             label(r.x + 10.0f, r.y + r.h / 2, placeholder, theme::textDim, 13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
         else
@@ -3611,18 +3705,44 @@ private:
         restore();
 
         fHits.push_back({ r, Hit::TextField, field });
+        if (clearButton)
+        {
+            const Rect clear { r.x + r.w - 28.0f, r.y, 28.0f, r.h };
+            const bool hover = clear.contains(fMouseX, fMouseY);
+            const float cx = clear.x + 13.0f, cy = r.y + r.h / 2, arm = 3.5f;
+            beginPath();
+            circle(cx, cy, 8.0f);
+            fillColor(hover ? theme::tileHover : theme::tile);
+            fill();
+            beginPath();
+            moveTo(cx - arm, cy - arm);
+            lineTo(cx + arm, cy + arm);
+            moveTo(cx + arm, cy - arm);
+            lineTo(cx - arm, cy + arm);
+            strokeColor(hover ? theme::text : theme::textDim);
+            strokeWidth(1.4f);
+            stroke();
+            fHits.push_back({ clear, Hit::FieldClear, field });
+        }
     }
 
-    // The library list for Local NAM / Local IR: search, favorites filter, browse, and the scanned files
+    // The library list for Local NAM / Local IR: favorites filter, browse, and the scanned files
     void drawLibraryList(float x, float y, float w, float h)
     {
         const bool ir = fDialogCategory == Category::LocalIr;
         const std::vector<LibraryEntry>& library = ir ? fIrLibrary : fNamLibrary;
         const std::string& folder = ir ? fSettings.irDir : fSettings.namDir;
+        const BlockDescriptor* type = ir ? &kIrBlockDescriptor : &kNamBlockDescriptor;
 
-        // header: search, favorites, browse
+        // header: the folder, favorites, browse
         const float headerH = 30.0f;
-        drawTextField({ x, y, w - 200.0f, headerH }, kFieldSearch, ir ? "Search IRs" : "Search models");
+        if (!folder.empty())
+        {
+            save();
+            scissor(x, y, w - 204.0f, headerH);
+            label(x + 2.0f, y + headerH / 2, folder.c_str(), theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+            restore();
+        }
         drawButton({ x + w - 192.0f, y, 92.0f, headerH }, "★ Favorites", fFavoritesOnly, theme::accent,
                    Hit::LibraryFavorites, 0);
         drawButton({ x + w - 92.0f, y, 92.0f, headerH }, "Browse…", false, theme::accent, Hit::LibraryBrowse, 0);
@@ -3630,14 +3750,12 @@ private:
         const float listY = y + headerH + 10.0f;
         const float listH = h - headerH - 10.0f;
 
-        fVisibleEntries.clear();
+        fRows.clear();
         for (const LibraryEntry& entry : library)
         {
             if (fFavoritesOnly && fSettings.favorites.count(entry.hash) == 0)
                 continue;
-            if (!matchesSearch(entry, fFields[kFieldSearch]))
-                continue;
-            fVisibleEntries.push_back(&entry);
+            fRows.push_back({ nullptr, type, &entry });
         }
 
         auto message = [&](const char* text) {
@@ -3651,64 +3769,140 @@ private:
                        Hit::OpenSettings, 0);
             return;
         }
-        if (fVisibleEntries.empty())
+        if (fRows.empty())
         {
             if (fScanning)
                 message("Scanning…");
             else if (library.empty())
                 message(ir ? "No .wav files found in your IR folder." : "No .nam files found in your NAM folder.");
             else
-                message(fFavoritesOnly ? "No favorites match." : "No matches.");
+                message("No favorites yet: click a file's ☆ to add it.");
             return;
         }
+        drawRows(x, listY, w, listH);
 
-        constexpr float rowH = 52.0f;
-        const float contentH = fVisibleEntries.size() * rowH;
+        char count[64];
+        std::snprintf(count, sizeof(count), "%zu of %zu", fRows.size(), library.size());
+        label(x + w, y + h + 2.0f, count, theme::textDim, 10.0f, ALIGN_RIGHT | ALIGN_BOTTOM);
+    }
+
+    // What matches the search in every category: built-in blocks, NAM models and IRs, under category headings
+    void drawSearchResults(float x, float y, float w, float h)
+    {
+        const std::string& query = fFields[kFieldSearch];
+        fRows.clear();
+        size_t matches = 0;
+        for (int c = 0; c < kCategoryCount; ++c)
+        {
+            const auto category = static_cast<Category>(c);
+            const size_t heading = fRows.size();
+            fRows.push_back({ categoryName(category), nullptr, nullptr });
+            if (isLibraryCategory(category))
+            {
+                const bool ir = category == Category::LocalIr;
+                for (const LibraryEntry& entry : ir ? fIrLibrary : fNamLibrary)
+                {
+                    if (matchesSearch(entry, query))
+                        fRows.push_back({ nullptr, ir ? &kIrBlockDescriptor : &kNamBlockDescriptor, &entry });
+                }
+            }
+            else
+            {
+                for (const AddItem& item : addItems(category))
+                {
+                    if (matchesSearch(*item.type, query))
+                        fRows.push_back({ nullptr, item.type, nullptr });
+                }
+            }
+            if (fRows.size() == heading + 1)
+                fRows.pop_back(); // nothing in this category
+            else
+                matches += fRows.size() - heading - 1;
+        }
+
+        if (fRows.empty())
+        {
+            label(x + 8.0f, y + 16.0f, fScanning ? "Scanning your library…" : "Nothing matches.", theme::textDim, 13.0f,
+                  ALIGN_LEFT | ALIGN_MIDDLE);
+            return;
+        }
+        drawRows(x, y, w, h);
+
+        char count[64];
+        std::snprintf(count, sizeof(count), matches == 1 ? "%zu match" : "%zu matches", matches);
+        label(x + w, y + h + 2.0f, count, theme::textDim, 10.0f, ALIGN_RIGHT | ALIGN_BOTTOM);
+    }
+
+    // Draws fRows as a scrolling list: headings, and rows to click (library files with a favorite star)
+    void drawRows(float x, float listY, float w, float listH)
+    {
+        constexpr float rowH = 52.0f, headingH = 28.0f;
+        float contentH = 0.0f;
+        for (const AddRow& row : fRows)
+            contentH += row.heading ? headingH : rowH;
         fListScroll = std::clamp(fListScroll, 0.0f, std::max(0.0f, contentH - listH));
 
         save();
         scissor(x, listY, w, listH);
-        const int first = static_cast<int>(fListScroll / rowH);
-        for (int i = first; i < static_cast<int>(fVisibleEntries.size()); ++i)
+        float ry = listY - fListScroll;
+        for (int i = 0; i < static_cast<int>(fRows.size()) && ry < listY + listH; ++i)
         {
-            const float ry = listY + i * rowH - fListScroll;
-            if (ry > listY + listH)
-                break;
-            const LibraryEntry& entry = *fVisibleEntries[i];
-            const Rect r { x, ry, w, rowH - 4.0f };
+            const AddRow& row = fRows[i];
+            const float rh = row.heading ? headingH : rowH;
+            const float y0 = ry;
+            ry += rh;
+            if (ry < listY)
+                continue;
+            if (row.heading)
+            {
+                label(x + 4.0f, y0 + headingH - 9.0f, row.heading, theme::accent, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+                continue;
+            }
+
+            const Rect r { x, y0, w, rowH - 4.0f };
             const bool hover = r.contains(fMouseX, fMouseY) && fMouseY >= listY && fMouseY < listY + listH;
             fillRect(r.x, r.y, r.w, r.h, hover ? theme::tileHover : theme::tile, 6.0f);
 
-            if (NanoImage* img = image(entry.image))
+            NanoImage* img = row.entry ? image(row.entry->image) : builtinImage(row.type->typeId);
+            if (img)
                 drawImageFit(*img, r.x + 6.0f, r.y + 4.0f, 52.0f, r.h - 8.0f, 3.0f);
             else
-                drawBlockArt(ir ? &kIrBlockDescriptor : &kNamBlockDescriptor, r.x + 6.0f, r.y + 6.0f, 52.0f,
-                             r.h - 12.0f, false);
+                drawBlockArt(row.type, r.x + 6.0f, r.y + 6.0f, 52.0f, r.h - 12.0f, false);
 
-            label(r.x + 68.0f, r.y + 17.0f, entry.name.c_str(), theme::text, 13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
-            std::string detail = entry.folder;
-            if (!entry.info.empty())
-                detail += (detail.empty() ? "" : "  ·  ") + entry.info;
+            std::string detail;
+            if (row.entry)
+            {
+                detail = row.entry->folder;
+                if (!row.entry->info.empty())
+                    detail += (detail.empty() ? "" : "  ·  ") + row.entry->info;
+            }
+            else
+            {
+                detail = categoryName(row.type->category);
+            }
+            label(r.x + 68.0f, r.y + 17.0f, row.entry ? row.entry->name.c_str() : row.type->displayName, theme::text,
+                  13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
             label(r.x + 68.0f, r.y + 34.0f, detail.c_str(), theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
-
-            const bool favorite = fSettings.favorites.count(entry.hash) != 0;
-            const Rect star { r.x + r.w - 40.0f, r.y, 40.0f, r.h };
-            label(star.x + 20.0f, star.y + r.h / 2, favorite ? "★" : "☆", favorite ? theme::accent : theme::textDim,
-                  18.0f, ALIGN_CENTER | ALIGN_MIDDLE);
 
             // only rows inside the list area are clickable
             const float top = std::max(r.y, listY), bottom = std::min(r.y + r.h, listY + listH);
+            if (!row.entry)
+            {
+                if (bottom > top)
+                    fHits.push_back({ { r.x, top, r.w, bottom - top }, Hit::ListRow, i });
+                continue;
+            }
+            const bool favorite = fSettings.favorites.count(row.entry->hash) != 0;
+            const Rect star { r.x + r.w - 40.0f, r.y, 40.0f, r.h };
+            label(star.x + 20.0f, star.y + r.h / 2, favorite ? "★" : "☆", favorite ? theme::accent : theme::textDim,
+                  18.0f, ALIGN_CENTER | ALIGN_MIDDLE);
             if (bottom > top)
             {
-                fHits.push_back({ { r.x, top, r.w - 40.0f, bottom - top }, Hit::LibraryItem, i });
-                fHits.push_back({ { star.x, top, star.w, bottom - top }, Hit::LibraryStar, i });
+                fHits.push_back({ { r.x, top, r.w - 40.0f, bottom - top }, Hit::ListRow, i });
+                fHits.push_back({ { star.x, top, star.w, bottom - top }, Hit::ListStar, i });
             }
         }
         restore();
-
-        char count[64];
-        std::snprintf(count, sizeof(count), "%zu of %zu", fVisibleEntries.size(), library.size());
-        label(x + w, y + h + 2.0f, count, theme::textDim, 10.0f, ALIGN_RIGHT | ALIGN_BOTTOM);
     }
 
     void drawMenu()
@@ -3963,9 +4157,11 @@ private:
     std::string fToast;
     std::chrono::steady_clock::time_point fToastAt;
     Category fDialogCategory = Category::LocalNam;
+    FolderPicker fFolderPicker;
+    Field fFolderField = kFieldNamDir;
     float fListScroll = 0.0f;
     bool fFavoritesOnly = false;
-    std::vector<const LibraryEntry*> fVisibleEntries; // library rows drawn last, for hit indices
+    std::vector<AddRow> fRows; // the Add Block list rows drawn last, for hit indices
     BrowseTarget fBrowseTarget = BrowseTarget::AddBlock;
 
     std::string fFields[kFieldCount];

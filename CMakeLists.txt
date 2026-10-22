@@ -154,6 +154,7 @@ dpf_add_plugin(namsayin
     src/plugin/NAMsayinPlugin.cpp
   FILES_UI
     src/ui/BlockImages.cpp
+    src/ui/FolderPicker.cpp
     src/ui/ParamHelp.cpp
     src/ui/NAMsayinUI.cpp
     src/ui/OpenUrl.cpp
@@ -167,7 +168,7 @@ if(MSVC)
 endif()
 target_link_libraries(namsayin PUBLIC namsayin-engine)
 if(WIN32)
-  target_link_libraries(namsayin PUBLIC shell32) # ShellExecute, for the Fretbored link
+  target_link_libraries(namsayin PUBLIC shell32 ole32) # ShellExecute (Fretbored link); IFileOpenDialog (folder picker)
 endif()
 
 # ---------------------------------------------------------------------------------------------------------------------
