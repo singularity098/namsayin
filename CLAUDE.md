@@ -48,7 +48,8 @@ src/engine/           Audio engine, independent of DPF (static library `namsayin
   tuner/              PitchDetector (MPM + sub-cent refinement), Tuner (ring buffer from the audio thread, analysis off it)
   metronome/          Metronome (sample-accurate, free and DAW sync), ClickSamples.cpp (generated)
   blocks/             Block implementations (NAM, IR, delay, reverb, compressor, gate, EQs, chorus, flanger, phaser,
-                      tremolo, doubler, wah, auto wah, boost, overdrive, distortion, fuzz, ...)
+                      tremolo, doubler, wah, auto wah, boost, overdrive, distortion, fuzz, bitcrusher, volume,
+                      auto swell, ring mod, rotary, octave, ...)
 src/state/            Plain data shared by DSP and UI, no DPF:
   ChainState          the chain (JSON; the split is a block range + per-block branch tag)
   ChainExchange       chain file route for hosts that drop UI state messages

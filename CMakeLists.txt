@@ -71,6 +71,7 @@ target_include_directories(xxhash SYSTEM INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/d
 
 add_library(namsayin-engine STATIC
   src/engine/BlockRegistry.cpp
+  src/engine/blocks/BitcrusherBlock.cpp
   src/engine/blocks/ChorusBlock.cpp
   src/engine/blocks/CompressorBlock.cpp
   src/engine/blocks/DelayBlock.cpp
@@ -81,9 +82,13 @@ add_library(namsayin-engine STATIC
   src/engine/blocks/GateBlock.cpp
   src/engine/blocks/IrBlock.cpp
   src/engine/blocks/NamBlock.cpp
+  src/engine/blocks/OctaveBlock.cpp
   src/engine/blocks/PhaserBlock.cpp
   src/engine/blocks/ReverbBlock.cpp
+  src/engine/blocks/RingModBlock.cpp
+  src/engine/blocks/RotaryBlock.cpp
   src/engine/blocks/TremoloBlock.cpp
+  src/engine/blocks/VolumeBlocks.cpp
   src/engine/blocks/WahBlocks.cpp
   src/engine/Engine.cpp
   src/engine/ParallelWorker.cpp

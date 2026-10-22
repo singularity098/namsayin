@@ -3,6 +3,7 @@
 
 #include "engine/BlockRegistry.hpp"
 
+#include "engine/blocks/BitcrusherBlock.hpp"
 #include "engine/blocks/ChorusBlock.hpp"
 #include "engine/blocks/CompressorBlock.hpp"
 #include "engine/blocks/DelayBlock.hpp"
@@ -13,9 +14,13 @@
 #include "engine/blocks/GateBlock.hpp"
 #include "engine/blocks/IrBlock.hpp"
 #include "engine/blocks/NamBlock.hpp"
+#include "engine/blocks/OctaveBlock.hpp"
 #include "engine/blocks/PhaserBlock.hpp"
 #include "engine/blocks/ReverbBlock.hpp"
+#include "engine/blocks/RingModBlock.hpp"
+#include "engine/blocks/RotaryBlock.hpp"
 #include "engine/blocks/TremoloBlock.hpp"
+#include "engine/blocks/VolumeBlocks.hpp"
 #include "engine/blocks/WahBlocks.hpp"
 
 namespace namsayin {
@@ -57,17 +62,23 @@ const BlockRegistry& BlockRegistry::builtin()
         &kOverdriveBlockDescriptor,
         &kDistortionBlockDescriptor,
         &kFuzzBlockDescriptor,
+        &kBitcrusherBlockDescriptor,
         &kCompressorBlockDescriptor,
         &kGateBlockDescriptor,
+        &kVolumeBlockDescriptor,
+        &kSwellBlockDescriptor,
         &kGraphicEqBlockDescriptor,
         &kParametricEqBlockDescriptor,
         &kChorusBlockDescriptor,
         &kFlangerBlockDescriptor,
         &kPhaserBlockDescriptor,
         &kTremoloBlockDescriptor,
+        &kRotaryBlockDescriptor,
         &kDoublerBlockDescriptor,
+        &kRingModBlockDescriptor,
         &kReverbBlockDescriptor,
         &kDelayBlockDescriptor,
+        &kOctaveBlockDescriptor,
         &kWahBlockDescriptor,
         &kAutoWahBlockDescriptor,
     });

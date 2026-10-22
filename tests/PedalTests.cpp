@@ -7,13 +7,18 @@
 
 #include "TestSupport.hpp"
 #include "engine/TempoSync.hpp"
+#include "engine/blocks/BitcrusherBlock.hpp"
 #include "engine/blocks/ChorusBlock.hpp"
 #include "engine/blocks/DoublerBlock.hpp"
 #include "engine/blocks/EqBlocks.hpp"
 #include "engine/blocks/FlangerBlock.hpp"
 #include "engine/blocks/GateBlock.hpp"
+#include "engine/blocks/OctaveBlock.hpp"
 #include "engine/blocks/PhaserBlock.hpp"
+#include "engine/blocks/RingModBlock.hpp"
+#include "engine/blocks/RotaryBlock.hpp"
 #include "engine/blocks/TremoloBlock.hpp"
+#include "engine/blocks/VolumeBlocks.hpp"
 #include "engine/blocks/WahBlocks.hpp"
 
 #include <cmath>
@@ -296,4 +301,145 @@ TEST_CASE("auto wah opens up with louder playing")
     // Down: the other way round
     block->setParam(kAutoWahParamDirection, 1.0f);
     CHECK(sineGainDb(*block, 2000.0, 0.002f) - sineGainDb(*block, 2000.0, 0.2f) > 10.0);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Octave, volume, swell, ring mod, bitcrusher, rotary
+
+namespace {
+
+// Amplitude of one frequency in x[from, to) (a single-bin DFT with a Hann window)
+double toneAt(const std::vector<float>& x, double hz, size_t from, size_t to)
+{
+    double re = 0.0, im = 0.0;
+    const double n = static_cast<double>(to - from);
+    for (size_t i = from; i < to; ++i)
+    {
+        const double w = 0.5 - 0.5 * std::cos(2.0 * M_PI * static_cast<double>(i - from) / n);
+        const double angle = 2.0 * M_PI * hz * static_cast<double>(i) / kRate;
+        re += w * x[i] * std::cos(angle);
+        im -= w * x[i] * std::sin(angle);
+    }
+    return 4.0 * std::sqrt(re * re + im * im) / n;
+}
+
+} // namespace
+
+TEST_CASE("octave divides by two and four, and rectifies up")
+{
+    struct Case {
+        int param;
+        double hz;
+    };
+    for (const Case c : { Case { kOctParamSub1, 110.0 }, Case { kOctParamSub2, 55.0 }, Case { kOctParamUp, 440.0 } })
+    {
+        CAPTURE(c.param);
+        auto block = make(kOctaveBlockDescriptor);
+        block->setParam(kOctParamSub1, 0.0f);
+        block->setParam(kOctParamDry, 0.0f);
+        block->setParam(c.param, 100.0f);
+        auto x = sine(220.0, 0.3f, 48000);
+        testing::runBlock(*block, x);
+        // the new octave is the strongest component
+        CHECK(toneAt(x[0], c.hz, 24000, 48000) > 2.0 * toneAt(x[0], 220.0, 24000, 48000));
+    }
+}
+
+TEST_CASE("volume pedal tapers")
+{
+    auto block = make(kVolumeBlockDescriptor);
+    block->setParam(kVolumeParamVolume, 50.0f);
+    CHECK(sineGainDb(*block, 1000.0) == doctest::Approx(-30.0).epsilon(0.01));
+    block->setParam(kVolumeParamTaper, 1.0f);
+    CHECK(sineGainDb(*block, 1000.0) == doctest::Approx(-6.02).epsilon(0.01));
+    block->setParam(kVolumeParamVolume, 0.0f);
+    auto x = sine(1000.0, 0.5f, 24000);
+    testing::runBlock(*block, x);
+    CHECK(testing::rms(x[0], 12000, 24000) == 0.0);
+}
+
+TEST_CASE("auto swell fades each new note in")
+{
+    auto block = make(kSwellBlockDescriptor);
+    block->setParam(kSwellParamAttack, 300.0f);
+    // a note, a pause, then another note
+    auto x = sine(220.0, 0.3f, 72000);
+    for (size_t i = 24000; i < 36000; ++i)
+        x[0][i] = 0.0f;
+    testing::runBlock(*block, x);
+    const double full = 0.3 / std::sqrt(2.0);
+    CHECK(testing::rms(x[0], 0, 2400) < 0.1 * full);         // the first 50 ms: barely started
+    CHECK(testing::rms(x[0], 16800, 24000) > 0.95 * full);   // after the swell: full level
+    CHECK(testing::rms(x[0], 36000, 38400) < 0.1 * full);    // the next note swells again
+    CHECK(testing::rms(x[0], 52800, 60000) > 0.95 * full);
+}
+
+TEST_CASE("ring mod makes sum and difference tones")
+{
+    auto block = make(kRingModBlockDescriptor);
+    block->setParam(kRingParamFrequency, 300.0f);
+    auto x = sine(1000.0, 0.5f, 48000);
+    testing::runBlock(*block, x);
+    CHECK(toneAt(x[0], 700.0, 24000, 48000) == doctest::Approx(0.25).epsilon(0.02));
+    CHECK(toneAt(x[0], 1300.0, 24000, 48000) == doctest::Approx(0.25).epsilon(0.02));
+    CHECK(toneAt(x[0], 1000.0, 24000, 48000) < 0.005);
+}
+
+TEST_CASE("bitcrusher quantizes and holds")
+{
+    auto block = make(kBitcrusherBlockDescriptor);
+    block->setParam(kCrushParamBits, 2.0f); // steps of 0.5
+    block->setParam(kCrushParamRate, 6000.0f); // hold each value for 8 samples
+    block->setParam(kCrushParamTone, 20000.0f);
+    auto x = sine(100.0, 0.9f, 4800);
+    testing::runBlock(*block, x);
+    size_t lastChange = 0;
+    int changes = 0;
+    for (size_t i = 0; i < x[0].size(); ++i)
+    {
+        REQUIRE(std::fabs(x[0][i] * 2.0f - std::round(x[0][i] * 2.0f)) < 1e-6f);
+        if (i > 0 && x[0][i] != x[0][i - 1])
+        {
+            if (changes++ > 0)
+                REQUIRE(i - lastChange >= 8);
+            lastChange = i;
+        }
+    }
+    CHECK(changes > 10);
+}
+
+TEST_CASE("rotary speeds up gradually and its mix at zero is dry")
+{
+    auto block = make(kRotaryBlockDescriptor);
+    block->setParam(kRotaryParamWidth, 0.0f);
+    auto x = sine(3000.0, 0.3f, 48000 * 6);
+    // a little settle at slow, then switch to fast
+    std::vector<std::vector<float>> first(1, std::vector<float>(x[0].begin(), x[0].begin() + 4800));
+    testing::runBlock(*block, first);
+    block->setParam(kRotaryParamSpeed, 1.0f);
+    testing::runBlock(*block, x);
+
+    // count the horn's level swings per second, early and late
+    auto swings = [&](size_t from) {
+        const auto env = envelope(std::vector<float>(x[0].begin() + from, x[0].begin() + from + 48000), 240);
+        double mean = 0.0;
+        for (double e : env)
+            mean += e;
+        mean /= static_cast<double>(env.size());
+        int crossings = 0;
+        for (size_t w = 1; w < env.size(); ++w)
+            if (env[w - 1] < mean && env[w] >= mean)
+                ++crossings;
+        return crossings;
+    };
+    const int early = swings(0);
+    const int late = swings(48000 * 5);
+    CHECK(early < late);
+    CHECK(late == doctest::Approx(6.7).epsilon(0.16));
+
+    block->setParam(kRotaryParamMix, 0.0f);
+    auto dry = sine(500.0, 0.3f, 24000);
+    const auto reference = dry;
+    testing::runBlock(*block, dry);
+    CHECK(dry[0][23999] == doctest::Approx(reference[0][23999]).epsilon(1e-4));
 }
