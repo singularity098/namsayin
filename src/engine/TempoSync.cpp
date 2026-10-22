@@ -42,7 +42,22 @@ int timeNoteIndex(float normalized)
 int rateNoteIndex(float normalized)
 {
     const float n = std::clamp(normalized, 0.0f, 1.0f);
-    return static_cast<int>(std::lround(n * (kNoteCount - 1)));
+    return static_cast<int>(std::lround(n * (kRateNoteCount - 1)));
+}
+
+const char* rateNoteName(int index)
+{
+    if (index <= 0)
+        return "4 bars";
+    if (index == 1)
+        return "2 bars";
+    return noteName(index - 2);
+}
+
+double rateNoteHz(int index, double bpm)
+{
+    const double beats = index <= 0 ? 16.0 : (index == 1 ? 8.0 : noteBeats(index - 2));
+    return bpm / 60.0 / beats;
 }
 
 } // namespace namsayin

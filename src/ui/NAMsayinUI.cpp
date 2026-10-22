@@ -1334,7 +1334,7 @@ private:
             const BlockState* block = blockInSlot(slot);
             const BlockDescriptor* type = block ? BlockRegistry::builtin().find(block->typeId) : nullptr;
             if (type && type->syncedParam == param && fParams[slotParam(slot, type->syncParam)] >= 0.5f)
-                return noteName(type->syncedIsRate ? rateNoteIndex(fParams[index]) : timeNoteIndex(fParams[index]));
+                return type->syncedIsRate ? rateNoteName(rateNoteIndex(fParams[index])) : noteName(timeNoteIndex(fParams[index]));
             if (spec->unit[0] == ':')
             {
                 std::snprintf(buf, sizeof(buf), "%.1f%s", v, spec->unit);

@@ -177,7 +177,7 @@ private:
     void updateRate()
     {
         const ParamSpec& spec = kPhaserBlockDescriptor.params[kPhaserParamRate];
-        fLfo.setRate(fSync ? noteHz(rateNoteIndex(spec.toNormalized(fRateHz)), fBpm) : fRateHz);
+        fLfo.setRate(fSync ? rateNoteHz(rateNoteIndex(spec.toNormalized(fRateHz)), fBpm) : fRateHz);
     }
 
     double fSampleRate = 48000.0;

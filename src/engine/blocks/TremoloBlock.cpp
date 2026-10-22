@@ -156,7 +156,7 @@ private:
     void updateRate()
     {
         const ParamSpec& spec = kTremoloBlockDescriptor.params[kTremParamRate];
-        fLfo.setRate(fSync ? noteHz(rateNoteIndex(spec.toNormalized(fRateHz)), fBpm) : fRateHz);
+        fLfo.setRate(fSync ? rateNoteHz(rateNoteIndex(spec.toNormalized(fRateHz)), fBpm) : fRateHz);
     }
 
     double fBpm = 120.0;

@@ -11,15 +11,14 @@ constexpr int kNoteCount = 14;
 const char* noteName(int index);
 double noteBeats(int index); // length in quarter notes
 
-// The note a normalized knob position picks. A time knob has the longest note at the top; a rate knob the
-// shortest (fastest).
+// The note a time knob's normalized position picks: the longest note at the top
 int timeNoteIndex(float normalized);
-int rateNoteIndex(float normalized);
 
-// One cycle per note
-inline double noteHz(int index, double bpm)
-{
-    return bpm / 60.0 / noteBeats(index);
-}
+// Rates (LFOs) have their own list: two and four bars, then the notes above. Index 0 is the slowest; a rate knob
+// has the fastest at the top.
+constexpr int kRateNoteCount = kNoteCount + 2;
+int rateNoteIndex(float normalized);
+const char* rateNoteName(int index);
+double rateNoteHz(int index, double bpm); // one cycle per note
 
 } // namespace namsayin

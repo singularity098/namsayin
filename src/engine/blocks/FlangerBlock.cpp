@@ -135,7 +135,7 @@ private:
     void updateRate()
     {
         const ParamSpec& spec = kFlangerBlockDescriptor.params[kFlangerParamRate];
-        fLfo.setRate(fSync ? noteHz(rateNoteIndex(spec.toNormalized(fRateHz)), fBpm) : fRateHz);
+        fLfo.setRate(fSync ? rateNoteHz(rateNoteIndex(spec.toNormalized(fRateHz)), fBpm) : fRateHz);
     }
 
     double fSampleRate = 48000.0;

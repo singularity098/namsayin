@@ -31,6 +31,7 @@
 
 #include <cmath>
 #include <random>
+#include <string>
 #include <vector>
 
 using namespace namsayin;
@@ -193,7 +194,7 @@ TEST_CASE("tremolo follows the host tempo when synced")
     const ParamSpec& rate = kTremoloBlockDescriptor.params[kTremParamRate];
     // pick 1/4 at 120 BPM: 2 Hz
     float n = 0.0f;
-    while (rateNoteIndex(n) != 5)
+    while (std::string(rateNoteName(rateNoteIndex(n))) != "1/4")
         n += 0.01f;
     block->setParam(kTremParamRate, rate.toValue(n));
     block->setParam(kTremParamSync, 1.0f);
@@ -937,4 +938,12 @@ TEST_CASE("synth plays the plucked note")
     const double fundamental = toneAt(x[0], hz, 4800, 14400);
     CHECK(fundamental > 3.0 * toneAt(x[0], 2.0 * hz, 4800, 14400));
     CHECK(toneAt(x[0], 3.0 * hz, 4800, 14400) > 0.2 * fundamental); // a square's third harmonic
+}
+
+TEST_CASE("rate sync goes down to four bars")
+{
+    CHECK(std::string(rateNoteName(rateNoteIndex(0.0f))) == "4 bars");
+    CHECK(rateNoteHz(rateNoteIndex(0.0f), 120.0) == doctest::Approx(0.125));
+    CHECK(std::string(rateNoteName(rateNoteIndex(1.0f))) == "1/32");
+    CHECK(rateNoteHz(rateNoteIndex(1.0f), 120.0) == doctest::Approx(16.0));
 }
