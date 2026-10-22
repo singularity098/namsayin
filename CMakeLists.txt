@@ -94,10 +94,12 @@ target_include_directories(xxhash SYSTEM INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/d
 add_library(namsayin-engine STATIC
   src/engine/BlockRegistry.cpp
   src/engine/blocks/AmbientBlocks.cpp
+  src/engine/blocks/BarberPoleBlock.cpp
   src/engine/blocks/BitcrusherBlock.cpp
   src/engine/blocks/ChorusBlock.cpp
   src/engine/blocks/CompressorBlock.cpp
   src/engine/blocks/DelayBlock.cpp
+  src/engine/blocks/DelayFxBlocks.cpp
   src/engine/blocks/DoppelgangerBlock.cpp
   src/engine/blocks/DoublerBlock.cpp
   src/engine/blocks/DriveBlocks.cpp
@@ -113,13 +115,16 @@ add_library(namsayin-engine STATIC
   src/engine/blocks/PhaserBlock.cpp
   src/engine/blocks/PitchBlocks.cpp
   src/engine/blocks/ReverbBlock.cpp
+  src/engine/blocks/RhythmBlocks.cpp
   src/engine/blocks/RingModBlock.cpp
   src/engine/blocks/RotaryBlock.cpp
   src/engine/blocks/SpringReverbBlock.cpp
   src/engine/blocks/SynthBlock.cpp
+  src/engine/blocks/TalkBoxBlock.cpp
   src/engine/blocks/TremoloBlock.cpp
   src/engine/blocks/VolumeBlocks.cpp
   src/engine/blocks/WahBlocks.cpp
+  src/engine/blocks/WarbleBlock.cpp
   src/engine/Engine.cpp
   src/engine/ParallelWorker.cpp
   src/engine/TempoSync.cpp
@@ -192,6 +197,7 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/IrBlockTests.cpp
     tests/LibraryTests.cpp
     tests/MetronomeTests.cpp
+    tests/MorePedalTests.cpp
     tests/NamBlockTests.cpp
     tests/ParamHelpTests.cpp
     tests/PedalTests.cpp

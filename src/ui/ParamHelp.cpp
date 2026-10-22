@@ -721,6 +721,347 @@ constexpr BlockHelp kBlockHelp[] = {
       "The filter's voicing: Wah like a wah pedal, Low-pass for a bubbly, synth-like sound, Band-pass for a vocal "
       "sound, or High-pass for a thin, quirky one." },
     { "autowah", "Mix", MIX_HELP("filtered sound") },
+
+    // Gated Fuzz
+    { "gatedfuzz", "Drive",
+      "How much fuzz. Low settings give a ragged, broken-up crunch; high settings a thick, saturated wall of fuzz "
+      "with long sustain." },
+    { "gatedfuzz", "Gate",
+      "Cuts the fuzz off when your playing drops under a level, for abrupt, choppy stops and no hiss between "
+      "notes. 0% is off; turn it up until the fuzz stops where you want, higher for a spitting, gated sound." },
+    { "gatedfuzz", "Comp",
+      "How smooth the fuzz is. High settings are full and compressed; turning it down starves the fuzz so quiet "
+      "parts of each note break up into a sputtery, velcro-like rasp, especially as notes decay." },
+    { "gatedfuzz", "Stab",
+      "Stability. At 100% the fuzz is well behaved. Turn it down and it starts to feed back on itself, squealing "
+      "and oscillating along with your notes, with higher squeals as you go lower. The squeal dies away when you "
+      "stop playing." },
+    { "gatedfuzz", "Tone",
+      "Brightness of the fuzz. Turn it down for a dark, woolly sound; up for a cutting, buzzy one." },
+    { "gatedfuzz", "Level",
+      "Output volume of the pedal, without changing its sound. Set it so switching the fuzz on doesn't jump "
+      "the volume. 0 dB leaves the level as it is." },
+
+    // Envelope Drive
+    { "envdrive", "Drive",
+      "How much drive you get when you play softly. Keep it low for a clean or slightly gritty sound at a light "
+      "touch, and let Range add the rest when you dig in." },
+    { "envdrive", "Range",
+      "How much more drive playing harder adds. Positive values get dirtier as you dig in (clean when soft, "
+      "crunchy when hard); negative values do the opposite and clean up as you hit harder. 0% is a plain "
+      "overdrive." },
+    { "envdrive", "Sensitivity",
+      "How easily your playing reaches the full Range. Turn it up if you play lightly or the signal is quiet; "
+      "turn it down if the drive changes too easily and you want it only on hard picking." },
+    { "envdrive", "Release",
+      "How quickly the drive settles back after you dig in. Short times follow every pick closely; long times "
+      "let the extra dirt linger through a phrase." },
+    { "envdrive", "Tone",
+      "Brightness of the drive. Turn it down for a smoother, darker sound; up for more bite and presence." },
+    { "envdrive", "Level",
+      "Output volume of the pedal, without changing its sound. The pedal already keeps soft notes soft and loud "
+      "ones loud; use this to match it to the rest of the chain. 0 dB leaves the level as it is." },
+
+    // Kill Switch
+    { "killswitch", "Kill",
+      "Mutes the sound while held, for kill-switch stutters played by hand (or silent until pressed, with "
+      "Invert). Map a footswitch or a MIDI button to it with MIDI learn." },
+    { "killswitch", "Stutter",
+      "While held, chops the sound on and off at the Time rate, for machine-gun stutters. Map a footswitch or a "
+      "MIDI button to it with MIDI learn." },
+    { "killswitch", "Latch",
+      "Off, Kill and Stutter work only while you hold them. On, each press switches them on, and the next press "
+      "switches them off again, so you don't have to keep holding." },
+    { "killswitch", "Invert",
+      "Turns Kill around: the sound is muted until you press Kill, so pressing it lets notes through, like "
+      "tapping out a rhythm on a switch." },
+    { "killswitch", "Time",
+      "The length of one on-off cycle of the stutter, in milliseconds (or a note value with Sync). Shorter "
+      "times give a faster stutter." },
+    { "killswitch", "Sync", SYNC_HELP("stutter time") },
+    { "killswitch", "Duty",
+      "How much of each stutter cycle sounds. 50% is even on and off; lower values give short, clipped blips, "
+      "higher values only brief gaps." },
+    { "killswitch", "Fade",
+      "How quickly the sound cuts in and out, in milliseconds. Short fades give a hard, clicky chop; longer "
+      "fades soften the edges." },
+
+    // Barber Pole
+    { "barberpole", "Rate",
+      "How fast the sweep climbs (or falls), in sweeps per second. Slow rates give an endless, hypnotic rise; "
+      "faster ones a spinning, rotating feel." },
+    { "barberpole", "Sync", SYNC_HELP("rate") },
+    { "barberpole", "Direction",
+      "Whether the sweep seems to rise forever (Up) or fall forever (Down). Up feels like tension building; "
+      "Down like sinking." },
+    { "barberpole", "Stages",
+      "How many notches the phaser makes. 4 stages is soft and subtle, 6 is the classic sound, 8 is deeper and "
+      "more pronounced." },
+    { "barberpole", "Feedback",
+      "Adds resonance to the sweep, so it whistles and sounds more intense. Turn it down for a smooth, gentle "
+      "effect." },
+    { "barberpole", "Width", WIDTH_HELP("sweep") },
+    { "barberpole", "Mix", MIX_HELP("phased sound") " Around 50% gives the deepest notches." },
+
+    // Warble
+    { "warble", "Depth",
+      "How far the pitch wobbles, like a worn tape or a warped record. Low settings give a subtle, seasick "
+      "drift; high settings a woozy, detuned wobble." },
+    { "warble", "Rate",
+      "How fast the slow wobble goes, in cycles per second. Slow rates sound like a warped record; faster ones "
+      "more like a vibrato." },
+    { "warble", "Flutter",
+      "A faster, finer wobble on top, like a cheap tape transport. Adds a nervous, lo-fi shimmer to the pitch." },
+    { "warble", "Random",
+      "How uneven the wobble is. 0% swings back and forth evenly; higher values make it wander unpredictably, "
+      "like old tape." },
+    { "warble", "Tone",
+      "Darkens the sound like worn tape or an old record. Turn it down for a muffled, nostalgic sound. All the "
+      "way up it's off." },
+    { "warble", "Drive",
+      "Adds a little tape saturation, rounding off peaks and thickening the sound. 0% is clean." },
+    { "warble", "Mix", MIX_HELP("wobbling sound") " At 100% you hear only the wobbling pitch; lower values give a "
+                       "chorus-like blend." },
+
+    // Slicer
+    { "slicer", "Step 1", "The volume of step 1 of the pattern. 100% is full volume and 0% is silent; set the steps "
+                          "to tap out the rhythm you want." },
+    { "slicer", "Step 2", "The volume of step 2 of the pattern. 100% is full volume and 0% is silent; set the steps "
+                          "to tap out the rhythm you want." },
+    { "slicer", "Step 3", "The volume of step 3 of the pattern. 100% is full volume and 0% is silent; set the steps "
+                          "to tap out the rhythm you want." },
+    { "slicer", "Step 4", "The volume of step 4 of the pattern. 100% is full volume and 0% is silent; set the steps "
+                          "to tap out the rhythm you want." },
+    { "slicer", "Step 5", "The volume of step 5 of the pattern. 100% is full volume and 0% is silent; set the steps "
+                          "to tap out the rhythm you want." },
+    { "slicer", "Step 6", "The volume of step 6 of the pattern. 100% is full volume and 0% is silent; set the steps "
+                          "to tap out the rhythm you want." },
+    { "slicer", "Step 7", "The volume of step 7 of the pattern. 100% is full volume and 0% is silent; set the steps "
+                          "to tap out the rhythm you want." },
+    { "slicer", "Step 8", "The volume of step 8 of the pattern. 100% is full volume and 0% is silent; set the steps "
+                          "to tap out the rhythm you want." },
+    { "slicer", "Steps",
+      "How many steps the pattern uses before it starts again. Use 3 or 6 for triplet feels, 4 or 8 for straight "
+      "ones, and odd lengths for patterns that drift against the beat." },
+    { "slicer", "Time",
+      "The length of each step, in milliseconds (or a note value with Sync, like 1/16). Shorter steps make a "
+      "faster pattern." },
+    { "slicer", "Sync", SYNC_HELP("step time") " While the DAW plays, step 1 lands on the bar." },
+    { "slicer", "Smooth",
+      "How softly the steps change. 0% gives hard, choppy edges; higher values glide between levels for a "
+      "pulsing, tremolo-like pattern." },
+    { "slicer", "Depth",
+      "How strong the pattern is. 100% goes all the way to each step's level; lower values only dip the volume, "
+      "for a subtler rhythm." },
+
+    // Bloom Reverb
+    { "bloomreverb", "Decay",
+      "How long the reverb tail lasts, in seconds. Long decays with a slow Bloom give big, swelling ambient "
+      "washes." },
+    { "bloomreverb", "Bloom",
+      "How slowly the reverb swells up after each new note. Short times sound like a normal reverb; long times "
+      "keep the pick attack dry and let the reverb rise up behind the note." },
+    { "bloomreverb", "Size",
+      "How big the space sounds. Small sizes are more intimate; larger sizes give a slower, more spread-out "
+      "tail." },
+    { "bloomreverb", "Tone",
+      "Brightness of the tail. Turn it down for a dark, soft bloom; up for more air and sparkle." },
+    { "bloomreverb", "Low Cut",
+      "Removes the lows from the reverb only, so the swell doesn't muddy your playing. Raise it for a lighter, "
+      "airier bloom." },
+    { "bloomreverb", "Mix", MIX_HELP("reverb") },
+
+    // Gated Reverb
+    { "gatedreverb", "Size",
+      "How big the space sounds. Smaller sizes give a tight, punchy burst; larger ones a bigger, fuller one." },
+    { "gatedreverb", "Decay",
+      "How long the reverb would ring without the gate. Longer decays keep the burst dense and loud right up to "
+      "the cut." },
+    { "gatedreverb", "Threshold",
+      "How loud your playing must be to keep the gate open. Lower settings keep the reverb open on quiet playing "
+      "too; higher settings only let loud hits through." },
+    { "gatedreverb", "Hold",
+      "How long the reverb stays open after your playing drops under the Threshold, before it's cut. Short holds "
+      "give a tight, clipped burst; long ones a bigger splash." },
+    { "gatedreverb", "Release",
+      "How quickly the gate closes at the end of the hold. Short releases give the classic abrupt 80s cut; "
+      "longer ones a smoother fade." },
+    { "gatedreverb", "Tone",
+      "Brightness of the reverb. Turn it down for a darker burst; up for a brighter, splashier one." },
+    { "gatedreverb", "Mix", MIX_HELP("reverb") },
+
+    // Reverse Delay
+    { "reversedelay", "Time",
+      "The length of each reversed slice, in milliseconds (or a note value with Sync). Longer times play longer "
+      "phrases backwards; shorter times give quick reverse swells." },
+    { "reversedelay", "Sync", SYNC_HELP("time") },
+    { "reversedelay", "Feedback",
+      "How many times the reversed sound comes round again. Low settings give one backwards echo; high settings "
+      "keep it going into a swirling, psychedelic wash." },
+    { "reversedelay", "Mix", MIX_HELP("reversed sound") " At 100% you hear only the backwards sound." },
+    { "reversedelay", "Tone",
+      "Darkens the reversed repeats so they sit behind your playing. All the way up it's off." },
+
+    // Pitch Delay
+    { "pitchdelay", "Time",
+      "The time between repeats, in milliseconds (or a note value with Sync). Each repeat steps the pitch once "
+      "more, so shorter times climb faster." },
+    { "pitchdelay", "Sync", SYNC_HELP("time") },
+    { "pitchdelay", "Feedback",
+      "How many repeats you hear. Each repeat is shifted again, so more feedback climbs (or falls) further." },
+    { "pitchdelay", "Mix", MIX_HELP("repeats") },
+    { "pitchdelay", "Shift",
+      "How far each repeat is shifted, in semitones. +12 makes each repeat an octave higher than the last, +7 "
+      "climbs in fifths, negative values fall. 0 with a little Fine gives a slowly drifting pitch." },
+    { "pitchdelay", "Fine",
+      "Adds a small shift to each repeat, in cents. On its own (Shift 0) it makes the repeats drift slowly out of "
+      "tune, for a wobbly, dreamy sound." },
+    { "pitchdelay", "Tone",
+      "Darkens each repeat, so climbing repeats fade out softly instead of turning shrill. All the way up it's "
+      "off." },
+
+    // Beat Repeat
+    { "beatrepeat", "Repeat",
+      "While held, repeats the last Slice of what you played over and over, instead of your playing; let go and "
+      "you're back. Map a footswitch or a MIDI button to it with MIDI learn." },
+    { "beatrepeat", "Latch",
+      "Off, the repeats last only while you hold Repeat. On, one press starts them and the next stops them." },
+    { "beatrepeat", "Slice",
+      "How long the repeated slice is, in milliseconds (or a note value with Sync). Short slices give a buzzing, "
+      "glitchy stutter; long ones repeat whole phrases." },
+    { "beatrepeat", "Sync", SYNC_HELP("slice") },
+    { "beatrepeat", "Gate",
+      "How much of each repeat sounds. 100% plays the whole slice; lower values chop each repeat short for a "
+      "staccato stutter." },
+    { "beatrepeat", "Decay",
+      "How much quieter each repeat gets. 0% repeats at full volume for as long as you hold; higher values fade "
+      "the repeats away." },
+    { "beatrepeat", "Pitch",
+      "Shifts each repeat by this many semitones from the last, like a tape speeding up or slowing down. 0 keeps "
+      "the pitch; -1 or -2 gives a falling, tape-stop-like stutter." },
+    { "beatrepeat", "Reverse",
+      "Plays each repeat backwards, for reversed, sucked-in stutters. Combine it with a short Slice for a "
+      "glitchy, scratchy effect." },
+    { "beatrepeat", "Mix", MIX_HELP("repeats") " At 100% the repeats replace your playing while held; lower values "
+                           "keep some of your playing under them." },
+
+    // Detune
+    { "detune", "Detune",
+      "How far the voices are from your note, in cents (hundredths of a semitone). 5-15 cents thickens the "
+      "sound like a double-tracked part; more gives an out-of-tune, wobbly character." },
+    { "detune", "Voices",
+      "Which voices play: Both (one sharp and one flat, the richest), Up (sharp only) or Down (flat only)." },
+    { "detune", "Width", WIDTH_HELP("voices") " The sharp voice leans left and the flat one right." },
+    { "detune", "Mix", MIX_HELP("detuned voices") },
+    { "detune", "Window", WINDOW_HELP },
+
+    // Capo
+    { "capo", "Shift",
+      "How many semitones everything is shifted. -1 is half-step-down tuning, -2 a whole step down, +2 like a "
+      "capo at the second fret. Chords shift too." },
+    { "capo", "Fine",
+      "A small extra shift in cents, to match a recording or an instrument that isn't at concert pitch." },
+    { "capo", "Dry",
+      "Mixes in your unshifted sound. Keep it at 0% for a capo or a drop tuning; raise it to play along with the "
+      "shifted sound as a harmony." },
+    { "capo", "Window", WINDOW_HELP },
+
+    // Arpeggiator
+    { "arpeggiator", "Chord",
+      "The notes the pattern steps through, built on the note you play: octaves, or the notes of a major, minor, "
+      "power, sus4 or seventh chord." },
+    { "arpeggiator", "Pattern",
+      "The order the notes play in: Up, Down, Up-Down (up then back down), or Random for an unpredictable, "
+      "sequencer-like line." },
+    { "arpeggiator", "Range",
+      "Whether the pattern covers one octave or climbs through two. Two octaves gives longer, sweeping runs." },
+    { "arpeggiator", "Rate",
+      "How fast the pattern steps, in steps per second (or a note value with Sync, like 1/16)." },
+    { "arpeggiator", "Sync", SYNC_HELP("rate") " While the DAW plays, the steps land on the beat." },
+    { "arpeggiator", "Gate",
+      "How much of each step sounds. 100% runs the notes together; lower values give short, staccato blips." },
+    { "arpeggiator", "Glide",
+      "Slides from one note to the next instead of jumping, in milliseconds. 0 jumps straight to each note." },
+    { "arpeggiator", "Mix", MIX_HELP("arpeggio") " At 100% you hear only the pattern." },
+    { "arpeggiator", "Window", WINDOW_HELP },
+
+    // Organ
+    { "organ", "Sub",
+      "The level of an octave below your note, like an organ's 16-foot drawbar. Adds weight and depth." },
+    { "organ", "Fund",
+      "The level of your own note, like the 8-foot drawbar: the core of the organ sound." },
+    { "organ", "Octave",
+      "The level of an octave above, like the 4-foot drawbar. Adds brightness and a classic organ shimmer." },
+    { "organ", "12th",
+      "The level of an octave and a fifth above, like the 2 2/3-foot drawbar. Adds a hollow, churchy colour." },
+    { "organ", "2 Oct",
+      "The level of two octaves above, like the 2-foot drawbar. Adds sparkle and a whistling top." },
+    { "organ", "Attack",
+      "How quickly each note swells in. Short times keep some of the pick; longer ones hide it completely, like "
+      "pressing an organ key slowly." },
+    { "organ", "Tone",
+      "Brightness of the organ. Turn it down for a soft, mellow sound; up for a brighter, buzzier one. All the "
+      "way up it's off." },
+    { "organ", "Dry",
+      "Mixes in your normal guitar sound under the organ, pick attack and all. 0% is organ only." },
+    { "organ", "Window", WINDOW_HELP },
+
+    // Sustainer
+    { "sustainer", "Sustain",
+      "How long notes are held. Higher settings keep each note at the level you picked it for much longer, like "
+      "an E-Bow; 0% lets notes fade naturally." },
+    { "sustainer", "Bloom",
+      "How long a held note takes to grow into its harmonic, like an amp slowly starting to feed back." },
+    { "sustainer", "Harmonic",
+      "The note the sustain blooms into: an octave up, an octave and a fifth, two octaves, or a fifth." },
+    { "sustainer", "Feedback",
+      "How far the note blooms into the harmonic. Low settings add a hint of it; 100% lets the harmonic take "
+      "over, like screaming feedback." },
+    { "sustainer", "Tone",
+      "Brightness of the sustained sound. Turn it down to soften the bloom; all the way up it's off." },
+    { "sustainer", "Mix", MIX_HELP("sustained sound") },
+
+    // Robot Filter
+    { "robotfilter", "Type",
+      "Low-pass keeps the lows and moves the top end; Band-pass keeps only a narrow, vocal-sounding band." },
+    { "robotfilter", "Source",
+      "Where each new cutoff comes from: Random, a random pattern that repeats every eight steps (Loop 8), or "
+      "how hard you're playing at each step (Envelope)." },
+    { "robotfilter", "Low",
+      "The lowest cutoff a step can land on. Together with High it sets the range the filter jumps around in." },
+    { "robotfilter", "High",
+      "The highest cutoff a step can land on. Together with Low it sets the range the filter jumps around in." },
+    { "robotfilter", "Resonance",
+      "How sharp and vocal the filter sounds. Higher settings give the bubbling, robotic squelch; lower ones a "
+      "smoother tone change." },
+    { "robotfilter", "Rate",
+      "How often the filter jumps to a new cutoff, in steps per second (or a note value with Sync)." },
+    { "robotfilter", "Sync", SYNC_HELP("rate") " While the DAW plays, the steps land on the beat." },
+    { "robotfilter", "Glide",
+      "Slides from one step to the next instead of jumping. 0% is the classic hard sample-and-hold; more glides "
+      "into a smooth, wandering filter." },
+    { "robotfilter", "Mix", MIX_HELP("filtered sound") },
+
+    // Talk Box
+    { "talkbox", "Position",
+      "Where along the vowels the filter sits, from the first vowel to the last. Map an expression pedal to it "
+      "with MIDI learn to make the guitar talk. With Envelope it's where it rests; with LFO, how far it sweeps." },
+    { "talkbox", "Vowels",
+      "The vowels Position moves through: Oo-Ah (the classic talk box), Ee-Ah, Oo-Ee, or all five vowels." },
+    { "talkbox", "Source",
+      "What moves the vowels: Pedal (the Position knob), Envelope (your picking: harder playing opens it) or LFO "
+      "(a steady sweep at Rate)." },
+    { "talkbox", "Sensitivity",
+      "With Envelope: how easily your playing opens the vowel. Turn it up if you play lightly." },
+    { "talkbox", "Rate",
+      "With LFO: how fast the vowels sweep, in cycles per second. Slow rates give a lazy wah-wah; fast ones a "
+      "babbling, yammering voice." },
+    { "talkbox", "Resonance",
+      "How sharp the vowels are. Higher settings sound more like a mouth and more pronounced; lower ones are "
+      "softer and more subtle." },
+    { "talkbox", "Mix", MIX_HELP("talking sound") },
+    { "talkbox", "Level",
+      "Output volume of the effect, to make up for the volume the vowels take away. 0 dB leaves it as it is." },
 };
 
 #undef MIX_HELP
@@ -888,6 +1229,76 @@ constexpr TypeHelp kTypeHelp[] = {
       "A wah that sweeps by itself as you play: the harder you pick, the further it opens, for funky, quacking "
       "rhythms. Sensitivity sets how much your picking moves it, Decay how fast it falls back. Down reverses the "
       "sweep for a different, vocal feel. Put it before drive." },
+    { "gatedfuzz",
+      "A wild, unstable fuzz in the style of the Fuzz Factory. Comp starves it into a sputtery, velcro-like rasp, "
+      "Gate chops it off between notes, and turning Stab down makes it squeal and oscillate along with your notes. "
+      "Put it first in the chain, before any other drive or an amp model." },
+    { "envdrive",
+      "A drive that follows your picking: clean when you play softly and dirty when you dig in (or, with a negative "
+      "Range, the other way round), while soft notes stay soft and loud ones loud. Great for playing dynamics into "
+      "a clean amp model. Put it before the amp." },
+    { "killswitch",
+      "A kill switch and stutter: Kill mutes while held, Stutter chops the sound on and off in time. Map both to "
+      "footswitches or MIDI buttons for hand-played stutters, or use Latch so a press switches them on and off. "
+      "Put it at the end of the chain so it cuts everything." },
+    { "barberpole",
+      "A phaser whose sweep seems to rise (or fall) forever, like the stripes on a barber's pole, for an endless, "
+      "hypnotic swirl that never turns round. Slow rates sound like constant tension building. Put it after drive, "
+      "like other modulation." },
+    { "warble",
+      "The sound of worn tape or a warped record: a slow, uneven pitch wobble with a faster flutter, a darker tone "
+      "and a bit of saturation. Use it subtly for lo-fi, nostalgic textures, or deep for a seasick wobble. Put it "
+      "after drive, or after the amp for a whole-mix tape feel." },
+    { "slicer",
+      "A rhythmic volume sequencer: up to eight steps, each with its own level, chop your playing into a pattern. "
+      "With Sync on, the pattern locks to your DAW's tempo and starts on the bar. Use it for trance-gate chops or "
+      "pulsing pads; put it after the amp and before delay and reverb." },
+    { "bloomreverb",
+      "A reverb that swells up after each note instead of splashing on the pick attack, so your playing stays clear "
+      "and the reverb blooms in behind it. Long Bloom and Decay give big, ambient washes. Put it at the end of the "
+      "chain, after delay." },
+    { "gatedreverb",
+      "The classic 80s gated reverb: a big, dense reverb that is cut off abruptly shortly after you stop playing, "
+      "so it sounds huge without washing over the next note. Great for punchy chords and stabs. Put it at the end "
+      "of the chain." },
+    { "reversedelay",
+      "A delay whose repeats play backwards, swelling in like a tape played in reverse, for psychedelic, dreamlike "
+      "leads. Time sets how long each reversed slice is. Put it after the amp, before reverb." },
+    { "pitchdelay",
+      "A delay where every repeat is pitch shifted again, so the echoes climb (or fall) up the octaves, or drift "
+      "slowly out of tune with a few cents of Fine. Great for cascading, shimmering leads and ambient swells. Put "
+      "it after the amp, before reverb." },
+    { "beatrepeat",
+      "A glitch and stutter effect: hold Repeat and the last slice of what you played repeats over and over in "
+      "place of your playing, then let go to come back. Shorter slices buzz and glitch; Pitch and Decay make tape-"
+      "stop-like falls. Map Repeat to a footswitch; put it near the end of the chain." },
+    { "detune",
+      "A micro-pitch doubler: one or two voices a few cents sharp and flat, spread across the stereo field, for a "
+      "thick, wide, double-tracked sound without a chorus's sweep. Put it after the amp, or after drive." },
+    { "capo",
+      "A virtual capo and drop tuner: shifts everything you play (chords too) up or down by whole semitones, so you "
+      "can play in Eb, drop D shapes or capo positions without retuning. Put it first in the chain, before any "
+      "drive." },
+    { "arpeggiator",
+      "Turns a held note or chord into a moving arpeggio, stepping through the notes of a chord in a pattern, in "
+      "time with your DAW when synced. Use it for synth-like sequences and rhythmic textures. Put it before drive, "
+      "or after the amp for a cleaner shift." },
+    { "organ",
+      "Turns the guitar into an organ: drawbar-like levels add an octave below and octaves and a twelfth above "
+      "your note, and Attack swells each note in like a pressed key instead of a pick. Put it first in the chain, "
+      "and try a rotary speaker after the amp for the classic sound." },
+    { "sustainer",
+      "Infinite sustain, like an E-Bow or a sustainer pickup: holds each note at the level you picked it, and over "
+      "Bloom lets it grow into a harmonic like an amp feeding back. A new pick starts again. Put it first in the "
+      "chain, before drive." },
+    { "robotfilter",
+      "A sample-and-hold filter: a resonant filter that jumps to a new cutoff on every step, for bubbling, robotic, "
+      "synth-like textures. The steps can be random, a repeating eight-step pattern, or follow your picking. Put it "
+      "before or after drive." },
+    { "talkbox",
+      "A talk box: formant filters that make the guitar sound like it's saying vowels. Map Position to an "
+      "expression pedal to make it talk, let your picking open it (Envelope), or sweep it with the LFO. Put it "
+      "after drive, where there are more harmonics to shape." },
 };
 
 struct GlobalHelp {

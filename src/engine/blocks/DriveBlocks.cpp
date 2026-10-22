@@ -468,6 +468,190 @@ private:
     BoostType fType = BoostType::Clean;
 };
 
+// ---------------------------------------------------------------------------------------------------------------------
+// Envelope drive
+
+class EnvDriveBlock : public DriveBase {
+public:
+    void prepare(double sampleRate, uint32_t maxFrames) override
+    {
+        DriveBase::prepare(sampleRate, maxFrames);
+        updateEnvelope();
+        fAmountSmooth.setLowPass(sampleRate, 30.0);
+    }
+
+    void setParam(int index, float value) override
+    {
+        switch (index)
+        {
+        case kEnvDriveParamDrive:       fDrive.setTarget(value / 100.0f); break;
+        case kEnvDriveParamRange:       fRange = value / 100.0f; break;
+        case kEnvDriveParamSensitivity: fSensitivity = value / 100.0f; break;
+        case kEnvDriveParamRelease:
+            fReleaseMs = value;
+            updateEnvelope();
+            break;
+        case kEnvDriveParamTone:  fTone.setTarget(value / 100.0f); break;
+        case kEnvDriveParamLevel: fLevel.setTarget(dbToGain(value)); break;
+        }
+    }
+
+    void reset() override
+    {
+        DriveBase::reset();
+        fEnvelope.reset();
+        fAmountSmooth.reset();
+        fGain = 1.0f;
+        fMakeup = 1.0f;
+    }
+
+protected:
+    // filters: 0 input high-pass, 1 tone shelf, 2 post low-pass
+    void design() override
+    {
+        for (auto& f : fFilters)
+        {
+            f[0].setHighPass(fSampleRate, 80.0);
+            f[1].setHighShelf(fSampleRate, 1800.0, -12.0 + 18.0 * fTone.value());
+            f[2].setLowPass(fSampleRate, std::min(9000.0, 0.45 * fSampleRate));
+        }
+    }
+
+    float drive(uint32_t ch, float x, float drive) override
+    {
+        if (ch == 0)
+        {
+            // the playing level, 0 over a 30 dB window up to the sensitivity point, where it reaches 1
+            const float env = fEnvelope.process(x);
+            const float envDb = env > 1e-7f ? 20.0f * std::log10(env) : -140.0f;
+            const float topDb = -12.0f - 36.0f * fSensitivity;
+            const float amount = std::clamp((envDb - (topDb - 30.0f)) / 30.0f, 0.0f, 1.0f);
+            const float total = std::clamp(drive + fRange * fAmountSmooth.lowPass(amount), 0.0f, 1.0f);
+            fGain = dbToGainD(40.0 * total);
+            // make up for what the clipping does to the playing level, so soft notes stay soft and loud ones loud
+            // whatever the gain: only the tone changes
+            const float e = std::max(env, 1e-3f);
+            fMakeup = e / shaper::medium(e * fGain);
+        }
+        auto& f = fFilters[ch];
+        const float clipped = fOversampler[ch].process(f[0].process(x) * fGain, shaper::medium) * fMakeup;
+        return f[2].process(f[1].process(clipped));
+    }
+
+private:
+    void updateEnvelope() { fEnvelope.prepare(fSampleRate, 3.0, fReleaseMs); }
+
+    EnvelopeFollower fEnvelope;
+    OnePole fAmountSmooth;
+    float fRange = 0.6f;
+    float fSensitivity = 0.5f;
+    float fReleaseMs = 150.0f;
+    float fGain = 1.0f;
+    float fMakeup = 1.0f;
+};
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Gated fuzz
+
+class GatedFuzzBlock : public DriveBase {
+public:
+    GatedFuzzBlock() { fDrive.snap(0.7f); }
+
+    void prepare(double sampleRate, uint32_t maxFrames) override
+    {
+        DriveBase::prepare(sampleRate, maxFrames);
+        for (EnvelopeFollower& env : fEnvelope)
+            env.prepare(sampleRate, 1.0, 60.0);
+        fGateAttack = EnvelopeFollower::coef(sampleRate, 1.0);
+        fGateRelease = EnvelopeFollower::coef(sampleRate, 20.0);
+        fAliveCoef = EnvelopeFollower::coef(sampleRate, 100.0);
+    }
+
+    void setParam(int index, float value) override
+    {
+        switch (index)
+        {
+        case kGatedFuzzParamDrive: fDrive.setTarget(value / 100.0f); break;
+        case kGatedFuzzParamGate:
+            fGateThreshold = value <= 0.0f ? 0.0f : dbToGain(-80.0f + 0.6f * value);
+            break;
+        case kGatedFuzzParamComp: fComp = value / 100.0f; break;
+        case kGatedFuzzParamStab:
+            fStab = value / 100.0f;
+            typeChanged();
+            break;
+        case kGatedFuzzParamTone:  fTone.setTarget(value / 100.0f); break;
+        case kGatedFuzzParamLevel: fLevel.setTarget(dbToGain(value)); break;
+        }
+    }
+
+    void reset() override
+    {
+        DriveBase::reset();
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            fEnvelope[ch].reset();
+            fBand[ch].reset();
+            fLast[ch] = 0.0f;
+            fGate[ch] = 0.0f;
+            fAlive[ch] = 0.0f;
+        }
+    }
+
+protected:
+    // one-poles: 0 input coupling, 1 tone low-pass, 3 DC blocker; the band-pass picks the squeal's pitch
+    void design() override
+    {
+        // lower Stab: more feedback (it starts to oscillate below about 70%), and higher squeals
+        fLoopGain = 12.0f * (1.0f - fStab) * (1.0f - fStab);
+        const double squealHz = 200.0 * std::exp2(3.5 * (1.0 - fStab));
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            auto& p = fOnePoles[ch];
+            p[0].setLowPass(fSampleRate, 70.0);
+            p[1].setLowPass(fSampleRate, 900.0 * std::pow(12.0, fTone.value()));
+            p[3].setLowPass(fSampleRate, 15.0);
+            fBand[ch].set(fSampleRate, squealHz, 3.0);
+        }
+    }
+
+    float drive(uint32_t ch, float x, float drive) override
+    {
+        auto& p = fOnePoles[ch];
+        const float env = fEnvelope[ch].process(x);
+        const float open = env > fGateThreshold ? 1.0f : 0.0f;
+        fGate[ch] = open + (fGate[ch] - open) * (open > fGate[ch] ? fGateAttack : fGateRelease);
+        // the feedback only lives while something is playing, so the squeal dies away once you stop
+        const float alive = env > 1e-4f ? 1.0f : 0.0f;
+        fAlive[ch] = alive + (fAlive[ch] - alive) * fAliveCoef;
+
+        const float gain = dbToGainD(14.0 + 36.0 * drive);
+        const float feedback = fLoopGain * fAlive[ch] * fBand[ch].process(fLast[ch]).band * fBand[ch].k();
+        const float in = p[0].highPass(x) * gain + feedback;
+        // Comp down: a dead zone that chops quiet parts of the wave into a velcro sputter
+        const float dead = (1.0f - fComp) * 0.5f;
+        const float clipped = fOversampler[ch].process(in, [dead](float v) {
+            const float a = std::fabs(v);
+            const float gated = a <= dead ? 0.0f : std::copysign(a - dead, v);
+            return shaper::asymmetric(gated, 1.0f, 0.5f);
+        });
+        fLast[ch] = clipped;
+        return p[3].highPass(p[1].lowPass(0.22f * clipped * fGate[ch]));
+    }
+
+private:
+    EnvelopeFollower fEnvelope[2];
+    Svf fBand[2];
+    float fLast[2] {};
+    float fGate[2] {};
+    float fAlive[2] {};
+    float fGateThreshold = 0.0f;
+    float fGateAttack = 0.0f, fGateRelease = 0.0f, fAliveCoef = 0.0f;
+    float fComp = 0.7f;
+    float fStab = 1.0f;
+    float fLoopGain = 0.0f;
+};
+
 } // namespace
 
 const BlockDescriptor kOverdriveBlockDescriptor = {
@@ -525,6 +709,38 @@ const BlockDescriptor kBoostBlockDescriptor = {
         ParamSpec { "Tone", "%", 0.0f, 100.0f, 50.0f, ParamScale::Linear },
     },
     [] { return std::unique_ptr<Block>(new BoostBlock()); },
+};
+
+const BlockDescriptor kEnvDriveBlockDescriptor = {
+    "envdrive",
+    "Envelope Drive",
+    Category::Distortion,
+    kEnvDriveParamCount,
+    {
+        ParamSpec { "Drive", "%", 0.0f, 100.0f, 20.0f, ParamScale::Linear },
+        ParamSpec { "Range", "%", -100.0f, 100.0f, 60.0f, ParamScale::Linear },
+        ParamSpec { "Sensitivity", "%", 0.0f, 100.0f, 50.0f, ParamScale::Linear },
+        ParamSpec { "Release", "ms", 20.0f, 1000.0f, 150.0f, ParamScale::Log },
+        ParamSpec { "Tone", "%", 0.0f, 100.0f, 50.0f, ParamScale::Linear },
+        ParamSpec { "Level", "dB", -24.0f, 12.0f, 0.0f, ParamScale::Linear },
+    },
+    [] { return std::unique_ptr<Block>(new EnvDriveBlock()); },
+};
+
+const BlockDescriptor kGatedFuzzBlockDescriptor = {
+    "gatedfuzz",
+    "Gated Fuzz",
+    Category::Distortion,
+    kGatedFuzzParamCount,
+    {
+        ParamSpec { "Drive", "%", 0.0f, 100.0f, 70.0f, ParamScale::Linear },
+        ParamSpec { "Gate", "%", 0.0f, 100.0f, 0.0f, ParamScale::Linear },
+        ParamSpec { "Comp", "%", 0.0f, 100.0f, 70.0f, ParamScale::Linear },
+        ParamSpec { "Stab", "%", 0.0f, 100.0f, 100.0f, ParamScale::Linear },
+        ParamSpec { "Tone", "%", 0.0f, 100.0f, 50.0f, ParamScale::Linear },
+        ParamSpec { "Level", "dB", -24.0f, 12.0f, 0.0f, ParamScale::Linear },
+    },
+    [] { return std::unique_ptr<Block>(new GatedFuzzBlock()); },
 };
 
 } // namespace namsayin

@@ -196,15 +196,25 @@ Added before v1 at the owner's request (Requirements, "Pedals"): every pedal is 
 
 | Category | Blocks (types) |
 | --- | --- |
-| Distortion | Boost (Clean, Treble, Mid), Overdrive (Screamer, Blues, Transparent), Distortion (RAT, DS-1, Metal), Fuzz (Face, Muff, Octave), Bitcrusher |
-| Dynamics | Compressor, Noise Gate (Gate, Expander; key from the block or the rig input), Volume (Audio, Linear taper), Auto Swell |
+| Distortion | Boost (Clean, Treble, Mid), Overdrive (Screamer, Blues, Transparent), Distortion (RAT, DS-1, Metal), Fuzz (Face, Muff, Octave), Gated Fuzz, Envelope Drive, Bitcrusher |
+| Dynamics | Compressor, Noise Gate (Gate, Expander; key from the block or the rig input), Volume (Audio, Linear taper), Auto Swell, Kill Switch |
 | EQ | Graphic EQ (7 bands, GE-7 centres), Parametric EQ |
-| Modulation | Chorus (Classic, Dimension, Tri, Vibrato), Flanger, Phaser (4/6/8/12 stage, Vibe), Tremolo (Sine, Triangle, Square, Opto, Harmonic, Pan), Rotary, Doubler, Ring Mod |
-| Reverb | Reverb (Room, Hall, Plate), Spring Reverb, Shimmer, Freeze |
-| Delay | Delay, Tape Echo (seven head combinations), Ducking Delay, Looper |
-| Pitch/Synth | Octave (analog style), Poly Octave, Pitch Shifter, Whammy, Harmonizer, Synth |
-| Filter | Filter (LFO or random-step sweep) |
-| Wah | Wah (expression), Auto Wah (Wah, LP, BP, HP voicings) |
+| Modulation | Chorus (Classic, Dimension, Tri, Vibrato), Flanger, Phaser (4/6/8/12 stage, Vibe), Barber Pole, Tremolo (Sine, Triangle, Square, Opto, Harmonic, Pan), Rotary, Doubler, Ring Mod, Warble, Slicer |
+| Reverb | Reverb (Room, Hall, Plate), Spring Reverb, Shimmer, Freeze, Bloom Reverb, Gated Reverb |
+| Delay | Delay, Tape Echo (seven head combinations), Ducking Delay, Reverse Delay, Pitch Delay, Beat Repeat, Looper |
+| Pitch/Synth | Octave (analog style), Poly Octave, Pitch Shifter, Whammy, Harmonizer, Detune, Capo, Arpeggiator, Organ, Sustainer, Synth |
+| Filter | Filter (LFO or random-step sweep), Robot Filter (sample and hold: random, 8-step loop or envelope) |
+| Wah | Wah (expression), Auto Wah (Wah, LP, BP, HP voicings), Talk Box (formant vowels: pedal, envelope or LFO) |
+
+The second set (Requirements, "Pedals") reuses the DSP above wherever it can:
+
+- **Envelope Drive** and **Gated Fuzz** are drives on the shared oversampled base. Envelope Drive moves its gain with the playing level and makes up the level from the envelope (level / clip(level x gain)), so the dynamics stay and only the dirt changes. Gated Fuzz feeds its clipped output back through a band-pass (Stab sets the loop gain, which oscillates below about 70%, and the squeal's pitch); the loop only lives while the input envelope is above -80 dB, so it dies away when you stop.
+- **Reverse Delay** is a pitch voice at -1x: each tap sweeps backwards through a Time-long slice, Hann-faded, the two taps half a sweep apart (no extra latency; the slice starts at the newest sample). **Pitch Delay** puts a pitch voice (plain 40 ms window) inside the feedback loop, so each pass is shifted again. **Beat Repeat** keeps a history of the last 2 s; on Repeat it plays the last Slice of it (the history stops while repeating, so the slice stays intact), with per-repeat edge fades, gate, decay and a speed change (Pitch, capped at +-36 semitones).
+- **Bloom Reverb** and **Gated Reverb** use the FDN tank. Bloom ducks the tank's feed on each new pick (`dsp/OnsetDetector.hpp`: a fast envelope jumping to twice a slow one) and swells it back over Bloom; Gated keys a hold-and-release gate on the wet signal from the input.
+- **Slicer** and **Kill Switch** are gain envelopes: the slicer's step position follows the song while the transport plays (step 1 on the bar); the kill switch's Kill and Stutter are momentary parameters (with Latch, a press toggles).
+- **Barber Pole**: three phasers sweeping 60 Hz to 3.8 kHz (six octaves), a third of a cycle apart, each weighted by sin^2 of its phase (the weights sum to 1.5), so each fades in at the bottom and out at the top. **Warble**: a delay modulated by a sine/random blend (wow) and a 9 Hz flutter, with a low-pass and soft saturation.
+- **Detune**, **Capo**, **Arpeggiator**, **Organ** and **Sustainer** are pitch blocks on the shared pitch-synchronous base. The arpeggiator steps a smoothed shift through the chord's notes (count from the song when synced) with a gate envelope; the organ adds sub, octave, twelfth and two-octave voices to the fundamental and re-swells on each pick; the sustainer is an automatic gain (up to +36 dB) that holds the level the note was picked at, then crossfades into a shifted harmonic over Bloom.
+- **Robot Filter**: an SVF whose cutoff jumps to a new held value on each clock tick (random, a fixed 8-step random loop, or the input level), with a glide on the octave position. **Talk Box**: three SVF band-passes on the first three formants, interpolated (on a log scale) along a vowel path.
 
 Shared DSP (`src/engine/dsp/`):
 
@@ -213,7 +223,8 @@ Shared DSP (`src/engine/dsp/`):
 - **Lfo** (phase accumulator, any phase offset for stereo) and **RandomLfo** (smoothed random, for drift). `TempoSync.hpp` maps a synced knob to a note value: a time knob has the longest note at the top (1/1 down to 1/32); a rate knob has its own list from 4 bars and 2 bars down to 1/32, the fastest at the top. The descriptor's `syncParam`/`syncedParam`/`syncedIsRate` tell the UI.
 - **PitchShifter**: delay-line voices, two Hann-crossfaded taps whose delays move at (1 - ratio) samples per sample and jump by the window at the end of a sweep. Polyphonic, no reported latency; the shifted sound trails by about half the window (the Window control). The splices are made phase-coherent: a **PeriodFinder** (autocorrelation on a 12 kHz copy, every 8 ms, lags 7-60 ms, parabolic peak) finds the signal's repetition period, which for chords is their approximate common period (two root periods for a power chord, four for a major triad); the tracked note is the fallback. The window becomes a whole, even number of that period, each tap takes the new window when it jumps, and each jump is steered (a few percent of the window per jump, so it never clicks) to land exactly half a window from the other tap. Shifted notes and chords then keep 95-100% of their energy at the shifted partials (tested; it was 0-20% with a plain window, which is the warble cheap pitch shifters have). Costs about 2-3% of a core per pitch block in stereo. Used by Pitch Shifter, Whammy, Poly Octave, Harmonizer and Shimmer (Shimmer keeps a plain window: its reverb tail has no period).
 - **PitchTracker**: YIN (cumulative-mean normalized difference, absolute threshold) on a copy decimated to 12 kHz, every 4 ms over a 17 ms window, 60-1500 Hz, then refined at the full rate around the estimate. On plucked strings (Karplus-Strong, whose fundamental is often weaker than its harmonics) it finds the note within 4-24 ms and holds it to 0.1 cent (tested). It replaced a zero-crossing tracker that locked onto harmonics of low plucked notes. Used by the Synth (oscillator pitch), the Harmonizer (which note, so which interval), the Octave (its detector's low-pass follows the note, so harmonics can't upset the flip-flops) and, as a fallback to the PeriodFinder, the pitch-synchronous windows.
-- **Fdn**: 8-line Householder feedback delay network with input diffusers, per-line damping and RT60 gains, two modulated lines; it can freeze (lossless loop, input shut). Used by Shimmer and Freeze.
+- **Fdn**: 8-line Householder feedback delay network with input diffusers, per-line damping and RT60 gains, two modulated lines; it can freeze (lossless loop, input shut). Used by Shimmer, Freeze, Bloom Reverb and Gated Reverb.
+- **OnsetDetector**: a new pick attack (a fast envelope jumping to twice a slower one, over -50 dB, at most every 60 ms). Used by the Organ, the Sustainer and Bloom Reverb.
 
 Notes:
 

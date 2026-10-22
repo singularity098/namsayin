@@ -4,10 +4,12 @@
 #include "engine/BlockRegistry.hpp"
 
 #include "engine/blocks/AmbientBlocks.hpp"
+#include "engine/blocks/BarberPoleBlock.hpp"
 #include "engine/blocks/BitcrusherBlock.hpp"
 #include "engine/blocks/ChorusBlock.hpp"
 #include "engine/blocks/CompressorBlock.hpp"
 #include "engine/blocks/DelayBlock.hpp"
+#include "engine/blocks/DelayFxBlocks.hpp"
 #include "engine/blocks/DoppelgangerBlock.hpp"
 #include "engine/blocks/DoublerBlock.hpp"
 #include "engine/blocks/DriveBlocks.hpp"
@@ -23,13 +25,16 @@
 #include "engine/blocks/PhaserBlock.hpp"
 #include "engine/blocks/PitchBlocks.hpp"
 #include "engine/blocks/ReverbBlock.hpp"
+#include "engine/blocks/RhythmBlocks.hpp"
 #include "engine/blocks/RingModBlock.hpp"
 #include "engine/blocks/RotaryBlock.hpp"
 #include "engine/blocks/SpringReverbBlock.hpp"
 #include "engine/blocks/SynthBlock.hpp"
+#include "engine/blocks/TalkBoxBlock.hpp"
 #include "engine/blocks/TremoloBlock.hpp"
 #include "engine/blocks/VolumeBlocks.hpp"
 #include "engine/blocks/WahBlocks.hpp"
+#include "engine/blocks/WarbleBlock.hpp"
 
 namespace namsayin {
 
@@ -70,38 +75,56 @@ const BlockRegistry& BlockRegistry::builtin()
         &kOverdriveBlockDescriptor,
         &kDistortionBlockDescriptor,
         &kFuzzBlockDescriptor,
+        &kGatedFuzzBlockDescriptor,
+        &kEnvDriveBlockDescriptor,
         &kBitcrusherBlockDescriptor,
         &kCompressorBlockDescriptor,
         &kGateBlockDescriptor,
         &kVolumeBlockDescriptor,
         &kSwellBlockDescriptor,
+        &kKillSwitchBlockDescriptor,
         &kGraphicEqBlockDescriptor,
         &kParametricEqBlockDescriptor,
         &kChorusBlockDescriptor,
         &kFlangerBlockDescriptor,
         &kPhaserBlockDescriptor,
+        &kBarberPoleBlockDescriptor,
         &kTremoloBlockDescriptor,
         &kRotaryBlockDescriptor,
         &kDoublerBlockDescriptor,
         &kRingModBlockDescriptor,
+        &kWarbleBlockDescriptor,
+        &kSlicerBlockDescriptor,
         &kReverbBlockDescriptor,
         &kSpringReverbBlockDescriptor,
         &kShimmerBlockDescriptor,
         &kFreezeBlockDescriptor,
+        &kBloomReverbBlockDescriptor,
+        &kGatedReverbBlockDescriptor,
         &kDelayBlockDescriptor,
         &kDoppelgangerBlockDescriptor,
         &kTapeEchoBlockDescriptor,
         &kDuckingDelayBlockDescriptor,
+        &kReverseDelayBlockDescriptor,
+        &kPitchDelayBlockDescriptor,
+        &kBeatRepeatBlockDescriptor,
         &kLooperBlockDescriptor,
         &kOctaveBlockDescriptor,
         &kPolyOctaveBlockDescriptor,
         &kPitchShifterBlockDescriptor,
         &kWhammyBlockDescriptor,
         &kHarmonizerBlockDescriptor,
+        &kDetuneBlockDescriptor,
+        &kCapoBlockDescriptor,
+        &kArpeggiatorBlockDescriptor,
+        &kOrganBlockDescriptor,
+        &kSustainerBlockDescriptor,
         &kSynthBlockDescriptor,
         &kFilterBlockDescriptor,
+        &kRobotFilterBlockDescriptor,
         &kWahBlockDescriptor,
         &kAutoWahBlockDescriptor,
+        &kTalkBoxBlockDescriptor,
     });
     return registry;
 }

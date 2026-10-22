@@ -6,6 +6,7 @@
 #include "engine/dsp/Biquad.hpp"
 #include "engine/dsp/DelayLine.hpp"
 #include "engine/dsp/Fdn.hpp"
+#include "engine/dsp/OnsetDetector.hpp"
 #include "engine/dsp/PitchShifter.hpp"
 #include "engine/dsp/Smoother.hpp"
 #include "engine/dsp/Waveshapers.hpp"
@@ -283,6 +284,229 @@ private:
     bool fSnap = true;
 };
 
+// ---------------------------------------------------------------------------------------------------------------------
+
+constexpr double kBloomMaxSize = 1.5;
+constexpr double kBloomDuckMs = 30.0;
+
+class BloomReverbBlock : public Block {
+public:
+    BloomReverbBlock() { fMix.snap(0.4f); }
+
+    void prepare(double sampleRate, uint32_t /*maxFrames*/) override
+    {
+        fSampleRate = sampleRate;
+        fTank.prepare(sampleRate, kBloomMaxSize);
+        fOnset.prepare(sampleRate);
+        fMix.prepare(sampleRate);
+        fDuckStep = static_cast<float>(1.0 / (kBloomDuckMs / 1000.0 * sampleRate));
+        applyAll();
+        reset();
+    }
+
+    void setParam(int index, float value) override
+    {
+        switch (index)
+        {
+        case kBloomParamDecay:  fDecay = value; break;
+        case kBloomParamBloom:  fBloomMs = value; break;
+        case kBloomParamSize:   fSize = value / 100.0f; break;
+        case kBloomParamTone:   fTone = value; break;
+        case kBloomParamLowCut: fLowCut = value; break;
+        case kBloomParamMix:    fMix.setTarget(value / 100.0f); break;
+        }
+        applyAll();
+    }
+
+    void process(float* const* io, uint32_t numChannels, uint32_t frames) override
+    {
+        if (fSnap)
+        {
+            fSnap = false;
+            fMix.snap(fMix.target());
+        }
+        for (uint32_t i = 0; i < frames; ++i)
+        {
+            const float inL = io[0][i];
+            const float inR = numChannels > 1 ? io[1][i] : inL;
+            // a new note: take the feed down quickly (what's already in the tank rings on), then swell it back up
+            if (fOnset.process(std::max(std::fabs(inL), std::fabs(inR))))
+                fDucking = true;
+            if (fDucking)
+            {
+                fFeed = std::max(0.0f, fFeed - fDuckStep);
+                if (fFeed <= 0.0f)
+                    fDucking = false;
+            }
+            else
+            {
+                fFeed = std::min(1.0f, fFeed + fBloomStep);
+            }
+            const float feed = fFeed * fFeed * (3.0f - 2.0f * fFeed);
+
+            float wetL, wetR;
+            fTank.process(inL * feed, inR * feed, wetL, wetR);
+            wetL = fLowCutFilter[0].process(wetL);
+            wetR = fLowCutFilter[1].process(wetR);
+
+            const float mix = fMix.next();
+            // the swell takes some level away; make it up so the bloom is as big as a plain reverb's
+            const float dryGain = dryGainForMix(mix), wetGain = wetGainForMix(mix) * 1.6f;
+            if (numChannels == 1)
+            {
+                io[0][i] = inL * dryGain + 0.5f * (wetL + wetR) * wetGain;
+            }
+            else
+            {
+                io[0][i] = inL * dryGain + wetL * wetGain;
+                io[1][i] = inR * dryGain + wetR * wetGain;
+            }
+        }
+    }
+
+    void reset() override
+    {
+        fTank.reset();
+        fOnset.reset();
+        fLowCutFilter[0].reset();
+        fLowCutFilter[1].reset();
+        fFeed = 0.0f;
+        fDucking = false;
+        fSnap = true;
+    }
+
+private:
+    void applyAll()
+    {
+        fTank.setSize(0.5 + fSize);
+        fTank.setDecay(fDecay);
+        fTank.setDamping(fTone);
+        for (Biquad& filter : fLowCutFilter)
+            filter.setHighPass(fSampleRate, fLowCut);
+        fBloomStep = static_cast<float>(1.0 / (std::max(1.0f, fBloomMs) / 1000.0 * fSampleRate));
+    }
+
+    double fSampleRate = 48000.0;
+    Fdn fTank;
+    OnsetDetector fOnset;
+    Biquad fLowCutFilter[2];
+    Smoother fMix;
+    float fDecay = 5.0f;
+    float fBloomMs = 1200.0f;
+    float fSize = 0.7f;
+    float fTone = 7000.0f;
+    float fLowCut = 120.0f;
+    float fFeed = 0.0f, fBloomStep = 0.0f, fDuckStep = 0.0f;
+    bool fDucking = false;
+    bool fSnap = true;
+};
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+class GatedReverbBlock : public Block {
+public:
+    GatedReverbBlock() { fMix.snap(0.4f); }
+
+    void prepare(double sampleRate, uint32_t /*maxFrames*/) override
+    {
+        fSampleRate = sampleRate;
+        fTank.prepare(sampleRate, 1.2);
+        fEnvelope.prepare(sampleRate, 1.0, 30.0);
+        fMix.prepare(sampleRate);
+        fOpenCoef = EnvelopeFollower::coef(sampleRate, 1.0);
+        applyAll();
+        reset();
+    }
+
+    void setParam(int index, float value) override
+    {
+        switch (index)
+        {
+        case kGatedRevParamSize:      fSize = value / 100.0f; break;
+        case kGatedRevParamDecay:     fDecay = value; break;
+        case kGatedRevParamThreshold: fThreshold = dbToGain(value); break;
+        case kGatedRevParamHold:      fHoldMs = value; break;
+        case kGatedRevParamRelease:   fReleaseMs = value; break;
+        case kGatedRevParamTone:      fTone = value; break;
+        case kGatedRevParamMix:       fMix.setTarget(value / 100.0f); break;
+        }
+        applyAll();
+    }
+
+    void process(float* const* io, uint32_t numChannels, uint32_t frames) override
+    {
+        if (fSnap)
+        {
+            fSnap = false;
+            fMix.snap(fMix.target());
+        }
+        for (uint32_t i = 0; i < frames; ++i)
+        {
+            const float inL = io[0][i];
+            const float inR = numChannels > 1 ? io[1][i] : inL;
+            const float env = fEnvelope.process(std::max(std::fabs(inL), std::fabs(inR)));
+            if (env > fThreshold)
+                fHoldLeft = fHoldSamples;
+            else if (fHoldLeft > 0)
+                --fHoldLeft;
+            // opens at once, closes over Release (an S-curve, so the cut is quick but click-free)
+            if (fHoldLeft > 0)
+                fGate = 1.0f + (fGate - 1.0f) * fOpenCoef;
+            else
+                fGate = std::max(0.0f, fGate - fCloseStep);
+            const float gate = fGate * fGate * (3.0f - 2.0f * fGate);
+
+            float wetL, wetR;
+            fTank.process(inL, inR, wetL, wetR);
+            const float mix = fMix.next();
+            const float dryGain = dryGainForMix(mix), wetGain = wetGainForMix(mix) * gate;
+            if (numChannels == 1)
+            {
+                io[0][i] = inL * dryGain + 0.5f * (wetL + wetR) * wetGain;
+            }
+            else
+            {
+                io[0][i] = inL * dryGain + wetL * wetGain;
+                io[1][i] = inR * dryGain + wetR * wetGain;
+            }
+        }
+    }
+
+    void reset() override
+    {
+        fTank.reset();
+        fEnvelope.reset();
+        fHoldLeft = 0;
+        fGate = 0.0f;
+        fSnap = true;
+    }
+
+private:
+    void applyAll()
+    {
+        fTank.setSize(0.3 + 0.9 * fSize);
+        fTank.setDecay(fDecay);
+        fTank.setDamping(fTone);
+        fHoldSamples = static_cast<int>(fHoldMs / 1000.0f * fSampleRate);
+        fCloseStep = static_cast<float>(1.0 / (std::max(1.0f, fReleaseMs) / 1000.0 * fSampleRate));
+    }
+
+    double fSampleRate = 48000.0;
+    Fdn fTank;
+    EnvelopeFollower fEnvelope;
+    Smoother fMix;
+    float fSize = 0.5f;
+    float fDecay = 2.0f;
+    float fThreshold = 0.01f;
+    float fHoldMs = 250.0f;
+    float fReleaseMs = 40.0f;
+    float fTone = 7000.0f;
+    int fHoldSamples = 12000;
+    int fHoldLeft = 0;
+    float fGate = 0.0f, fOpenCoef = 0.0f, fCloseStep = 0.0f;
+    bool fSnap = true;
+};
+
 } // namespace
 
 const BlockDescriptor kShimmerBlockDescriptor = {
@@ -316,6 +540,39 @@ const BlockDescriptor kFreezeBlockDescriptor = {
         ParamSpec { "Level", "%", 0.0f, 100.0f, 70.0f, ParamScale::Linear },
     },
     [] { return std::unique_ptr<Block>(new FreezeBlock()); },
+};
+
+const BlockDescriptor kBloomReverbBlockDescriptor = {
+    "bloomreverb",
+    "Bloom Reverb",
+    Category::Reverb,
+    kBloomParamCount,
+    {
+        ParamSpec { "Decay", "s", 1.0f, 20.0f, 5.0f, ParamScale::Log },
+        ParamSpec { "Bloom", "ms", 50.0f, 5000.0f, 1200.0f, ParamScale::Log },
+        ParamSpec { "Size", "%", 0.0f, 100.0f, 70.0f, ParamScale::Linear },
+        ParamSpec { "Tone", "Hz", 1000.0f, 16000.0f, 7000.0f, ParamScale::Log },
+        ParamSpec { "Low Cut", "Hz", 20.0f, 1000.0f, 120.0f, ParamScale::Log },
+        ParamSpec { "Mix", "%", 0.0f, 100.0f, 40.0f, ParamScale::Linear },
+    },
+    [] { return std::unique_ptr<Block>(new BloomReverbBlock()); },
+};
+
+const BlockDescriptor kGatedReverbBlockDescriptor = {
+    "gatedreverb",
+    "Gated Reverb",
+    Category::Reverb,
+    kGatedRevParamCount,
+    {
+        ParamSpec { "Size", "%", 0.0f, 100.0f, 50.0f, ParamScale::Linear },
+        ParamSpec { "Decay", "s", 0.5f, 6.0f, 2.0f, ParamScale::Log },
+        ParamSpec { "Threshold", "dB", -70.0f, -10.0f, -40.0f, ParamScale::Linear },
+        ParamSpec { "Hold", "ms", 10.0f, 1000.0f, 250.0f, ParamScale::Log },
+        ParamSpec { "Release", "ms", 5.0f, 500.0f, 40.0f, ParamScale::Log },
+        ParamSpec { "Tone", "Hz", 1000.0f, 16000.0f, 7000.0f, ParamScale::Log },
+        ParamSpec { "Mix", "%", 0.0f, 100.0f, 40.0f, ParamScale::Linear },
+    },
+    [] { return std::unique_ptr<Block>(new GatedReverbBlock()); },
 };
 
 } // namespace namsayin

@@ -23,4 +23,22 @@ enum FilterParam {
     kFilterParamCount
 };
 
+// Robot filter (sample and hold): a resonant filter that jumps to a new cutoff on every clock tick, between Low and
+// High. The new cutoff is random, from a random pattern that repeats every eight steps, or your playing level at the
+// tick. Glide slides between the steps. Tempo sync locks the steps to the beat. No config.
+extern const BlockDescriptor kRobotFilterBlockDescriptor;
+
+enum RobotFilterParam {
+    kRobotParamType,      // choice: Low-pass, Band-pass
+    kRobotParamSource,    // choice: Random, Loop 8, Envelope
+    kRobotParamLow,       // Hz
+    kRobotParamHigh,      // Hz
+    kRobotParamResonance, // Q
+    kRobotParamRate,      // Hz, steps per second; when synced, a note value (rateNoteIndex)
+    kRobotParamSync,      // toggle
+    kRobotParamGlide,     // %, of a step
+    kRobotParamMix,       // %
+    kRobotParamCount
+};
+
 } // namespace namsayin

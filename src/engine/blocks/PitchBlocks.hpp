@@ -76,4 +76,84 @@ enum HarmonizerParam {
 // (0 = C) and scale (index into the Scale choice)
 int harmonySemitones(int note, int key, int scale, int steps);
 
+// Detune: one or two voices a few cents off the dry signal (Up, Down or Both), spread across the stereo field: a
+// thickening micro-pitch doubler without a chorus's sweep.
+extern const BlockDescriptor kDetuneBlockDescriptor;
+
+enum DetuneParam {
+    kDetuneParamDetune, // cents
+    kDetuneParamVoices, // choice: Both, Up, Down
+    kDetuneParamWidth,  // %
+    kDetuneParamMix,    // %
+    kDetuneParamWindow, // ms
+    kDetuneParamCount
+};
+
+// Capo: shifts everything up or down by whole semitones (plus a fine offset), for drop tunings and capo positions
+// without retuning. Chords too. The dry signal is off by default.
+extern const BlockDescriptor kCapoBlockDescriptor;
+
+enum CapoParam {
+    kCapoParamShift,  // semitones, rounded
+    kCapoParamFine,   // cents
+    kCapoParamDry,    // %
+    kCapoParamWindow, // ms
+    kCapoParamCount
+};
+
+// Organ: the guitar turned into stacked organ pipes, with drawbar-like levels for the sub octave, the fundamental,
+// the octave, the twelfth and two octaves up; Attack swells each new note in like an organ key instead of a pick.
+extern const BlockDescriptor kOrganBlockDescriptor;
+
+enum OrganParam {
+    kOrganParamSub,     // %, an octave down
+    kOrganParamFund,    // %
+    kOrganParamOctave,  // %
+    kOrganParamTwelfth, // %, an octave and a fifth up
+    kOrganParamTwoOct,  // %
+    kOrganParamAttack,  // ms
+    kOrganParamTone,    // Hz, low-pass on the organ; off at the top of the range
+    kOrganParamDry,     // %
+    kOrganParamWindow,  // ms
+    kOrganParamCount
+};
+
+// Arpeggiator: steps the held note or chord through a chord's intervals in a pattern, in time (tempo sync locks the
+// steps to the beat). Gate shortens each step for a staccato pattern; Glide slides between steps.
+extern const BlockDescriptor kArpeggiatorBlockDescriptor;
+
+enum ArpeggiatorParam {
+    kArpParamChord,   // choice: arpChordIntervals()
+    kArpParamPattern, // choice: Up, Down, Up-Down, Random
+    kArpParamRange,   // choice: 1 Oct, 2 Oct
+    kArpParamRate,    // Hz, steps per second; when synced, a note value (rateNoteIndex)
+    kArpParamSync,    // toggle
+    kArpParamGate,    // %
+    kArpParamGlide,   // ms
+    kArpParamMix,     // %
+    kArpParamWindow,  // ms
+    kArpParamCount
+};
+
+// The arpeggiator's notes for a chord (Chord choice) over `octaves` (1 or 2), in semitones from the played note,
+// lowest first; and which of the `notes` a fixed pattern (Up, Down, Up-Down) plays at step `step`
+int arpNoteCount(int chord, int octaves);
+int arpNote(int chord, int octaves, int index);
+int arpPatternIndex(int pattern, long long step, int notes);
+
+// Sustainer (E-Bow, infinite sustain): holds each note at the level you picked it, and over Bloom it grows into a
+// harmonic (an octave, a twelfth or two octaves up) like an amp feeding back. A new pick starts again; the note
+// lets go when it fades too far to hold.
+extern const BlockDescriptor kSustainerBlockDescriptor;
+
+enum SustainerParam {
+    kSustainParamSustain,  // %
+    kSustainParamBloom,    // ms
+    kSustainParamHarmonic, // choice: Octave, Oct+5th, 2 Oct, 5th
+    kSustainParamFeedback, // %, how much of the harmonic the note blooms into
+    kSustainParamTone,     // Hz, low-pass; off at the top of the range
+    kSustainParamMix,      // %
+    kSustainParamCount
+};
+
 } // namespace namsayin

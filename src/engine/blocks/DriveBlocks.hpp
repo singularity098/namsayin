@@ -66,4 +66,32 @@ enum BoostParam {
 
 enum class BoostType { Clean, Treble, Mid };
 
+// Envelope Drive: the drive follows your picking. Range sets how much harder playing adds (or, below 0, takes away),
+// so it can be clean when you play softly and dirty when you dig in, or the other way round.
+extern const BlockDescriptor kEnvDriveBlockDescriptor;
+
+enum EnvDriveParam {
+    kEnvDriveParamDrive,       // %, the drive when playing softly
+    kEnvDriveParamRange,       // %, -100..100: how much digging in adds
+    kEnvDriveParamSensitivity, // %
+    kEnvDriveParamRelease,     // ms
+    kEnvDriveParamTone,        // %
+    kEnvDriveParamLevel,       // dB
+    kEnvDriveParamCount
+};
+
+// Gated Fuzz (Fuzz Factory style): Comp starves the fuzz into a sputter, Gate cuts it off under a level, and Stab
+// below 100% lets it feed back into squeals and oscillation that ride your notes (and die away when you stop).
+extern const BlockDescriptor kGatedFuzzBlockDescriptor;
+
+enum GatedFuzzParam {
+    kGatedFuzzParamDrive, // %
+    kGatedFuzzParamGate,  // %, 0 is off
+    kGatedFuzzParamComp,  // %
+    kGatedFuzzParamStab,  // %, 100 is stable
+    kGatedFuzzParamTone,  // %
+    kGatedFuzzParamLevel, // dB
+    kGatedFuzzParamCount
+};
+
 } // namespace namsayin

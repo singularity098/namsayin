@@ -36,4 +36,33 @@ enum FreezeParam {
     kFreezeParamCount
 };
 
+// Bloom reverb: each new note feeds the reverb gradually, over Bloom, so the reverb swells up behind your playing
+// instead of splashing on the pick attack. No config.
+extern const BlockDescriptor kBloomReverbBlockDescriptor;
+
+enum BloomReverbParam {
+    kBloomParamDecay,  // s
+    kBloomParamBloom,  // ms
+    kBloomParamSize,   // %
+    kBloomParamTone,   // Hz, damping
+    kBloomParamLowCut, // Hz, on the wet signal
+    kBloomParamMix,    // %
+    kBloomParamCount
+};
+
+// Gated reverb (the 80s drum sound): a dense reverb that is cut off by a gate on your playing, Hold after the
+// playing drops under Threshold, closing over Release. No config.
+extern const BlockDescriptor kGatedReverbBlockDescriptor;
+
+enum GatedReverbParam {
+    kGatedRevParamSize,      // %
+    kGatedRevParamDecay,     // s
+    kGatedRevParamThreshold, // dB
+    kGatedRevParamHold,      // ms
+    kGatedRevParamRelease,   // ms
+    kGatedRevParamTone,      // Hz, damping
+    kGatedRevParamMix,       // %
+    kGatedRevParamCount
+};
+
 } // namespace namsayin
