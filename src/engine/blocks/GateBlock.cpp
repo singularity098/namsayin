@@ -182,7 +182,7 @@ const BlockDescriptor kGateBlockDescriptor = {
     -1,
     -1,
     false,
-    "Reduction",
+    "Gating",
     60.0f,
 };
 
