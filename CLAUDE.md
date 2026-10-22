@@ -57,9 +57,11 @@ src/state/            Plain data shared by DSP and UI, no DPF:
 src/plugin/           DistrhoPluginInfo.h + DSP side (Plugin subclass; thin wrapper around Engine)
 src/ui/               UI side (UI subclass, NanoVG). Immediate-mode: draw functions record hit areas, mouse handlers look them up.
                       Tuner and metronome panels are overlays over the chain. OpenUrl.cpp keeps <windows.h> out of the DPF code
+                      LogoImage.cpp (generated) holds the top bar logo
 tests/                doctest unit tests; TestSupport.hpp has a test block and an allocation counter
 docs/                 Requirements and architecture
 resources/sounds/     Classic metronome samples from Fretbored; tools/embed_sounds.py turns them into ClickSamples.cpp
+resources/logo/       logo.png (the owner's logo, as given) and logo-ui.png (transparent, made by tools/embed_logo.py)
 deps/khronos/         Vendored glext.h + khrplatform.h (MSVC has none; DPF's download is unreliable)
 .github/workflows/    CI: Linux (Ninja) and Windows (MSVC) builds + tests
 .github/scripts/      CI helper scripts
@@ -122,6 +124,7 @@ The file browser opens in the host's working directory. Final checks happen in R
 - The engine reports running slots through two output parameters (`kParamRunningSlotsLow/High`); the UI marks blocks that haven't started 2.5 s after a chain change, and shows a banner if none have.
 - **Reaper's LV2 hosting doesn't deliver the UI's state messages to the DSP** (confirmed by the owner; VST3 works). So the chain has a second route: the UI writes it to a per-instance file and bumps the hidden Chain Revision parameter; a DSP thread reads the file (`src/state/ChainExchange.*`). The DSP also keeps the chain itself (`DISTRHO_PLUGIN_WANT_FULL_STATE`) for project save/restore and writes the file so a reopened UI can read it. Test the fallback with a build configured with `-DCMAKE_CXX_FLAGS=-DNAMSAYIN_TEST_NO_STATE_MESSAGE` (UI never sends the state message) in jalv.
 - Metronome: see `docs/Architecture.md` 4.10. All its settings are host parameters (most hidden), not state, so they reach the DSP in every host. After changing `resources/sounds/`, run `python3 tools/embed_sounds.py`; never edit `ClickSamples.cpp` by hand. Digital and Beep are generated in code. Only add samples the owner has cleared for MIT (two Digital samples carrying a third-party artist credit were removed).
+- Logo: the top bar draws `resources/logo/logo-ui.png`, built into the binary as `src/ui/LogoImage.cpp`. After changing `resources/logo/logo.png`, run `python3 tools/embed_logo.py` (needs Pillow); never edit `LogoImage.cpp` by hand. The owner calls it the logo "for now".
 - Tuner: see `docs/Architecture.md` 4.9. The plugin runs `Engine::analyzeTuner()` on its own thread every 20 ms while the tuner is on. Accuracy tests are in `tests/TunerTests.cpp`; keep them passing (±0.1 cent from 31 to 1319 Hz) when touching the detector.
 - Split/merge: see `docs/Architecture.md` 4.4. The merge controls are host parameters (after the slots). Parallel processing is the Settings toggle; the DSP reads it when it builds a chain.
 - Not done yet in the NAM block: resampling when the host rate differs from the model's training rate.

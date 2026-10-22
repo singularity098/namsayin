@@ -108,6 +108,7 @@ dpf_add_plugin(namsayin
   FILES_DSP
     src/plugin/NAMsayinPlugin.cpp
   FILES_UI
+    src/ui/LogoImage.cpp
     src/ui/NAMsayinUI.cpp
     src/ui/OpenUrl.cpp)
 
