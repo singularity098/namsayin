@@ -3,7 +3,6 @@
 
 #include "DistrhoUI.hpp"
 
-#include "LogoImage.hpp"
 #include "OpenUrl.hpp"
 #include "engine/BlockRegistry.hpp"
 #include "engine/Params.hpp"
@@ -2293,16 +2292,7 @@ private:
     void drawTopBar()
     {
         fillRect(0, 0, fWidth, kTopBarHeight, theme::bar);
-        // the logo, with the name as text if it can't be loaded
-        if (!fLogo.isValid() && !fLogoTried)
-        {
-            fLogoTried = true;
-            fLogo = createImageFromMemory(kLogoPng, kLogoPngSize, IMAGE_GENERATE_MIPMAPS);
-        }
-        if (fLogo.isValid())
-            drawImageFit(fLogo, 12.0f, 4.0f, 116.0f, kTopBarHeight - 8.0f, 0.0f);
-        else
-            label(16.0f, kTopBarHeight / 2, "NAMsayin", theme::text, 20.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        label(16.0f, kTopBarHeight / 2, "NAMsayin", theme::text, 20.0f, ALIGN_LEFT | ALIGN_MIDDLE);
 
         // preset menu with the preset's name (• when changed since it was saved or opened)
         const std::string preset = presetName() + (presetModified() ? " •" : "") + "  ▾";
@@ -3610,8 +3600,6 @@ private:
     bool fScanned = false;
 
     std::map<std::string, std::unique_ptr<NanoImage>> fImages; // by image path
-    NanoImage fLogo;
-    bool fLogoTried = false;
     std::map<std::string, std::string> fSidecars;             // block file path -> its image path
 
     // metronome
