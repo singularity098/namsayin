@@ -132,6 +132,7 @@ dpf_add_plugin(namsayin
     src/plugin/NAMsayinPlugin.cpp
   FILES_UI
     src/ui/BlockImages.cpp
+    src/ui/ParamHelp.cpp
     src/ui/NAMsayinUI.cpp
     src/ui/OpenUrl.cpp)
 
@@ -166,13 +167,15 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/LibraryTests.cpp
     tests/MetronomeTests.cpp
     tests/NamBlockTests.cpp
+    tests/ParamHelpTests.cpp
     tests/PedalTests.cpp
     tests/PresetTests.cpp
     tests/ReverbBlockTests.cpp
     tests/SettingsTests.cpp
     tests/TunerTests.cpp
-    tests/UndoStackTests.cpp)
-  target_include_directories(namsayin-tests PRIVATE tests deps/doctest)
+    tests/UndoStackTests.cpp
+    src/ui/ParamHelp.cpp)
+  target_include_directories(namsayin-tests PRIVATE tests deps/doctest src)
   target_link_libraries(namsayin-tests PRIVATE namsayin-engine)
   target_compile_options(namsayin-tests PRIVATE ${NAMSAYIN_WARNINGS})
   target_compile_definitions(namsayin-tests PRIVATE NAMSAYIN_EXAMPLE_MODELS="${NAM_DIR}/example_models")

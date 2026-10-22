@@ -5,6 +5,7 @@
 
 #include "BlockImages.hpp"
 #include "OpenUrl.hpp"
+#include "ParamHelp.hpp"
 #include "engine/BlockRegistry.hpp"
 #include "engine/Params.hpp"
 #include "engine/blocks/CompressorBlock.hpp"
@@ -566,6 +567,7 @@ protected:
             drawSettingsDialog();
         else if (fDialog == Dialog::Menu)
             drawMenu();
+        drawHelp();
 
         restore();
     }
@@ -1092,6 +1094,10 @@ protected:
                 fStrobePhase[row] += target * 5.0f * static_cast<float>(1 << row) * dt;
             repaint();
         }
+
+        // the hover help appears once the mouse has rested on a control
+        if (fHelpKind >= 0 && !fHelpShown && now - fHelpSince >= kHelpDelay)
+            repaint();
 
         // redraw once the grace period ends, so blocks that didn't start get marked
         if (fStatusPending && statusSettled())
@@ -2130,6 +2136,240 @@ private:
         fHits.push_back({ r, kind, index });
     }
 
+    enum class Icon { Power, Gear, TuningFork, Metronome, Fretbored };
+
+    // A square button with an icon instead of a label
+    void drawIconButton(const Rect& r, Icon icon, bool on, Hit kind, int index)
+    {
+        const bool hover = r.contains(fMouseX, fMouseY);
+        const Color background = on ? theme::accent : (hover ? theme::tileHover : theme::tile);
+        fillRect(r.x, r.y, r.w, r.h, background, 6.0f);
+        drawIcon(icon, r.x + r.w / 2, r.y + r.h / 2, on ? Color(255, 255, 255) : theme::text, background);
+        fHits.push_back({ r, kind, index });
+    }
+
+    // An icon about 18 px across, centred on (cx, cy)
+    void drawIcon(Icon icon, float cx, float cy, const Color& color, const Color& background)
+    {
+        constexpr float pi = static_cast<float>(M_PI);
+        lineCap(ROUND);
+        lineJoin(ROUND);
+        strokeColor(color);
+        strokeWidth(1.8f);
+        switch (icon)
+        {
+        case Icon::Power:
+            // a ring open at the top, with a bar through the gap
+            beginPath();
+            arc(cx, cy + 1.0f, 7.0f, -pi / 2 + 0.75f, -pi / 2 - 0.75f + 2 * pi, CW);
+            stroke();
+            beginPath();
+            moveTo(cx, cy - 8.0f);
+            lineTo(cx, cy);
+            stroke();
+            break;
+
+        case Icon::Gear:
+        {
+            // eight teeth around a ring
+            constexpr int teeth = 8;
+            beginPath();
+            for (int i = 0; i < teeth * 4; ++i)
+            {
+                const float a = (i - 1.0f) * 2 * pi / (teeth * 4);
+                const float radius = (i % 4 < 2) ? 8.5f : 6.2f;
+                if (i == 0)
+                    moveTo(cx + std::cos(a) * radius, cy + std::sin(a) * radius);
+                else
+                    lineTo(cx + std::cos(a) * radius, cy + std::sin(a) * radius);
+            }
+            closePath();
+            fillColor(color);
+            fill();
+            beginPath();
+            circle(cx, cy, 3.0f);
+            fillColor(background);
+            fill();
+            break;
+        }
+
+        case Icon::TuningFork:
+            // two prongs joined by a U, on a stem
+            beginPath();
+            moveTo(cx - 3.5f, cy - 8.0f);
+            lineTo(cx - 3.5f, cy - 1.0f);
+            arc(cx, cy - 1.0f, 3.5f, pi, 0.0f, CCW);
+            lineTo(cx + 3.5f, cy - 8.0f);
+            moveTo(cx, cy + 2.5f);
+            lineTo(cx, cy + 8.5f);
+            stroke();
+            break;
+
+        case Icon::Metronome:
+            // a tapered case with a swinging arm
+            beginPath();
+            moveTo(cx - 2.0f, cy - 8.0f);
+            lineTo(cx + 2.0f, cy - 8.0f);
+            lineTo(cx + 6.5f, cy + 8.0f);
+            lineTo(cx - 6.5f, cy + 8.0f);
+            closePath();
+            moveTo(cx - 5.0f, cy + 3.5f);
+            lineTo(cx + 5.0f, cy + 3.5f);
+            moveTo(cx, cy + 3.5f);
+            lineTo(cx + 5.5f, cy - 6.5f);
+            stroke();
+            break;
+
+        case Icon::Fretbored:
+        {
+            // the Fretbored app icon (its assets/icon.svg, a 32-unit square), drawn 20 px across
+            const float k = 20.0f / 32.0f;
+            const float x0 = cx - 10.0f, y0 = cy - 10.0f;
+            fillRect(x0, y0, 20.0f, 20.0f, Color(0x1a, 0x21, 0x32), 8.0f * k);
+            beginPath();
+            for (const float y : { 8.5f, 15.5f, 22.5f })
+            {
+                moveTo(x0 + 3.0f * k, y0 + y * k);
+                lineTo(x0 + 29.0f * k, y0 + y * k);
+            }
+            strokeColor(Color(0xe3, 0xe7, 0xef, 0.5f));
+            strokeWidth(1.6f * k);
+            stroke();
+            beginPath();
+            circle(x0 + 12.0f * k, y0 + 15.5f * k, 7.0f * k);
+            strokeColor(Color(0xff, 0x7a, 0x59, 0.55f));
+            stroke();
+            beginPath();
+            circle(x0 + 12.0f * k, y0 + 15.5f * k, 5.0f * k);
+            fillColor(Color(0xff, 0x7a, 0x59));
+            fill();
+            beginPath();
+            circle(x0 + 24.0f * k, y0 + 8.5f * k, 4.2f * k);
+            circle(x0 + 24.0f * k, y0 + 22.5f * k, 4.2f * k);
+            fillColor(Color(0x7c, 0x6c, 0xff));
+            fill();
+            break;
+        }
+        }
+        lineCap(BUTT);
+        lineJoin(MITER);
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Hover help: a translucent popup explaining the control under the mouse, after it rests there a moment
+
+    struct HelpText {
+        std::string title;
+        const char* body = nullptr;
+    };
+
+    HelpText helpFor(const HitArea& hit) const
+    {
+        switch (hit.kind)
+        {
+        case Hit::Knob:
+        case Hit::Toggle:
+        case Hit::Momentary:
+        case Hit::Choice:
+        case Hit::Slider:
+        case Hit::Step:
+        case Hit::SetValue:
+        {
+            const uint32_t index = static_cast<uint32_t>(hit.index);
+            if (!isSlot(index))
+                return { globalParamSpec(index).name, globalParamHelp(index) };
+            const uint32_t offset = index - kSlotParamBase;
+            const int param = static_cast<int>(offset % kSlotParamCount) - 1;
+            const BlockState* block = blockInSlot(static_cast<int>(offset / kSlotParamCount));
+            const BlockDescriptor* type = block ? BlockRegistry::builtin().find(block->typeId) : nullptr;
+            if (type == nullptr || param < 0 || param >= type->numParams)
+                return {};
+            const char* name = type->params[static_cast<size_t>(param)].name;
+            return { name, blockParamHelp(type->typeId, name) };
+        }
+        case Hit::MetroAccent:
+            return { "Beat " + std::to_string(hit.index + 1), globalParamHelp(kParamMetroAccent1) };
+        case Hit::MetroGrouping:
+            return { "Beat Grouping", globalParamHelp(kParamMetroGrouping) };
+        case Hit::Tap:
+            return { "Tap Tempo",
+                     "Click this button in time with the music, four times or more, and the metronome takes the "
+                     "tempo you tap. The T key does the same while the metronome panel is open." };
+        case Hit::MetroPanel:
+            return { "Metronome Settings",
+                     "Opens the metronome panel: tempo, time signature, accents, beat grouping, subdivisions, "
+                     "sounds, DAW sync, and the tempo and gap trainers." };
+        case Hit::OpenSettings:
+            return { "Settings",
+                     "Opens the settings: the folders for your NAM and IR files, the default NAM A2 size, volume "
+                     "normalization for new blocks, parallel processing of a split on a second CPU core, and the "
+                     "highlight colour." };
+        case Hit::Fretbored:
+            return { "Fretbored",
+                     "Opens Fretbored in your web browser: a free app for learning the guitar neck, with scales, "
+                     "chords, arpeggios, the circle of fifths, a fretboard trainer, a tuner and a metronome." };
+        default:
+            return {};
+        }
+    }
+
+    // Is a mouse button held on something (a knob drag, a tile drag)?
+    bool mouseBusy() const
+    {
+        return fDragParam >= 0 || fPressTile >= 0;
+    }
+
+    void drawHelp()
+    {
+        const auto now = std::chrono::steady_clock::now();
+        const HitArea* hit = mouseBusy() ? nullptr : hitAt(fMouseX, fMouseY);
+        const HelpText help = hit != nullptr ? helpFor(*hit) : HelpText {};
+        const int kind = help.body != nullptr ? static_cast<int>(hit->kind) : -1;
+        const int index = help.body != nullptr ? hit->index : -1;
+        if (kind != fHelpKind || index != fHelpIndex)
+        {
+            fHelpKind = kind;
+            fHelpIndex = index;
+            fHelpSince = now;
+            fHelpShown = false;
+            return;
+        }
+        if (kind < 0 || now - fHelpSince < kHelpDelay)
+            return;
+        fHelpShown = true;
+
+        // measure the wrapped text, then place the popup below the control (above it if there's no room)
+        constexpr float width = 300.0f, pad = 12.0f, titleSize = 14.0f, bodySize = 12.5f;
+        fontSize(bodySize);
+        textLineHeight(1.35f);
+        textAlign(ALIGN_LEFT | ALIGN_TOP);
+        float bounds[4] = {};
+        textBoxBounds(0.0f, 0.0f, width - 2 * pad, help.body, nullptr, bounds);
+        const float bodyHeight = bounds[3] - bounds[1];
+        const float h = pad + titleSize + 8.0f + bodyHeight + pad;
+        const Rect& r = hit->rect;
+        float x = std::clamp(r.x + r.w / 2 - width / 2, 8.0f, fWidth - width - 8.0f);
+        float y = r.y + r.h + 6.0f;
+        if (y + h > fHeight - 8.0f)
+            y = std::max(8.0f, r.y - h - 6.0f);
+
+        beginPath();
+        roundedRect(x, y, width, h, 8.0f);
+        fillColor(Color(0x14, 0x14, 0x18, 0.88f));
+        fill();
+        strokeColor(theme::accent.withAlpha(0.45f));
+        strokeWidth(1.0f);
+        stroke();
+
+        label(x + pad, y + pad + titleSize / 2, help.title.c_str(), theme::accent, titleSize, ALIGN_LEFT | ALIGN_MIDDLE);
+        fontSize(bodySize);
+        textLineHeight(1.35f);
+        textAlign(ALIGN_LEFT | ALIGN_TOP);
+        fillColor(theme::text);
+        textBox(x + pad, y + pad + titleSize + 8.0f, width - 2 * pad, help.body, nullptr);
+        textLineHeight(1.0f);
+    }
+
     void drawKnob(float cx, float cy, uint32_t index, const char* name)
     {
         constexpr float start = 0.75f * static_cast<float>(M_PI);
@@ -2393,27 +2633,27 @@ private:
             const std::string text = "MIDI learn: move a controller for " + paramName(fLearnParam) + "  (Esc cancels)";
             label(500.0f, kTopBarHeight / 2, text.c_str(), theme::accent, 13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
         }
-        drawButton({ fWidth - 96.0f, 10.0f, 80.0f, 28.0f }, "Bypass", fParams[kParamBypass] >= 0.5f, theme::accent,
-                   Hit::Toggle, kParamBypass);
-        drawButton({ fWidth - 188.0f, 10.0f, 84.0f, 28.0f }, "Settings", fDialog == Dialog::Settings, theme::accent,
-                   Hit::OpenSettings, 0);
-        drawButton({ fWidth - 276.0f, 10.0f, 80.0f, 28.0f }, "Tuner", fParams[kParamTuner] >= 0.5f, theme::accent,
-                   Hit::Toggle, kParamTuner);
+        // icon buttons on the right; hovering shows what they do
+        const Rect bypass { fWidth - 50.0f, 10.0f, 34.0f, 28.0f };
+        drawIconButton(bypass, Icon::Power, fParams[kParamBypass] >= 0.5f, Hit::Toggle, kParamBypass);
+        drawIconButton({ bypass.x - 40.0f, 10.0f, 34.0f, 28.0f }, Icon::Gear, fDialog == Dialog::Settings,
+                       Hit::OpenSettings, 0);
+        drawIconButton({ bypass.x - 80.0f, 10.0f, 34.0f, 28.0f }, Icon::TuningFork, fParams[kParamTuner] >= 0.5f,
+                       Hit::Toggle, kParamTuner);
 
         // Metronome: on/off, flashing on every beat, and ▾ for its panel
         const bool running = fParams[kParamMetronome] >= 0.5f;
-        const Rect metro { fWidth - 400.0f, 10.0f, 88.0f, 28.0f };
-        drawButton(metro, "Metronome", running, theme::accent, Hit::Toggle, kParamMetronome);
+        const Rect metro { bypass.x - 144.0f, 10.0f, 34.0f, 28.0f };
+        drawIconButton(metro, Icon::Metronome, running, Hit::Toggle, kParamMetronome);
         const float pulse = beatPulse();
         if (running && pulse > 0.0f)
             fillRect(metro.x, metro.y, metro.w, metro.h, Color(255, 255, 255, 0.35f * pulse), 6.0f);
-        drawButton({ metro.x + metro.w + 2.0f, 10.0f, 26.0f, 28.0f }, "▾", fMetroPanel, theme::accent, Hit::MetroPanel,
+        drawButton({ metro.x + metro.w + 2.0f, 10.0f, 22.0f, 28.0f }, "▾", fMetroPanel, theme::accent, Hit::MetroPanel,
                    0);
 
-        // only when there's room next to the preset and undo controls
-        if (fLearnParam < 0 && fWidth >= 1010.0f)
-            drawButton({ fWidth - 504.0f, 10.0f, 92.0f, 28.0f }, "Fretbored ↗", false, theme::accent, Hit::Fretbored,
-                       0);
+        // only when there's room next to the MIDI learn message
+        if (fLearnParam < 0 || fWidth >= 1200.0f)
+            drawIconButton({ metro.x - 40.0f, 10.0f, 34.0f, 28.0f }, Icon::Fretbored, false, Hit::Fretbored, 0);
     }
 
     // 1 right after a beat, fading to 0 over 150 ms
@@ -3721,6 +3961,13 @@ private:
     int fTunerNote = -1; // MIDI note
     std::chrono::steady_clock::time_point fTunerSeenAt;
     std::chrono::steady_clock::time_point fLastIdle = std::chrono::steady_clock::now();
+
+    // hover help: the control under the mouse (kind -1: none with help) and since when
+    static constexpr std::chrono::milliseconds kHelpDelay { 600 };
+    int fHelpKind = -1;
+    int fHelpIndex = -1;
+    std::chrono::steady_clock::time_point fHelpSince;
+    bool fHelpShown = false;
 
     bool fInClipLatched = false;
     bool fOutClipLatched = false;

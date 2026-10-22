@@ -8,7 +8,7 @@ NAMsayin is a guitar rig plugin (VST3 + LV2) in C++20, built with DPF (plugin fr
 
 - **Requirements**: `docs/Requirements.md` — the owner's feature list plus agreed decisions. Treat it as the source of truth; record new decisions there.
 - **Architecture and milestones**: `docs/Architecture.md` — design, v1 milestones (M0–M10) and decisions log.
-- **Current milestone**: M1, M2 (minus resampling), M3 (delay, reverb, compressor), M5 (library, settings), M6 (split/merge), M7 (presets, undo/redo, MIDI learn), M8 (tuner) and M9 (metronome) are done, and M4 is done except real block images (the owner is providing them; the Doppelganger Delay has one). The IR loader (local .wav cab IRs) and the Doppelganger Delay (echoes alternate flanger/chorus; `docs/Architecture.md` 4.7b) are also done, at the owner's request, and so is the pedal set (`docs/Requirements.md` "Pedals", Architecture 4.11; owner's call: no rush to v1). Next: M10 (v1.0 release: performance, DAW testing, docs).
+- **Current milestone**: M1, M2 (minus resampling), M3 (delay, reverb, compressor), M5 (library, settings), M6 (split/merge), M7 (presets, undo/redo, MIDI learn), M8 (tuner) and M9 (metronome) are done, and M4 is done except real block images (the owner is providing them; the Doubler has one). The IR loader (local .wav cab IRs) and the Doppelganger Delay (echoes alternate flanger/chorus; `docs/Architecture.md` 4.7b) are also done, at the owner's request, and so is the pedal set (`docs/Requirements.md` "Pedals", Architecture 4.11; owner's call: no rush to v1). Next: M10 (v1.0 release: performance, DAW testing, docs).
 
 ## Fixed decisions (don't revisit without the owner)
 
@@ -65,7 +65,7 @@ src/state/            Plain data shared by DSP and UI, no DPF:
 src/plugin/           DistrhoPluginInfo.h + DSP side (Plugin subclass; thin wrapper around Engine)
 src/ui/               UI side (UI subclass, NanoVG). Immediate-mode: draw functions record hit areas, mouse handlers look them up.
                       Tuner and metronome panels are overlays over the chain. OpenUrl.cpp keeps <windows.h> out of the DPF code
-                      BlockImages.cpp (generated) holds the built-in block images
+                      BlockImages.cpp (generated) holds the built-in block images; ParamHelp.cpp the hover help texts
 tests/                doctest unit tests; TestSupport.hpp has a test block and an allocation counter
 docs/                 Requirements and architecture
 resources/sounds/     Classic metronome samples from Fretbored; tools/embed_sounds.py turns them into ClickSamples.cpp
@@ -121,6 +121,7 @@ The file browser opens in the host's working directory. Final checks happen in R
 - Blocks get the host tempo through `Block::setTempo()` and can show a level in the UI through `Block::meter()` (one hidden output parameter per slot, `slotMeterParam()`; the descriptor's `meterName` makes the panel show it). `Block::setRigInput()` gives blocks the chain's input (the noise gate's "Rig In" key).
 - Tempo sync is generic: a descriptor's `syncParam`/`syncedParam`/`syncedIsRate` make the UI show note values (`TempoSync.hpp`); the block maps the knob itself. While the host plays, `Block::setSongPosition()` gives the position in quarter notes; synced LFOs lock to it (`Lfo::syncTo`), so they land on the beat.
 - A `Choice` parameter's list must never grow or shrink once released: its normalized values would map to other choices in saved projects. Add a new block type instead.
+- Every control needs a hover help text in `src/ui/ParamHelp.cpp` (plain English: what it does and how to use it); `tests/ParamHelpTests.cpp` fails for a block or global control without one. Help is keyed by typeId and control name, so renaming a control means renaming its help entry.
 - `tests/BlockSanityTests.cpp` runs every registered block at default, extreme and random settings (finite, bounded, no allocation, silent for silence). New blocks get behaviour tests too (`tests/PedalTests.cpp`).
 - Block `typeId`s are stored in presets and plugin state — never rename one.
 - Parameter values live in the host. `ChainState.params`/`bypass` are only for presets and undo; the UI pushes them to the host.
@@ -137,7 +138,7 @@ The file browser opens in the host's working directory. Final checks happen in R
 - The engine reports running slots through two output parameters (`kParamRunningSlotsLow/High`); the UI marks blocks that haven't started 2.5 s after a chain change, and shows a banner if none have.
 - **Reaper's LV2 hosting doesn't deliver the UI's state messages to the DSP** (confirmed by the owner; VST3 works). So the chain has a second route: the UI writes it to a per-instance file and bumps the hidden Chain Revision parameter; a DSP thread reads the file (`src/state/ChainExchange.*`). The DSP also keeps the chain itself (`DISTRHO_PLUGIN_WANT_FULL_STATE`) for project save/restore and writes the file so a reopened UI can read it. Test the fallback with a build configured with `-DCMAKE_CXX_FLAGS=-DNAMSAYIN_TEST_NO_STATE_MESSAGE` (UI never sends the state message) in jalv.
 - Metronome: see `docs/Architecture.md` 4.10. All its settings are host parameters (most hidden), not state, so they reach the DSP in every host. After changing `resources/sounds/`, run `python3 tools/embed_sounds.py`; never edit `ClickSamples.cpp` by hand. Digital and Beep are generated in code. Only add samples the owner has cleared for MIT (two Digital samples carrying a third-party artist credit were removed).
-- Block images: a block's sidecar image wins; otherwise its type's built-in image from `resources/blocks/<typeId>.*` (any format Pillow reads; embedded as 8-bit PNG, max 480 px high); otherwise the drawn placeholder art. After changing `resources/blocks/`, run `python3 tools/embed_block_images.py` (needs Pillow); never edit `BlockImages.cpp` by hand. First one: the "Doubler" pedal for the Doppelganger Delay, added to try the look.
+- Block images: a block's sidecar image wins; otherwise its type's built-in image from `resources/blocks/<typeId>.*` (any format Pillow reads; embedded as 8-bit PNG, max 480 px high); otherwise the drawn placeholder art. After changing `resources/blocks/`, run `python3 tools/embed_block_images.py` (needs Pillow); never edit `BlockImages.cpp` by hand. First one: the "Doubler" pedal for the Doubler block, added to try the look.
 - Tuner: see `docs/Architecture.md` 4.9. The plugin runs `Engine::analyzeTuner()` on its own thread every 20 ms while the tuner is on. Accuracy tests are in `tests/TunerTests.cpp`; keep them passing (±0.1 cent from 31 to 1319 Hz) when touching the detector.
 - Split/merge: see `docs/Architecture.md` 4.4. The merge controls are host parameters (after the slots). Parallel processing is the Settings toggle; the DSP reads it when it builds a chain.
 - Not done yet in the NAM block: resampling when the host rate differs from the model's training rate.
@@ -152,4 +153,5 @@ The file browser opens in the host's working directory. Final checks happen in R
 - Presets store the global sound controls (input mode, input, bass, middle, treble, output, limiter) and the merge controls by parameter symbol; ones a preset lacks go back to their defaults on load. Embedded files live under `files/<hash>/` in the zip and are extracted to `cache/presets/<hash>/` with their sidecar images.
 - DPF's file browser doesn't open in the headless test setup (no desktop portal), so presets were tested there through the Recent list; check Open/Save As in Reaper.
 - Fretbored (the owner's other app, https://github.com/singularity098/fretbored) is the reference for the metronome and tuner features (`js/metronome.js`, `js/pitch.js`, `js/tuner.js`).
+- Redraw rate: on Linux the UI can only redraw once per host idle tick (pugl processes X11 events and exposes from the host's idle/timer callback; DPF asks VST3 hosts for 16 ms, LV2 hosts choose their own rate, jalv ~30 Hz). A frame costs well under 1 ms of CPU, so drawing isn't the bottleneck. Windows redraws from the native message loop.
 - Tone3000's site is blocked by this cloud environment's network policy, so its API docs can't be fetched here.

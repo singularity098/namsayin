@@ -247,7 +247,7 @@ Notes:
 
 - DPF UI with NanoVG drawing. Resizable, with HiDPI scaling. The default logical size is ~1200 × 720 and the minimum is ~900 × 560.
 - Layout:
-  - **Top bar**: preset menu and preset name, undo/redo, global bypass; on the right, the Fretbored link, metronome and tuner buttons.
+  - **Top bar**: preset menu and preset name, undo/redo; on the right, icon buttons for the Fretbored link (the Fretbored app icon, drawn as vectors from its `assets/icon.svg`), the metronome (with ▾ for its panel), the tuner, settings and global bypass.
   - **Middle**: the chain, left to right, with square block tiles and "+" boxes. A split shows as two rows that rejoin at the merge.
   - **Below the chain**: the selected block's panel: a large block image on the left (placeholder art until real pedal/amp/cab images exist), the name and file above the controls, and the generic controls right-justified in one or more rows. The generic knobs may later go away in favour of turning knobs on the image itself.
   - **Bottom bar**: mono/stereo toggle, input, bass, middle, treble and output knobs, input/output meters with clip lights (click to reset), limiter on/off.
@@ -256,6 +256,7 @@ Notes:
   - Right-click a block: bypass, remove, MIDI learn.
   - Double-click a knob to reset it; Shift-drag for fine control.
 - **Dialogs**: Add Block (categories on the left), Settings, and the Tuner and Metronome panels (overlays).
+- **Hover help**: resting the mouse on a control for 0.6 s shows a translucent popup with its name and a plain-English explanation of what it does and how to use it. The texts are in `src/ui/ParamHelp.cpp` (block controls by typeId and control name, the others by parameter symbol); `tests/ParamHelpTests.cpp` checks that every block control and every global control has one, at least 80 characters long. The top-bar icon buttons and the metronome's beat, grouping and tap controls have popups too.
 - A dark theme defined as colour tokens in one file, so it can be restyled: pure black window, flat near-black gray bars and panels.
 - The Fretbored link opens the browser through a small platform helper (`xdg-open` / `ShellExecute`).
 

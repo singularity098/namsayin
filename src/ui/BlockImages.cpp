@@ -11,7 +11,7 @@ namespace namsayin {
 
 namespace {
 
-const unsigned char kdoppelgangerPng[] = {
+const unsigned char kdoublerPng[] = {
     137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 1, 97,
     0, 0, 1, 224, 8, 6, 0, 0, 0, 116, 19, 220, 170, 0, 1, 0, 0, 73, 68, 65,
     84, 120, 218, 236, 253, 121, 184, 101, 215, 85, 31, 138, 254, 198, 156, 115, 173, 181, 155, 211,
@@ -15046,8 +15046,8 @@ const unsigned char kdoppelgangerPng[] = {
 
 BuiltinImage builtinBlockImage(const char* typeId)
 {
-    if (std::strcmp(typeId, "doppelganger") == 0)
-        return { kdoppelgangerPng, sizeof(kdoppelgangerPng) };
+    if (std::strcmp(typeId, "doubler") == 0)
+        return { kdoublerPng, sizeof(kdoublerPng) };
     return { nullptr, 0 };
 }
 
