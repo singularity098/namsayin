@@ -35,7 +35,6 @@ public:
         fSampleRate = sampleRate;
         fTank.prepare(sampleRate, kMaxSize);
         fShiftLine.prepare(static_cast<size_t>(std::ceil(kShimmerWindowMs / 1000.0 * sampleRate)) + 8);
-        fVoice.setWindow(sampleRate, kShimmerWindowMs);
         fShimmer.prepare(sampleRate, 0.05);
         fMix.prepare(sampleRate);
         fFeedbackHighPass.setLowPass(sampleRate, 150.0);
@@ -76,7 +75,7 @@ public:
             // the tail, pitch shifted and fed back in; soft-limited, and scaled so the loop's gain stays under one
             // however long the decay
             fShiftLine.write(fFeedbackHighPass.highPass(0.5f * (fLastL + fLastR)));
-            const float shifted = fVoice.read(fShiftLine, fRatio);
+            const float shifted = fVoice.read(fShiftLine, fRatio, shimmerWindow());
             const float feed = shaper::soft(shifted * shimmer * fFeedScale);
 
             float wetL, wetR;
@@ -103,7 +102,7 @@ public:
     {
         fTank.reset();
         fShiftLine.reset();
-        fVoice.reset();
+        fVoice.reset(shimmerWindow());
         fFeedbackHighPass.reset();
         fLowCutFilter[0].reset();
         fLowCutFilter[1].reset();
@@ -112,6 +111,8 @@ public:
     }
 
 private:
+    float shimmerWindow() const { return static_cast<float>(kShimmerWindowMs / 1000.0 * fSampleRate); }
+
     void applyAll()
     {
         fTank.setSize(0.5 + fSize);

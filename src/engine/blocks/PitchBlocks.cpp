@@ -19,8 +19,8 @@ namespace {
 
 constexpr double kMaxWindowMs = 120.0;
 
-// What the pitch blocks share: a delay line per channel and N voices per channel reading it, a tone filter per
-// channel, the window
+// What the pitch blocks share: a delay line per channel and N voices per channel reading it, a pitch tracker on the
+// mono input (so windows can be pitch-synchronous while a single note sounds), a tone filter per channel, the window
 template <int N>
 class PitchBase : public Block {
 public:
@@ -29,6 +29,8 @@ public:
         fSampleRate = sampleRate;
         for (DelayLine& line : fLines)
             line.prepare(static_cast<size_t>(std::ceil(kMaxWindowMs / 1000.0 * sampleRate)) + 8);
+        fMaxWindow = static_cast<float>(kMaxWindowMs / 1000.0 * sampleRate);
+        fTracker.prepare(sampleRate);
         updateWindow();
         updateTone();
         reset();
@@ -36,12 +38,13 @@ public:
 
     void reset() override
     {
+        fTracker.reset();
         for (int ch = 0; ch < 2; ++ch)
         {
             fLines[ch].reset();
             fTone[ch].reset();
             for (int v = 0; v < N; ++v)
-                fVoices[ch][v].reset(0.25 * v); // voices start at different points, so they don't jump together
+                fVoices[ch][v].reset(fWindow, 0.25 * v); // voices start at different points, so they don't jump together
         }
     }
 
@@ -58,6 +61,16 @@ protected:
         updateTone();
     }
 
+    // Follows the input (mono) and returns the window for this sample: a whole number of the note's periods while
+    // a single note sounds, else the Window setting
+    float track(float in)
+    {
+        fTracker.process(in);
+        return pitchSyncWindow(fWindow, fTracker.sounding() ? fTracker.hz() : 0.0, fSampleRate, fMaxWindow);
+    }
+
+    double trackedHz() const { return fTracker.hz(); }
+
     float tone(uint32_t ch, float x) { return fToneOn ? fTone[ch].process(x) : x; }
 
     double fSampleRate = 48000.0;
@@ -65,12 +78,7 @@ protected:
     PitchVoice fVoices[2][N];
 
 private:
-    void updateWindow()
-    {
-        for (auto& channel : fVoices)
-            for (PitchVoice& voice : channel)
-                voice.setWindow(fSampleRate, fWindowMs);
-    }
+    void updateWindow() { fWindow = std::min(static_cast<float>(fWindowMs / 1000.0 * fSampleRate), fMaxWindow); }
 
     void updateTone()
     {
@@ -80,9 +88,12 @@ private:
     }
 
     float fWindowMs = 45.0f;
+    float fWindow = 2160.0f;
+    float fMaxWindow = 5760.0f;
     float fToneHz = 20000.0f;
     bool fToneOn = false;
     Biquad fTone[2];
+    PitchTracker fTracker;
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -133,6 +144,7 @@ public:
         {
             const float levels[2] = { fLevel[0].next(), fLevel[1].next() };
             const float dry = fDry.next();
+            const float window = track(numChannels > 1 ? 0.5f * (io[0][i] + io[1][i]) : io[0][i]);
             for (uint32_t ch = 0; ch < numChannels; ++ch)
             {
                 const float x = io[ch][i];
@@ -140,7 +152,7 @@ public:
                 float wet = 0.0f;
                 for (int v = 0; v < 2; ++v)
                 {
-                    const float y = fVoices[ch][v].read(fLines[ch], ratios[v]); // keep each voice moving
+                    const float y = fVoices[ch][v].read(fLines[ch], ratios[v], window); // keep each voice moving
                     wet += y * levels[v];
                 }
                 io[ch][i] = x * dry + tone(ch, wet);
@@ -203,11 +215,12 @@ public:
         for (uint32_t i = 0; i < frames; ++i)
         {
             const double ratio = semitonesToRatio(fInterval * fPosition.next());
+            const float window = track(numChannels > 1 ? 0.5f * (io[0][i] + io[1][i]) : io[0][i]);
             for (uint32_t ch = 0; ch < numChannels; ++ch)
             {
                 const float x = io[ch][i];
                 fLines[ch].write(x);
-                const float wet = fVoices[ch][0].read(fLines[ch], ratio);
+                const float wet = fVoices[ch][0].read(fLines[ch], ratio, window);
                 io[ch][i] = fHarmony ? 0.7071f * (x + wet) : wet;
             }
         }
@@ -279,6 +292,7 @@ public:
             for (int v = 0; v < 4; ++v)
                 levels[v] = fLevel[v].next();
             const float dry = fDry.next();
+            const float window = track(numChannels > 1 ? 0.5f * (io[0][i] + io[1][i]) : io[0][i]);
             for (uint32_t ch = 0; ch < numChannels; ++ch)
             {
                 const float x = io[ch][i];
@@ -286,7 +300,7 @@ public:
                 float wet = 0.0f;
                 for (int v = 0; v < 4; ++v)
                 {
-                    const float y = fVoices[ch][v].read(fLines[ch], kPolyRatios[v]);
+                    const float y = fVoices[ch][v].read(fLines[ch], kPolyRatios[v], window);
                     wet += y * levels[v];
                 }
                 io[ch][i] = x * dry + tone(ch, wet);
@@ -338,7 +352,6 @@ public:
             s->prepare(sampleRate);
         for (Smoother& s : fShift)
             s.prepare(sampleRate, 0.015);
-        fTracker.prepare(sampleRate);
         PitchBase::prepare(sampleRate, maxFrames);
         fSnap = true;
     }
@@ -369,14 +382,11 @@ public:
         }
         for (uint32_t i = 0; i < frames; ++i)
         {
-            float in = io[0][i];
-            if (numChannels > 1)
-                in = 0.5f * (in + io[1][i]);
-            fTracker.process(in);
-            if (fTracker.hz() > 0.0)
+            const float window = track(numChannels > 1 ? 0.5f * (io[0][i] + io[1][i]) : io[0][i]);
+            if (trackedHz() > 0.0)
             {
                 // the played note, to the nearest semitone; the harmony is relative to it, so bends carry over
-                const int note = static_cast<int>(std::lround(69.0 + 12.0 * std::log2(fTracker.hz() / 440.0)));
+                const int note = static_cast<int>(std::lround(69.0 + 12.0 * std::log2(trackedHz() / 440.0)));
                 for (int v = 0; v < 2; ++v)
                     fShift[v].setTarget(static_cast<float>(harmonySemitones(note, fKey, fScale, fSteps[v])));
             }
@@ -389,7 +399,7 @@ public:
                 fLines[ch].write(x);
                 float wet = 0.0f;
                 for (int v = 0; v < 2; ++v)
-                    wet += fVoices[ch][v].read(fLines[ch], ratios[v]) * levels[v];
+                    wet += fVoices[ch][v].read(fLines[ch], ratios[v], window) * levels[v];
                 io[ch][i] = x * dry + wet;
             }
         }
@@ -398,7 +408,6 @@ public:
     void reset() override
     {
         PitchBase::reset();
-        fTracker.reset();
         fSnap = true;
     }
 
@@ -406,7 +415,6 @@ private:
     int fKey = 0;
     int fScale = 0;
     int fSteps[2] = { 2, 4 };
-    PitchTracker fTracker;
     Smoother fShift[2];
     Smoother fLevel[2], fDry;
     bool fSnap = true;

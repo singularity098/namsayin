@@ -790,3 +790,32 @@ TEST_CASE("filter types, and its sweep")
     const auto env = envelope(x[0], 480);
     CHECK(*std::max_element(env.begin(), env.end()) > 10.0 * *std::min_element(env.begin(), env.end()));
 }
+
+TEST_CASE("pitch shifting a single note is clean (pitch-synchronous splices)")
+{
+    // a guitar-like note with six harmonics, a fifth up: nearly all the output energy is at the shifted harmonics
+    for (const double hz : { 82.4, 196.0, 329.6 })
+    {
+        CAPTURE(hz);
+        auto block = make(kPitchShifterBlockDescriptor);
+        block->setParam(kPitchParamShift1, 7.0f);
+        block->setParam(kPitchParamDry, 0.0f);
+        std::vector<std::vector<float>> x(1, std::vector<float>(96000));
+        for (size_t i = 0; i < x[0].size(); ++i)
+        {
+            double v = 0.0;
+            for (int h = 1; h <= 6; ++h)
+                v += 0.15 / h * std::sin(2.0 * M_PI * hz * h * static_cast<double>(i) / kRate + h);
+            x[0][i] = static_cast<float>(v);
+        }
+        testing::runBlock(*block, x);
+        const double total = testing::rms(x[0], 48000, 96000);
+        double shifted = 0.0;
+        for (int h = 1; h <= 6; ++h)
+        {
+            const double a = toneAt(x[0], hz * std::exp2(7.0 / 12.0) * h, 48000, 96000);
+            shifted += a * a / 2.0;
+        }
+        CHECK(shifted / (total * total) > 0.95);
+    }
+}
