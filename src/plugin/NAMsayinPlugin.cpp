@@ -5,9 +5,11 @@
 
 #include "engine/Engine.hpp"
 #include "state/ChainExchange.hpp"
+#include "state/Settings.hpp"
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <mutex>
@@ -40,6 +42,7 @@ public:
         fInstanceId = 1 + random() % kMaxExchangeValue;
         fEngine.setParameter(kParamInstanceId, static_cast<float>(fInstanceId));
         fExchangeThread = std::thread([this] { watchExchange(); });
+        fTunerThread = std::thread([this] { runTuner(); });
     }
 
     ~NAMsayinPlugin() override
@@ -47,6 +50,8 @@ public:
         fStopExchange = true;
         if (fExchangeThread.joinable())
             fExchangeThread.join();
+        if (fTunerThread.joinable())
+            fTunerThread.join();
         std::remove(chainExchangePath(fInstanceId).c_str());
     }
 
@@ -171,10 +176,22 @@ protected:
                 requestParameterValueChange(static_cast<uint32_t>(result.param), result.value);
         }
 
+        // The host's transport: tempo for tempo-synced blocks, and the metronome's DAW sync
         const TimePosition& time = getTimePosition();
         if (time.bbt.valid)
             fEngine.setTempo(time.bbt.beatsPerMinute);
-        fEngine.process(inputs, outputs, frames);
+        Transport transport;
+        transport.valid = time.bbt.valid && time.bbt.ticksPerBeat > 0.0;
+        transport.playing = time.playing;
+        if (transport.valid)
+        {
+            transport.bpm = time.bbt.beatsPerMinute;
+            transport.beatsPerBar = static_cast<int>(std::lround(time.bbt.beatsPerBar));
+            transport.beat = (time.bbt.bar - 1) * static_cast<double>(time.bbt.beatsPerBar) + (time.bbt.beat - 1) +
+                             time.bbt.tick / time.bbt.ticksPerBeat;
+        }
+
+        fEngine.process(inputs, outputs, frames, &transport);
 
         const uint32_t latency = fEngine.latency();
         if (latency != fReportedLatency)
@@ -188,12 +205,15 @@ private:
     // Non-RT. Builds the chain and keeps its JSON for getState() and the exchange file.
     void applyChain(const char* const json)
     {
+        // Settings > Parallel processing (the UI resends the chain when it changes)
+        const bool parallel = Settings::load().parallel;
         {
             // the same chain often arrives twice (state message and exchange file)
             const std::lock_guard<std::mutex> lock(fChainMutex);
-            if (fChainJson == json)
+            if (fChainJson == json && fParallel == parallel)
                 return;
         }
+        fEngine.setParallelProcessing(parallel);
         std::string error;
         const std::optional<ChainState> chain = ChainState::fromJson(json, &error);
         if (!chain || !fEngine.setChain(*chain, &error))
@@ -204,6 +224,7 @@ private:
         {
             const std::lock_guard<std::mutex> lock(fChainMutex);
             fChainJson = json;
+            fParallel = parallel;
         }
         writeChainExchange(fInstanceId, json);
     }
@@ -224,14 +245,28 @@ private:
         }
     }
 
+    // The tuner's pitch analysis, off the audio thread (docs/Architecture.md 4.9)
+    void runTuner()
+    {
+        while (!fStopExchange)
+        {
+            const bool on = fEngine.getParameter(kParamTuner) >= 0.5f;
+            if (on || fEngine.getParameter(kParamTunerFrequency) != 0.0f)
+                fEngine.analyzeTuner();
+            std::this_thread::sleep_for(std::chrono::milliseconds(on ? 20 : 50));
+        }
+    }
+
     Engine fEngine;
     uint32_t fReportedLatency = 0;
 
     uint32_t fInstanceId = 0;
     mutable std::mutex fChainMutex;
     std::string fChainJson;
-    std::atomic<bool> fStopExchange { false };
+    bool fParallel = true; // the setting the current chain was built with
+    std::atomic<bool> fStopExchange { false }; // stops both threads
     std::thread fExchangeThread;
+    std::thread fTunerThread;
 
     DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NAMsayinPlugin)
 };

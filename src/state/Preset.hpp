@@ -29,7 +29,8 @@ struct Preset {
     static std::optional<Preset> fromJson(std::string_view json, std::string* error = nullptr);
 };
 
-// The global parameters a preset stores: input mode, input, bass, middle, treble, output, limiter
+// The global parameters a preset stores: input mode, input, bass, middle, treble, output, limiter and the
+// split's merge controls
 const std::vector<uint32_t>& presetGlobalParams();
 
 bool savePresetFile(const std::string& path, const Preset& preset, bool embedFiles, std::string* error = nullptr);

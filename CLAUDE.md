@@ -8,7 +8,7 @@ NAMsayin is a guitar rig plugin (VST3 + LV2) in C++20, built with DPF (plugin fr
 
 - **Requirements**: `docs/Requirements.md` — the owner's feature list plus agreed decisions. Treat it as the source of truth; record new decisions there.
 - **Architecture and milestones**: `docs/Architecture.md` — design, v1 milestones (M0–M10) and decisions log.
-- **Current milestone**: M1, M2 (minus resampling), M3 (delay, reverb, compressor), M5 (library, settings) and M7 (presets, undo/redo, MIDI learn) are done, and M4 is done except real block images (the owner will provide them). The IR loader (local .wav cab IRs) is also done, at the owner's request. Next: M6 (split/merge), then M8 (tuner) and M9 (metronome).
+- **Current milestone**: M1, M2 (minus resampling), M3 (delay, reverb, compressor), M5 (library, settings), M6 (split/merge), M7 (presets, undo/redo, MIDI learn), M8 (tuner) and M9 (metronome) are done, and M4 is done except real block images (the owner will provide them). The IR loader (local .wav cab IRs) is also done, at the owner's request. Next: M10 (v1.0 release: performance, DAW testing, docs).
 
 ## Fixed decisions (don't revisit without the owner)
 
@@ -37,13 +37,16 @@ src/engine/           Audio engine, independent of DPF (static library `namsayin
   Params.*            Host parameter indices and global parameter specs
   Block.hpp           Block base class, ParamSpec, BlockDescriptor, Category
   BlockRegistry.*     The list of built-in block types — add new effects here
-  Engine.*            Input stage, chain, tone stack, output, limiter, meters; lock-free chain swaps
+  Engine.*            Input stage, chain (with split/merge), tone stack, output, limiter, meters; lock-free chain swaps
+  ParallelWorker.*    Thread that runs split branch B on a second core
   SpscQueue.hpp       Lock-free queue (retired graphs go back to the non-RT side through it)
   dsp/                Smoother, Biquad, ToneStack, Limiter, Meter
-  dsp/DelayLine.hpp   Delay line with Hermite reads, sine LFO, dry/wet mix law
+  dsp/DelayLine.hpp   Delay line with Hermite reads, sine LFO, dry/wet mix law; AlignmentDelay (split branches)
+  tuner/              PitchDetector (MPM + sub-cent refinement), Tuner (ring buffer from the audio thread, analysis off it)
+  metronome/          Metronome (sample-accurate, free and DAW sync), ClickSamples.cpp (generated)
   blocks/             Block implementations (NamBlock, IrBlock, DelayBlock, ReverbBlock, CompressorBlock)
 src/state/            Plain data shared by DSP and UI, no DPF:
-  ChainState          the chain (JSON)
+  ChainState          the chain (JSON; the split is a block range + per-block branch tag)
   ChainExchange       chain file route for hosts that drop UI state messages
   Paths               per-user config/cache dirs, UTF-8 path conversion, atomic file writes
   Settings            global settings and favorites (one JSON file per user)
@@ -52,9 +55,13 @@ src/state/            Plain data shared by DSP and UI, no DPF:
   Preset              .namsayin preset files (zip: preset.json + embedded files), missing-file resolution
   UndoStack           undo/redo of chain snapshots
 src/plugin/           DistrhoPluginInfo.h + DSP side (Plugin subclass; thin wrapper around Engine)
-src/ui/               UI side (UI subclass, NanoVG). Immediate-mode: draw functions record hit areas, mouse handlers look them up
+src/ui/               UI side (UI subclass, NanoVG). Immediate-mode: draw functions record hit areas, mouse handlers look them up.
+                      Tuner and metronome panels are overlays over the chain. OpenUrl.cpp keeps <windows.h> out of the DPF code
+                      LogoImage.cpp (generated) holds the top bar logo
 tests/                doctest unit tests; TestSupport.hpp has a test block and an allocation counter
 docs/                 Requirements and architecture
+resources/sounds/     Classic metronome samples from Fretbored; tools/embed_sounds.py turns them into ClickSamples.cpp
+resources/logo/       logo.png (the owner's logo, as given) and logo-ui.png (transparent, made by tools/embed_logo.py)
 deps/khronos/         Vendored glext.h + khrplatform.h (MSVC has none; DPF's download is unreliable)
 .github/workflows/    CI: Linux (Ninja) and Windows (MSVC) builds + tests
 .github/scripts/      CI helper scripts
@@ -116,6 +123,10 @@ The file browser opens in the host's working directory. Final checks happen in R
 - NAM tests use the models in `deps/NeuralAmpModelerCore/example_models` (`NAMSAYIN_EXAMPLE_MODELS`).
 - The engine reports running slots through two output parameters (`kParamRunningSlotsLow/High`); the UI marks blocks that haven't started 2.5 s after a chain change, and shows a banner if none have.
 - **Reaper's LV2 hosting doesn't deliver the UI's state messages to the DSP** (confirmed by the owner; VST3 works). So the chain has a second route: the UI writes it to a per-instance file and bumps the hidden Chain Revision parameter; a DSP thread reads the file (`src/state/ChainExchange.*`). The DSP also keeps the chain itself (`DISTRHO_PLUGIN_WANT_FULL_STATE`) for project save/restore and writes the file so a reopened UI can read it. Test the fallback with a build configured with `-DCMAKE_CXX_FLAGS=-DNAMSAYIN_TEST_NO_STATE_MESSAGE` (UI never sends the state message) in jalv.
+- Metronome: see `docs/Architecture.md` 4.10. All its settings are host parameters (most hidden), not state, so they reach the DSP in every host. After changing `resources/sounds/`, run `python3 tools/embed_sounds.py`; never edit `ClickSamples.cpp` by hand. Digital and Beep are generated in code. Only add samples the owner has cleared for MIT (two Digital samples carrying a third-party artist credit were removed).
+- Logo: the top bar draws `resources/logo/logo-ui.png`, built into the binary as `src/ui/LogoImage.cpp`. After changing `resources/logo/logo.png`, run `python3 tools/embed_logo.py` (needs Pillow); never edit `LogoImage.cpp` by hand. The owner calls it the logo "for now".
+- Tuner: see `docs/Architecture.md` 4.9. The plugin runs `Engine::analyzeTuner()` on its own thread every 20 ms while the tuner is on. Accuracy tests are in `tests/TunerTests.cpp`; keep them passing (±0.1 cent from 31 to 1319 Hz) when touching the detector.
+- Split/merge: see `docs/Architecture.md` 4.4. The merge controls are host parameters (after the slots). Parallel processing is the Settings toggle; the DSP reads it when it builds a chain.
 - Not done yet in the NAM block: resampling when the host rate differs from the model's training rate.
 - IR block: WAV files via NAM Core's `nam::detail::load_wav_ir` (PCM 16/24/32, float 32; channels stored contiguously), linearly resampled to the host rate, energy-normalized, convolved with FFTConvolver's `TwoStageFFTConvolver` (head 64, tail 2048; zero latency). Low/High Cut are off at the ends of their ranges.
 - NAM A2 Full/Lite: `nam::SlimmableModel::SetSlimmableSize(1.0)` = Full, `0.0` = Lite (`NAM/slimmable.h`). Not real-time safe — call it off the audio thread.
@@ -125,7 +136,7 @@ The file browser opens in the host's working directory. Final checks happen in R
 - Text fields (search, folders) need keyboard focus. Some hosts keep keys for themselves; in Reaper, check that typing in the plugin window works (FX window option "Send all keyboard input to plugin" if not).
 - MIDI learn: the map (CC → host parameter) is part of the chain state, so it travels like the chain and is in undo and presets. The DSP applies mapped CCs at the start of each buffer and reports every CC (`kParamMidiLastCc/LastValue/CcCount`); the UI learns from those, and also writes mapped values to the host, because LV2 hosts mostly can't take parameter changes from the DSP (VST3 can: `requestParameterValueChange`). The host must route MIDI to the plugin's track.
 - Undo covers the chain (blocks, block values, bypass, MIDI map), not the global knobs. Call `beginEdit()` before changing `fChain` in the UI. The UI mirrors host slot values into `fChain` (`syncChainValue`), so presets save automated values too.
-- Presets store the global sound controls (input mode, input, bass, middle, treble, output, limiter) by parameter symbol. Embedded files live under `files/<hash>/` in the zip and are extracted to `cache/presets/<hash>/` with their sidecar images.
+- Presets store the global sound controls (input mode, input, bass, middle, treble, output, limiter) and the merge controls by parameter symbol; ones a preset lacks go back to their defaults on load. Embedded files live under `files/<hash>/` in the zip and are extracted to `cache/presets/<hash>/` with their sidecar images.
 - DPF's file browser doesn't open in the headless test setup (no desktop portal), so presets were tested there through the Recent list; check Open/Save As in Reaper.
-- Fretbored (the owner's other app, https://github.com/singularity098/fretbored) is the reference for the metronome and tuner features.
+- Fretbored (the owner's other app, https://github.com/singularity098/fretbored) is the reference for the metronome and tuner features (`js/metronome.js`, `js/pitch.js`, `js/tuner.js`).
 - Tone3000's site is blocked by this cloud environment's network policy, so its API docs can't be fetched here.

@@ -60,6 +60,51 @@ enum LaterParam : uint32_t {
     kParamMidiCcCount,                    // output, hidden
     kParamMidiLastValue,                  // output, hidden: 0..127
 
+    // merge of the split (M6)
+    kParamMergeBalance,     // -100 (only A) .. 100 (only B) %; both at full level in the middle
+    kParamMergeLevelA,      // dB
+    kParamMergeLevelB,
+    kParamMergePanA,        // -100 (left) .. 100 (right) %; stereo mode only
+    kParamMergePanB,
+    kParamMergeInvertA,     // phase invert
+    kParamMergeInvertB,
+
+    // tuner (M8)
+    kParamTuner,            // on/off
+    kParamTunerMute,        // mute the guitar while the tuner is on
+    kParamTunerReference,   // A4 in Hz
+    kParamTunerStrobe,      // hidden, UI only: strobe view instead of the needle
+    kParamTunerFrequency,   // output: detected frequency in Hz, 0 when there's no clear note
+    kParamTunerClarity,     // output: 0..1
+
+    // metronome (M9). Tempo, volume, on/off and sync are automatable; the rest are hidden settings.
+    kParamMetronome,        // on/off (start/stop, or armed to follow the DAW's transport)
+    kParamMetroTempo,       // BPM
+    kParamMetroVolume,      // %
+    kParamMetroSync,        // follow the DAW's tempo, meter and transport
+    kParamMetroBeats,       // beats per bar, 1..16
+    kParamMetroNoteValue,   // 0..3: the beat is a half, quarter, eighth or sixteenth note
+    kParamMetroGrouping,    // UI only: bit i set = a group starts at beat i (0 = no grouping)
+    kParamMetroSubdivision, // MetroSubdivision
+    kParamMetroSound,       // 0 Classic, 1 Digital, 2 Beep
+    kParamMetroSubVolume,   // %, relative to the volume
+    kParamMetroTrainer,     // 0 off, 1 step, 2 gradual
+    kParamMetroTrainerStart, // BPM
+    kParamMetroTrainerEnd,   // BPM
+    kParamMetroTrainerStep,  // BPM per step
+    kParamMetroTrainerEvery, // bars per step
+    kParamMetroTrainerBars,  // bars for the gradual ramp
+    kParamMetroGap,         // gap trainer on/off
+    kParamMetroGapPlay,     // bars
+    kParamMetroGapMute,     // bars
+    kParamMetroAccent1,     // 16 beats: 0 mute, 1 soft, 2 normal, 3 accent
+    kParamMetroAccent16 = kParamMetroAccent1 + 15,
+    kParamMetroBeat,        // output: beat being heard (0-based), -1 when stopped
+    kParamMetroBeatCount,   // output: counts beats, so the UI can pulse on every one
+    kParamMetroBar,         // output: bar (0-based)
+    kParamMetroLiveTempo,   // output: tempo being played (the trainer changes it; the DAW's in sync mode)
+    kParamMetroSilent,      // output: 1 while the gap trainer mutes the click
+
     kParamCount
 };
 

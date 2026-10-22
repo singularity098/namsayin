@@ -77,6 +77,11 @@ add_library(namsayin-engine STATIC
   src/engine/blocks/NamBlock.cpp
   src/engine/blocks/ReverbBlock.cpp
   src/engine/Engine.cpp
+  src/engine/ParallelWorker.cpp
+  src/engine/metronome/ClickSamples.cpp
+  src/engine/metronome/Metronome.cpp
+  src/engine/tuner/PitchDetector.cpp
+  src/engine/tuner/Tuner.cpp
   src/engine/Params.cpp
   src/state/ChainExchange.cpp
   src/state/ChainState.cpp
@@ -88,7 +93,8 @@ add_library(namsayin-engine STATIC
 target_include_directories(namsayin-engine PUBLIC src)
 # Whole archive: NAM Core registers its model architectures from static initializers, which the linker would
 # otherwise drop ("No config parser registered for architecture")
-target_link_libraries(namsayin-engine PUBLIC "$<LINK_LIBRARY:WHOLE_ARCHIVE,nam>" fftconvolver miniz xxhash)
+find_package(Threads REQUIRED)
+target_link_libraries(namsayin-engine PUBLIC "$<LINK_LIBRARY:WHOLE_ARCHIVE,nam>" fftconvolver miniz xxhash Threads::Threads)
 
 set(NAMSAYIN_WARNINGS $<IF:$<CXX_COMPILER_ID:MSVC>,/W4,-Wall -Wextra -Wpedantic>)
 target_compile_options(namsayin-engine PRIVATE ${NAMSAYIN_WARNINGS})
@@ -102,7 +108,9 @@ dpf_add_plugin(namsayin
   FILES_DSP
     src/plugin/NAMsayinPlugin.cpp
   FILES_UI
-    src/ui/NAMsayinUI.cpp)
+    src/ui/LogoImage.cpp
+    src/ui/NAMsayinUI.cpp
+    src/ui/OpenUrl.cpp)
 
 target_include_directories(namsayin PUBLIC src src/plugin)
 
@@ -111,6 +119,9 @@ if(MSVC)
   target_include_directories(dgl-system-libs-definitions BEFORE INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/deps/khronos)
 endif()
 target_link_libraries(namsayin PUBLIC namsayin-engine)
+if(WIN32)
+  target_link_libraries(namsayin PUBLIC shell32) # ShellExecute, for the Fretbored link
+endif()
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Tests
@@ -127,10 +138,12 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/EngineTests.cpp
     tests/IrBlockTests.cpp
     tests/LibraryTests.cpp
+    tests/MetronomeTests.cpp
     tests/NamBlockTests.cpp
     tests/PresetTests.cpp
     tests/ReverbBlockTests.cpp
     tests/SettingsTests.cpp
+    tests/TunerTests.cpp
     tests/UndoStackTests.cpp)
   target_include_directories(namsayin-tests PRIVATE tests deps/doctest)
   target_link_libraries(namsayin-tests PRIVATE namsayin-engine)

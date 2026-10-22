@@ -1,8 +1,10 @@
 # NAMsayin
 
+<img src="resources/logo/logo.png" alt="NAMsayin logo" width="400">
+
 A free, open source guitar rig plugin (VST3 and LV2) built on [Neural Amp Modeler](https://github.com/sdatkinson/NeuralAmpModelerCore) and [DPF](https://github.com/DISTRHO/DPF). Runs on Linux and Windows (x86-64 with AVX2).
 
-Status: early prototype — load local NAM models (A1 and A2) and cab IRs (.wav), chain them, and shape the result with the global controls.
+Status: pre-release. Load NAM models (A1 and A2) and cab IRs (.wav) from your library (folders and zips), add delay, reverb and compressor blocks, chain them (with an optional parallel split), and shape the result with the global controls. Presets, undo/redo, MIDI learn, and a built-in tuner and metronome.
 
 ![NAMsayin prototype](docs/images/prototype.png)
 
