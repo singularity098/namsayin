@@ -37,6 +37,7 @@ enum class ParamScale {
     Log,     // min and max must be > 0
     Toggle,
     Choice,  // integer steps from min to max
+    Momentary, // 0/1 like a toggle, but the UI shows a button that is 1 only while held (footswitch actions)
 };
 
 // One block parameter. The host sees every slot parameter as 0..1; the spec maps that to the real value.
@@ -57,6 +58,7 @@ struct ParamSpec {
         case ParamScale::Log:
             return min * std::pow(max / min, n);
         case ParamScale::Toggle:
+        case ParamScale::Momentary:
             return n >= 0.5f ? 1.0f : 0.0f;
         case ParamScale::Choice:
             return std::round(min + n * (max - min));
@@ -75,6 +77,7 @@ struct ParamSpec {
             n = std::log(value / min) / std::log(max / min);
             break;
         case ParamScale::Toggle:
+        case ParamScale::Momentary:
             n = value >= 0.5f ? 1.0f : 0.0f;
             break;
         default:
@@ -121,6 +124,11 @@ public:
     virtual void setRigInput(const float* const* /*input*/, uint32_t /*numChannels*/) {}
 };
 
+enum class MeterStyle {
+    Reduction, // dB, positive
+    Looper,    // LooperStatus::encode()
+};
+
 struct BlockDescriptor {
     const char* typeId;      // stored in presets and plugin state; never rename
     const char* displayName;
@@ -135,9 +143,10 @@ struct BlockDescriptor {
     int syncParam = -1;
     int syncedParam = -1;
     bool syncedIsRate = false;
-    // The UI shows meter() as a gain reduction in dB (0..meterRange) under this name
+    // The UI shows meter() as a gain reduction in dB (0..meterRange) under this name, or as the looper's status
     const char* meterName = nullptr;
     float meterRange = 24.0f;
+    MeterStyle meterStyle = MeterStyle::Reduction;
 };
 
 } // namespace namsayin

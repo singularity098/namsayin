@@ -50,7 +50,7 @@ src/engine/           Audio engine, independent of DPF (static library `namsayin
   blocks/             Block implementations (NAM, IR, delay, reverb, compressor, gate, EQs, chorus, flanger, phaser,
                       tremolo, doubler, wah, auto wah, boost, overdrive, distortion, fuzz, bitcrusher, volume,
                       auto swell, ring mod, rotary, octave, pitch shifter, whammy, poly octave, spring reverb,
-                      shimmer, freeze, tape echo, ducking delay, ...)
+                      shimmer, freeze, tape echo, ducking delay, synth, looper, ...)
 src/state/            Plain data shared by DSP and UI, no DPF:
   ChainState          the chain (JSON; the split is a block range + per-block branch tag)
   ChainExchange       chain file route for hosts that drop UI state messages
@@ -111,7 +111,7 @@ The file browser opens in the host's working directory. Final checks happen in R
 - The UI may run in a separate process (LV2), so DSP↔UI communication goes through parameters and state only — no direct pointers.
 - `CMAKE_CXX_EXTENSIONS` is ON because DPF's UI code uses `typeof`.
 - **Host parameter indices are DAW automation IDs — never reorder or remove them.** Globals come first, then 32 slots × 9 (bypass + 8). Parameters added later go after the slots (`kFirstLaterParam` in `src/engine/Params.hpp`).
-- Slot parameters are normalized 0..1 for the host; each block's `ParamSpec` maps them to real values. `Choice` params list their labels in `ParamSpec::choices`; the UI draws them as a button that steps through the choices.
+- Slot parameters are normalized 0..1 for the host; each block's `ParamSpec` maps them to real values. `Choice` params list their labels in `ParamSpec::choices`; the UI draws them as a button that steps through the choices. `Momentary` params are footswitch actions (the looper's buttons): 1 while held (the UI holds a quick click for 80 ms so the DSP sees it), and the block acts on the 0 -> 1 edge, which also suits MIDI footswitches.
 - Blocks get the host tempo through `Block::setTempo()` and can show a level in the UI through `Block::meter()` (one hidden output parameter per slot, `slotMeterParam()`; the descriptor's `meterName` makes the panel show it). `Block::setRigInput()` gives blocks the chain's input (the noise gate's "Rig In" key).
 - Tempo sync is generic: a descriptor's `syncParam`/`syncedParam`/`syncedIsRate` make the UI show note values (`TempoSync.hpp`); the block maps the knob itself.
 - A `Choice` parameter's list must never grow or shrink once released: its normalized values would map to other choices in saved projects. Add a new block type instead.

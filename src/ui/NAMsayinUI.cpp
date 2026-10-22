@@ -9,6 +9,7 @@
 #include "engine/blocks/CompressorBlock.hpp"
 #include "engine/blocks/DelayBlock.hpp"
 #include "engine/blocks/IrBlock.hpp"
+#include "engine/blocks/LooperBlock.hpp"
 #include "engine/blocks/NamBlock.hpp"
 #include "state/ChainExchange.hpp"
 #include "state/ChainState.hpp"
@@ -109,6 +110,7 @@ struct Rect {
 enum class Hit {
     Knob,         // index = host parameter
     Toggle,       // index = host parameter (0/1 parameters)
+    Momentary,    // index = host parameter: 1 while the mouse is held, then 0
     Tile,         // index = position in the chain
     TileBypass,
     TileRemove,
@@ -614,6 +616,16 @@ protected:
             editParameter(hit->index, true);
             return true;
 
+        case Hit::Momentary:
+            // a footswitch press: no undo step, and back to 0 on release
+            if (fMomentaryReleasePending)
+                releaseMomentary();
+            fMomentaryParam = hit->index;
+            fMomentaryPressedAt = std::chrono::steady_clock::now();
+            fMomentaryReleasePending = false;
+            setNormalized(static_cast<uint32_t>(hit->index), 1.0f, true);
+            return true;
+
         case Hit::Toggle:
             if (isSlot(hit->index))
                 beginEdit();
@@ -1028,6 +1040,8 @@ protected:
 
     void uiIdle() override
     {
+        if (fMomentaryReleasePending && std::chrono::steady_clock::now() - fMomentaryPressedAt >= kMomentaryMinHold)
+            releaseMomentary();
         if (!fToast.empty() && std::chrono::steady_clock::now() - fToastAt > std::chrono::seconds(5))
             repaint();
         if (std::optional<LibraryScanner::Result> result = fScanner.poll())
@@ -1606,7 +1620,8 @@ private:
         if (hit == nullptr || fDialog != Dialog::None)
             return false;
 
-        if (hit->kind == Hit::Knob || hit->kind == Hit::Toggle || hit->kind == Hit::Choice)
+        if (hit->kind == Hit::Knob || hit->kind == Hit::Toggle || hit->kind == Hit::Momentary
+            || hit->kind == Hit::Choice)
         {
             const auto param = static_cast<uint32_t>(hit->index);
             if (!isMidiMappable(param))
@@ -1975,8 +1990,27 @@ private:
         return ((low | (high << 16)) >> slot) & 1u;
     }
 
+    void releaseMomentary()
+    {
+        setNormalized(static_cast<uint32_t>(fMomentaryParam), 0.0f, true);
+        fMomentaryParam = -1;
+        fMomentaryReleasePending = false;
+    }
+
     bool onRelease(float x, float y)
     {
+        if (fMomentaryParam >= 0)
+        {
+            // a quick click is held a moment longer (uiIdle releases it), so the DSP sees the press even if the
+            // release would land in the same audio buffer
+            if (std::chrono::steady_clock::now() - fMomentaryPressedAt < kMomentaryMinHold)
+            {
+                fMomentaryReleasePending = true;
+                return true;
+            }
+            releaseMomentary();
+            return true;
+        }
         if (fDragParam >= 0)
         {
             editParameter(static_cast<uint32_t>(fDragParam), false);
@@ -2130,6 +2164,23 @@ private:
         label(cx, cy - 26.0f, name, theme::textDim, 12.0f, ALIGN_CENTER | ALIGN_MIDDLE);
         drawButton({ cx - 42.0f, cy - 14.0f, 84.0f, 28.0f }, valueText(index).c_str(), false, theme::accent,
                    Hit::Choice, static_cast<int>(index));
+    }
+
+    // The looper's state, position in the loop and length
+    void drawLooperStatus(float cx, float cy, float value)
+    {
+        const LooperStatus status = LooperStatus::decode(value);
+        static constexpr const char* names[] = { "Empty", "Recording", "Playing", "Overdub", "Stopped" };
+        const Color colors[] = { theme::textDim, theme::bad, theme::good, theme::warn, theme::textDim };
+        const int state = static_cast<int>(status.state);
+        label(cx, cy - 18.0f, names[state], colors[state], 13.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        const float w = 84.0f;
+        fillRect(cx - w / 2, cy - 4.0f, w, 8.0f, theme::inset, 3.0f);
+        if (status.state == LooperState::Playing || status.state == LooperState::Overdubbing)
+            fillRect(cx - w / 2, cy - 4.0f, w * (status.progress + 1) / 100.0f, 8.0f, colors[state], 3.0f);
+        char text[24];
+        std::snprintf(text, sizeof(text), "%.1f s", status.lengthTenths / 10.0);
+        label(cx, cy + 18.0f, text, theme::text, 12.0f, ALIGN_CENTER | ALIGN_MIDDLE);
     }
 
     // Gain-reduction style meter for a block (fills downward from the top), in dB
@@ -3132,7 +3183,10 @@ private:
             }
             if (control.cell == Cell::Meter)
             {
-                drawBlockMeter(cx, cy, fParams[slotMeterParam(block.slot)], type->meterRange, type->meterName);
+                if (type->meterStyle == MeterStyle::Looper)
+                    drawLooperStatus(cx, cy, fParams[slotMeterParam(block.slot)]);
+                else
+                    drawBlockMeter(cx, cy, fParams[slotMeterParam(block.slot)], type->meterRange, type->meterName);
                 continue;
             }
 
@@ -3141,6 +3195,9 @@ private:
             if (spec.scale == ParamScale::Toggle)
                 drawButton({ cx - 40.0f, cy - 14.0f, 80.0f, 28.0f }, spec.name, fParams[index] >= 0.5f, theme::accent,
                            Hit::Toggle, static_cast<int>(index));
+            else if (spec.scale == ParamScale::Momentary)
+                drawButton({ cx - 40.0f, cy - 22.0f, 80.0f, 44.0f }, spec.name, fParams[index] >= 0.5f, theme::accent,
+                           Hit::Momentary, static_cast<int>(index));
             else if (spec.scale == ParamScale::Choice)
                 drawChoice(cx, cy, index, spec.name);
             else
@@ -3576,6 +3633,10 @@ private:
     float fScrollX = 0.0f;
 
     int fDragParam = -1;
+    int fMomentaryParam = -1; // a momentary button being held
+    std::chrono::steady_clock::time_point fMomentaryPressedAt;
+    bool fMomentaryReleasePending = false;
+    static constexpr std::chrono::milliseconds kMomentaryMinHold { 80 };
     float fDragStartY = 0.0f;
     float fDragStartValue = 0.0f;
     uint fLastClickTime = 0;

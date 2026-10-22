@@ -15,6 +15,7 @@
 #include "engine/blocks/FlangerBlock.hpp"
 #include "engine/blocks/GateBlock.hpp"
 #include "engine/blocks/IrBlock.hpp"
+#include "engine/blocks/LooperBlock.hpp"
 #include "engine/blocks/NamBlock.hpp"
 #include "engine/blocks/OctaveBlock.hpp"
 #include "engine/blocks/PhaserBlock.hpp"
@@ -23,6 +24,7 @@
 #include "engine/blocks/RingModBlock.hpp"
 #include "engine/blocks/RotaryBlock.hpp"
 #include "engine/blocks/SpringReverbBlock.hpp"
+#include "engine/blocks/SynthBlock.hpp"
 #include "engine/blocks/TremoloBlock.hpp"
 #include "engine/blocks/VolumeBlocks.hpp"
 #include "engine/blocks/WahBlocks.hpp"
@@ -87,10 +89,12 @@ const BlockRegistry& BlockRegistry::builtin()
         &kDelayBlockDescriptor,
         &kTapeEchoBlockDescriptor,
         &kDuckingDelayBlockDescriptor,
+        &kLooperBlockDescriptor,
         &kOctaveBlockDescriptor,
         &kPolyOctaveBlockDescriptor,
         &kPitchShifterBlockDescriptor,
         &kWhammyBlockDescriptor,
+        &kSynthBlockDescriptor,
         &kWahBlockDescriptor,
         &kAutoWahBlockDescriptor,
     });

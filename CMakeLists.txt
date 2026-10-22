@@ -83,6 +83,7 @@ add_library(namsayin-engine STATIC
   src/engine/blocks/FlangerBlock.cpp
   src/engine/blocks/GateBlock.cpp
   src/engine/blocks/IrBlock.cpp
+  src/engine/blocks/LooperBlock.cpp
   src/engine/blocks/NamBlock.cpp
   src/engine/blocks/OctaveBlock.cpp
   src/engine/blocks/PhaserBlock.cpp
@@ -91,6 +92,7 @@ add_library(namsayin-engine STATIC
   src/engine/blocks/RingModBlock.cpp
   src/engine/blocks/RotaryBlock.cpp
   src/engine/blocks/SpringReverbBlock.cpp
+  src/engine/blocks/SynthBlock.cpp
   src/engine/blocks/TremoloBlock.cpp
   src/engine/blocks/VolumeBlocks.cpp
   src/engine/blocks/WahBlocks.cpp

@@ -15,12 +15,14 @@
 #include "engine/blocks/EqBlocks.hpp"
 #include "engine/blocks/FlangerBlock.hpp"
 #include "engine/blocks/GateBlock.hpp"
+#include "engine/blocks/LooperBlock.hpp"
 #include "engine/blocks/OctaveBlock.hpp"
 #include "engine/blocks/PhaserBlock.hpp"
 #include "engine/blocks/PitchBlocks.hpp"
 #include "engine/blocks/RingModBlock.hpp"
 #include "engine/blocks/RotaryBlock.hpp"
 #include "engine/blocks/SpringReverbBlock.hpp"
+#include "engine/blocks/SynthBlock.hpp"
 #include "engine/blocks/TremoloBlock.hpp"
 #include "engine/blocks/VolumeBlocks.hpp"
 #include "engine/blocks/WahBlocks.hpp"
@@ -597,4 +599,138 @@ TEST_CASE("ducking delay turns the repeats down while playing")
     // from 250 ms after the note stops, the echo is free
     const double free = testing::rms(x[0], 24000 + 12000, 24000 + 19000);
     CHECK(20.0 * std::log10(free / ducked) == doctest::Approx(20.0).epsilon(0.1));
+}
+
+TEST_CASE("synth follows the played note")
+{
+    for (const double hz : { 82.4, 196.0, 440.0 })
+    {
+        CAPTURE(hz);
+        auto block = make(kSynthBlockDescriptor);
+        block->setParam(kSynthParamWave, static_cast<float>(SynthWave::Square));
+        block->setParam(kSynthParamCutoff, 8000.0f);
+        block->setParam(kSynthParamResonance, 0.7f);
+        // a guitar-like tone: fundamental plus strong harmonics
+        std::vector<std::vector<float>> x(1, std::vector<float>(48000));
+        for (size_t i = 0; i < x[0].size(); ++i)
+        {
+            const double t = static_cast<double>(i) / kRate;
+            x[0][i] = static_cast<float>(0.2 * std::sin(2 * M_PI * hz * t) + 0.15 * std::sin(2 * M_PI * 2 * hz * t + 1.0)
+                                         + 0.1 * std::sin(2 * M_PI * 3 * hz * t + 2.0));
+        }
+        testing::runBlock(*block, x);
+        // a square at the note: strong fundamental and third harmonic, no second
+        const double fundamental = toneAt(x[0], hz, 24000, 48000);
+        CHECK(fundamental > 0.05);
+        CHECK(toneAt(x[0], 3 * hz, 24000, 48000) > 0.2 * fundamental);
+        CHECK(toneAt(x[0], 2 * hz, 24000, 48000) < 0.05 * fundamental);
+    }
+}
+
+TEST_CASE("synth octave and silence")
+{
+    auto block = make(kSynthBlockDescriptor);
+    block->setParam(kSynthParamOctave, 1.0f); // -1
+    block->setParam(kSynthParamCutoff, 8000.0f);
+    auto x = sine(220.0, 0.3f, 48000);
+    testing::runBlock(*block, x);
+    CHECK(toneAt(x[0], 110.0, 24000, 48000) > 0.05);
+
+    std::vector<std::vector<float>> quiet(1, std::vector<float>(48000, 0.0f));
+    testing::runBlock(*block, quiet);
+    CHECK(testing::rms(quiet[0], 24000, 48000) < 1e-4);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Looper
+
+namespace {
+
+void press(Block& block, int param)
+{
+    block.setParam(param, 1.0f);
+    block.setParam(param, 0.0f);
+}
+
+LooperStatus looperStatus(const Block& block)
+{
+    return LooperStatus::decode(block.meter());
+}
+
+} // namespace
+
+TEST_CASE("looper status survives the trip through a float")
+{
+    LooperStatus s;
+    s.state = LooperState::Overdubbing;
+    s.lengthTenths = 600;
+    s.progress = 99;
+    const LooperStatus back = LooperStatus::decode(s.encode());
+    CHECK(back.state == s.state);
+    CHECK(back.lengthTenths == 600);
+    CHECK(back.progress == 99);
+}
+
+TEST_CASE("looper records, plays back, overdubs, stops and clears")
+{
+    auto block = make(kLooperBlockDescriptor);
+    // record 0.5 s of a tone
+    press(*block, kLooperParamRecDub);
+    auto take = sine(440.0, 0.3f, 24000);
+    int allocations = 0;
+    testing::runBlock(*block, take, 128, &allocations);
+    CHECK(looperStatus(*block).state == LooperState::Recording);
+    press(*block, kLooperParamRecDub);
+
+    // silence in: the loop plays the tone back, over and over
+    std::vector<std::vector<float>> out(1, std::vector<float>(48000, 0.0f));
+    testing::runBlock(*block, out, 128, &allocations);
+    CHECK(allocations == 0);
+    CHECK(looperStatus(*block).state == LooperState::Playing);
+    CHECK(looperStatus(*block).lengthTenths == 5);
+    CHECK(testing::rms(out[0], 1000, 23000) == doctest::Approx(0.3 / std::sqrt(2.0)).epsilon(0.02));
+    CHECK(testing::rms(out[0], 25000, 47000) == doctest::Approx(0.3 / std::sqrt(2.0)).epsilon(0.02));
+    // the loop is sample-exact: the second pass matches the first
+    CHECK(out[0][30000] == doctest::Approx(out[0][6000]).epsilon(1e-5));
+
+    // overdub the same tone in phase: twice as loud afterwards
+    press(*block, kLooperParamRecDub);
+    auto dub = sine(440.0, 0.3f, 24000);
+    testing::runBlock(*block, dub);
+    CHECK(looperStatus(*block).state == LooperState::Overdubbing);
+    press(*block, kLooperParamRecDub);
+    std::vector<std::vector<float>> twice(1, std::vector<float>(24000, 0.0f));
+    testing::runBlock(*block, twice);
+    CHECK(testing::rms(twice[0], 1000, 23000) == doctest::Approx(0.6 / std::sqrt(2.0)).epsilon(0.03));
+
+    // stop: silent (after the fade); play again
+    press(*block, kLooperParamPlayStop);
+    std::vector<std::vector<float>> stopped(1, std::vector<float>(4800, 0.0f));
+    testing::runBlock(*block, stopped);
+    CHECK(looperStatus(*block).state == LooperState::Stopped);
+    CHECK(testing::rms(stopped[0], 2400, 4800) < 1e-4);
+    press(*block, kLooperParamPlayStop);
+    std::vector<std::vector<float>> again(1, std::vector<float>(4800, 0.0f));
+    testing::runBlock(*block, again);
+    CHECK(testing::rms(again[0], 2400, 4800) > 0.3);
+
+    // clear
+    press(*block, kLooperParamClear);
+    std::vector<std::vector<float>> cleared(1, std::vector<float>(4800, 0.0f));
+    testing::runBlock(*block, cleared);
+    CHECK(looperStatus(*block).state == LooperState::Empty);
+    CHECK(testing::rms(cleared[0], 0, 4800) == 0.0);
+}
+
+TEST_CASE("looper buttons act on presses, not releases")
+{
+    auto block = make(kLooperBlockDescriptor);
+    block->setParam(kLooperParamRecDub, 1.0f);
+    block->setParam(kLooperParamRecDub, 1.0f); // held: still one press
+    std::vector<std::vector<float>> x(1, std::vector<float>(4800, 0.1f));
+    testing::runBlock(*block, x);
+    CHECK(looperStatus(*block).state == LooperState::Recording);
+    block->setParam(kLooperParamRecDub, 0.0f); // release: nothing
+    testing::runBlock(*block, x);
+    CHECK(looperStatus(*block).state == LooperState::Recording);
 }
