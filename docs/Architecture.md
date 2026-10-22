@@ -12,7 +12,7 @@ This plan covers version 1 as scoped in [Requirements.md](Requirements.md): loca
 | Zip reading | miniz 3.1.0 | MIT |
 | Content hash | xxHash 0.8.3 (XXH3-128) | BSD-2 |
 | Tests | doctest | MIT |
-| Font | Inter | OFL |
+| Font | Jost Light (embedded; `resources/fonts`, `tools/embed_font.py`) | OFL |
 | Build | CMake (DPF's `dpf_add_plugin`), dependencies as git submodules under `deps/` | — |
 
 Targets: Linux and Windows, x86-64 with AVX2/FMA required (`-mavx2 -mfma` / `/arch:AVX2`). VST3 and LV2 only; no standalone app for now. Compilers: GCC/Clang on Linux, MSVC on Windows.
@@ -258,7 +258,7 @@ Notes:
 - **Dialogs**: Add Block (categories on the left), Settings, and the Tuner and Metronome panels (overlays).
 - **Redraws on Linux**: X11 events are only read when the host calls the UI. LV2 hosts call it on their idle tick (Reaper: ~30-36 Hz), so dragging redraws at that rate. For VST3, a DPF patch (`patches/dpf/`) registers the X11 connection with the host run loop's event handler, so events are handled and redrawn as they arrive, whatever the host's timer rate. The UI turns vsync off for its GL window, so a buffer swap never stalls the host's GUI thread waiting for the screen. `NAMSAYIN_SHOW_FPS=1` in the host's environment shows a frame-rate readout.
 - **Hover help**: resting the mouse on a control for 0.6 s shows a translucent popup with its name and a plain-English explanation of what it does and how to use it. The texts are in `src/ui/ParamHelp.cpp` (block controls by typeId and control name, the others by parameter symbol); `tests/ParamHelpTests.cpp` checks that every block control and every global control has one, at least 80 characters long. The top-bar icon buttons and the metronome's beat, grouping and tap controls have popups too.
-- A dark theme defined as colour tokens in one file, so it can be restyled: pure black window, flat near-black gray bars and panels.
+- A dark theme defined as colour tokens in one file, so it can be restyled: pure black window; boxes are black with 1 px gray outlines (`surface()`), and buttons that are on are an accent outline over a faint accent tint. Knobs: hairline body, 21 ticks lit up to the value, a dot for the position. Font: Jost Light, with DPF's DejaVu as the fallback for glyphs Jost lacks (★, ▾).
 - The Fretbored link opens the browser through a small platform helper (`xdg-open` / `ShellExecute`).
 
 ## 8. Build, test and release
@@ -315,7 +315,7 @@ M2–M3 and M4 can overlap, as can M8 and M9.
 3. **Reverb types**: room, hall and plate.
 4. **Test DAW**: Reaper is the primary host.
 5. **Compressor**: added to M3, studio style (owner's choice over a simple pedal-style one).
-6. **Theme**: no gradient; pure black window, flat near-black gray surfaces.
+6. **Theme**: no gradient; pure black window. Boxes were flat near-black gray at first; the owner then chose black boxes with hairline gray outlines, Jost Light and tick-scale knobs with a dot, from drafted screenshots (fonts, knobs and surfaces; 2026-10-22).
 7. **Block panel**: large block image on the left, generic knobs right-justified.
 8. **Folder choice**: DPF's file browser can't pick folders, so "Choose…" opens the system's folder picker (`src/ui/FolderPicker.*`, on its own thread): Linux tries the desktop portal (FileChooser v3, `directory`), then zenity, then kdialog; Windows uses IFileOpenDialog with FOS_PICKFOLDERS. With none of these, it falls back to DPF's browser and takes the folder of any file picked in it. The path can also be typed or pasted.
 9. **MIDI map in the chain state** rather than a separate plugin state, so it follows the chain's routes (including the exchange file for Reaper's LV2) and is covered by undo and presets.

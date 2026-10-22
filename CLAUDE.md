@@ -15,7 +15,7 @@ NAMsayin is a guitar rig plugin (VST3 + LV2) in C++20, built with DPF (plugin fr
 - Formats: VST3 and LV2 only. No standalone app, no CLAP, no AU.
 - Platforms: Linux and Windows, x86-64 only, AVX2/FMA required. No macOS, no ARM.
 - License: MIT. New source files start with `// SPDX-License-Identifier: MIT` and `// Copyright (c) 2026 singularity098`.
-- UI: DPF's NanoVG, very dark theme: pure black window, flat near-black gray bars and panels (no gradient, owner's request), purple accent that will become configurable. Theme tokens are at the top of `src/ui/NAMsayinUI.cpp`. Draw in logical pixels and scale by `getScaleFactor()`.
+- UI: DPF's NanoVG, very dark theme: pure black window; bars, panels, tiles, buttons and dialogs are black with hairline gray outlines (no gradient; owner's choice), purple accent (configurable in Settings). Font: Jost Light. Knobs: tick scale lit to the value, with a dot for the position. Theme tokens are at the top of `src/ui/NAMsayinUI.cpp`. Draw in logical pixels and scale by `getScaleFactor()`.
 - Block panel: a large block image on the left (drawn placeholder art until real images exist), generic controls right-justified. The generic knobs may later be replaced by knobs on the image itself.
 - Zero latency by default; only blocks that need latency add it, and it's reported to the host.
 - Max 32 blocks; each block keeps a fixed parameter slot for its lifetime (automation/MIDI follow the block).
@@ -70,6 +70,7 @@ src/ui/               UI side (UI subclass, NanoVG). FolderPicker: the system fo
 tests/                doctest unit tests; TestSupport.hpp has a test block and an allocation counter
 docs/                 Requirements and architecture
 resources/sounds/     Classic metronome samples from Fretbored; tools/embed_sounds.py turns them into ClickSamples.cpp
+resources/fonts/      Jost (variable TTF + OFL.txt); tools/embed_font.py makes the Light instance into src/ui/FontData.cpp
 resources/blocks/     Built-in block images, named <typeId>.<ext>; tools/embed_block_images.py turns them into BlockImages.cpp
 deps/khronos/         Vendored glext.h + khrplatform.h (MSVC has none; DPF's download is unreliable)
 .github/workflows/    CI: Linux (Ninja) and Windows (MSVC) builds + tests
@@ -147,6 +148,7 @@ The file browser opens in the host's working directory. Final checks happen in R
 - IR block: WAV files via NAM Core's `nam::detail::load_wav_ir` (PCM 16/24/32, float 32; channels stored contiguously), linearly resampled to the host rate, energy-normalized, convolved with FFTConvolver's `TwoStageFFTConvolver` (head 64, tail 2048; zero latency). Low/High Cut are off at the ends of their ranges.
 - NAM A2 Full/Lite: `nam::SlimmableModel::SetSlimmableSize(1.0)` = Full, `0.0` = Lite (`NAM/slimmable.h`). Not real-time safe — call it off the audio thread.
 - Library paths: a file inside a zip is `archive.zip!/inner/path`. Blocks accept these directly: `materializeLibraryFile()` extracts to the cache dir on the non-RT thread. Block configs store `path` and `hash` (XXH3-128).
+- Font: the UI draws in Jost Light, embedded as `src/ui/FontData.cpp`; glyphs Jost lacks (★, ▾) fall back to DPF's DejaVu. After changing `resources/fonts/` or the weight, run `python3 tools/embed_font.py` (needs fontTools); never edit `FontData.cpp` by hand.
 - Sidecar images must be 8-bit PNG or JPEG: DPF's bundled stb_image can't decode 16-bit PNG.
 - Settings live in `~/.config/namsayin/settings.json` (Windows: `%APPDATA%\NAMsayin`); the library index caches are in `~/.cache/namsayin` (`%LOCALAPPDATA%\NAMsayin\Cache`). Every UI polls the settings file once a second, so instances stay in sync. Change settings with `updateSettings()` in the UI, which reloads before saving.
 - Text fields (search, folders) need keyboard focus. Some hosts keep keys for themselves; in Reaper, check that typing in the plugin window works (FX window option "Send all keyboard input to plugin" if not).

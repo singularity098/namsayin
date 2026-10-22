@@ -2,8 +2,10 @@
 // Copyright (c) 2026 singularity098
 
 #include "DistrhoUI.hpp"
+#include "src/nanovg/nanovg.h" // DPF's NanoVG class has no fallback-font call
 
 #include "BlockImages.hpp"
+#include "FontData.hpp"
 #include "FolderPicker.hpp"
 #include "OpenUrl.hpp"
 #include "ParamHelp.hpp"
@@ -43,16 +45,14 @@ using namespace namsayin;
 
 namespace {
 
-// Theme tokens. Very dark: a pure black window with flat near-black grey surfaces on it.
+// Theme tokens. Very dark: a pure black window; boxes are black too, drawn as hairline grey outlines (surface()).
 namespace theme {
 const Color background(0x00, 0x00, 0x00);
-const Color bar(0x0c, 0x0c, 0x0e);
-const Color panel(0x0c, 0x0c, 0x0e);
-const Color tile(0x16, 0x16, 0x1a);
+const Color dialogFill(0x06, 0x06, 0x08); // dialogs stand off the dimmed window a little
+const Color tile(0x16, 0x16, 0x1a);       // small grey fills (hover in lists, meter boxes)
 const Color tileHover(0x1d, 0x1d, 0x22);
 const Color inset(0x05, 0x05, 0x06);
 const Color overlay(0, 0, 0, 0.7f);
-const Color dialog(0x10, 0x10, 0x13);
 const Color border(255, 255, 255, 0.10f);
 const Color text(0xe6, 0xe6, 0xea);
 const Color textDim(0x78, 0x78, 0x82);
@@ -84,6 +84,9 @@ const Color pedalPitch(0xd0, 0xb0, 0x40);
 const Color pedalFilter(0x5c, 0xa0, 0x3a);
 const Color pedalOther(0x70, 0x70, 0x7a);
 } // namespace theme
+
+// Kinds of box, for surface(): each has its own outline brightness
+enum class Surface { Bar, Panel, Tile, Button, Dialog, Inset };
 
 constexpr float kTopBarHeight = 48.0f;
 constexpr float kBottomBarHeight = 132.0f;
@@ -443,6 +446,9 @@ public:
         : UI(DISTRHO_UI_DEFAULT_WIDTH, DISTRHO_UI_DEFAULT_HEIGHT)
     {
         loadSharedResources();
+        fUiFont = createFontFromMemory("jost", kUiFont, kUiFontSize, false);
+        if (fUiFont >= 0)
+            nvgAddFallbackFontId(getContext(), fUiFont, nvgFindFont(getContext(), NANOVG_DEJAVU_SANS_TTF)); // ★, ▾
 
         for (uint32_t i = 0; i < kParamCount; ++i)
         {
@@ -566,6 +572,8 @@ protected:
         save();
         this->scale(scale, scale);
         fontSize(14.0f);
+        if (fUiFont >= 0)
+            fontFaceId(fUiFont);
 
         fillRect(0, 0, fWidth, fHeight, theme::background);
         drawTopBar();
@@ -2187,6 +2195,48 @@ private:
         fill();
     }
 
+    // A box: black inside with a 1 px grey outline that brightens on hover. Bars are black with one dividing line on
+    // their inner edge.
+    void surface(float x, float y, float w, float h, float radius, Surface kind, bool hover = false)
+    {
+        float alpha = 0.12f;
+        switch (kind)
+        {
+        case Surface::Bar: alpha = 0.12f; break;
+        case Surface::Panel: alpha = 0.10f; break;
+        case Surface::Tile: alpha = hover ? 0.30f : 0.14f; break;
+        case Surface::Button: alpha = hover ? 0.32f : 0.16f; break;
+        case Surface::Dialog: alpha = 0.16f; break;
+        case Surface::Inset: alpha = 0.08f; break;
+        }
+        fillRect(x, y, w, h, kind == Surface::Dialog ? theme::dialogFill : theme::background, radius);
+        beginPath();
+        if (kind == Surface::Bar)
+        {
+            const float ly = y > 0.5f ? y + 0.5f : y + h - 0.5f; // the top bar's bottom edge, the bottom bar's top
+            moveTo(x, ly);
+            lineTo(x + w, ly);
+        }
+        else
+        {
+            roundedRect(x + 0.5f, y + 0.5f, w - 1.0f, h - 1.0f, radius);
+        }
+        strokeColor(Color(1.0f, 1.0f, 1.0f, alpha));
+        strokeWidth(1.0f);
+        stroke();
+    }
+
+    // A button that's on: an outline in its colour over a faint tint of it
+    void onSurface(const Rect& r, const Color& color, float radius)
+    {
+        fillRect(r.x, r.y, r.w, r.h, color.withAlpha(0.16f), radius);
+        beginPath();
+        roundedRect(r.x + 0.5f, r.y + 0.5f, r.w - 1.0f, r.h - 1.0f, radius);
+        strokeColor(color);
+        strokeWidth(1.0f);
+        stroke();
+    }
+
     void label(float x, float y, const char* str, const Color& color, float size, int align)
     {
         if (str == nullptr || str[0] == '\0')
@@ -2199,8 +2249,11 @@ private:
 
     void drawButton(const Rect& r, const char* str, bool on, const Color& onColor, Hit kind, int index)
     {
-        fillRect(r.x, r.y, r.w, r.h, on ? onColor : theme::tile, 6.0f);
-        label(r.x + r.w / 2, r.y + r.h / 2, str, on ? Color(255, 255, 255) : theme::text, 13.0f,
+        if (on)
+            onSurface(r, onColor, 6.0f);
+        else
+            surface(r.x, r.y, r.w, r.h, 6.0f, Surface::Button, r.contains(fMouseX, fMouseY));
+        label(r.x + r.w / 2, r.y + r.h / 2, str, on ? onColor : theme::text, 13.0f,
               ALIGN_CENTER | ALIGN_MIDDLE);
         fHits.push_back({ r, kind, index });
     }
@@ -2211,9 +2264,11 @@ private:
     void drawIconButton(const Rect& r, Icon icon, bool on, Hit kind, int index)
     {
         const bool hover = r.contains(fMouseX, fMouseY);
-        const Color background = on ? theme::accent : (hover ? theme::tileHover : theme::tile);
-        fillRect(r.x, r.y, r.w, r.h, background, 6.0f);
-        drawIcon(icon, r.x + r.w / 2, r.y + r.h / 2, on ? Color(255, 255, 255) : theme::text, background);
+        if (on)
+            onSurface(r, theme::accent, 6.0f);
+        else
+            surface(r.x, r.y, r.w, r.h, 6.0f, Surface::Button, hover);
+        drawIcon(icon, r.x + r.w / 2, r.y + r.h / 2, on ? theme::accent : theme::text, theme::background);
         fHits.push_back({ r, kind, index });
     }
 
@@ -2480,29 +2535,32 @@ private:
         const float n = std::clamp(normalized(index), 0.0f, 1.0f);
         const float angle = start + n * sweep;
 
+        // a black body with a hairline edge, a scale of ticks lit up to the value, and a dot marking the position
         beginPath();
-        circle(cx, cy, kKnobRadius);
-        fillColor(theme::tile);
+        circle(cx, cy, kKnobRadius - 3.0f);
+        fillColor(theme::background);
         fill();
-
-        beginPath();
-        arc(cx, cy, kKnobRadius + 4.0f, start, start + sweep, CW);
-        strokeColor(theme::border);
-        strokeWidth(3.0f);
+        strokeColor(Color(1.0f, 1.0f, 1.0f, 0.18f));
+        strokeWidth(1.0f);
         stroke();
 
-        beginPath();
-        arc(cx, cy, kKnobRadius + 4.0f, start, angle, CW);
-        strokeColor(theme::accent);
-        strokeWidth(3.0f);
-        stroke();
+        constexpr int ticks = 21; // a longer tick every quarter of the range
+        for (int t = 0; t < ticks; ++t)
+        {
+            const float tickAngle = start + sweep * t / (ticks - 1);
+            const float r0 = kKnobRadius + 1.0f, r1 = kKnobRadius + (t % 5 == 0 ? 6.0f : 4.0f);
+            beginPath();
+            moveTo(cx + std::cos(tickAngle) * r0, cy + std::sin(tickAngle) * r0);
+            lineTo(cx + std::cos(tickAngle) * r1, cy + std::sin(tickAngle) * r1);
+            strokeColor(tickAngle <= angle + 1e-4f ? theme::accent : Color(1.0f, 1.0f, 1.0f, 0.18f));
+            strokeWidth(1.0f);
+            stroke();
+        }
 
         beginPath();
-        moveTo(cx + std::cos(angle) * 6.0f, cy + std::sin(angle) * 6.0f);
-        lineTo(cx + std::cos(angle) * (kKnobRadius - 4.0f), cy + std::sin(angle) * (kKnobRadius - 4.0f));
-        strokeColor(theme::text);
-        strokeWidth(2.5f);
-        stroke();
+        circle(cx + std::cos(angle) * (kKnobRadius - 8.0f), cy + std::sin(angle) * (kKnobRadius - 8.0f), 2.2f);
+        fillColor(theme::accent);
+        fill();
 
         if (fLearnParam == static_cast<int>(index))
         {
@@ -2717,7 +2775,7 @@ private:
 
     void drawTopBar()
     {
-        fillRect(0, 0, fWidth, kTopBarHeight, theme::bar);
+        surface(0, 0, fWidth, kTopBarHeight, 0.0f, Surface::Bar);
         label(16.0f, kTopBarHeight / 2, "NAMsayin", theme::text, 20.0f, ALIGN_LEFT | ALIGN_MIDDLE);
 
         // preset menu with the preset's name (• when changed since it was saved or opened)
@@ -2727,9 +2785,9 @@ private:
         drawButton({ 368.0f, 10.0f, 56.0f, 28.0f }, "Undo", false, theme::accent, Hit::Undo, 0);
         drawButton({ 430.0f, 10.0f, 56.0f, 28.0f }, "Redo", false, theme::accent, Hit::Redo, 0);
         if (!fUndo.canUndo())
-            fillRect(368.0f, 10.0f, 56.0f, 28.0f, theme::bar.withAlpha(0.6f), 6.0f);
+            fillRect(368.0f, 10.0f, 56.0f, 28.0f, theme::background.withAlpha(0.6f), 6.0f);
         if (!fUndo.canRedo())
-            fillRect(430.0f, 10.0f, 56.0f, 28.0f, theme::bar.withAlpha(0.6f), 6.0f);
+            fillRect(430.0f, 10.0f, 56.0f, 28.0f, theme::background.withAlpha(0.6f), 6.0f);
 
         if (fLearnParam >= 0)
         {
@@ -2801,7 +2859,7 @@ private:
     {
         const Rect panel { 16.0f, kTopBarHeight + 16.0f, fWidth - 32.0f,
                            fHeight - kBottomBarHeight - kTopBarHeight - 32.0f };
-        fillRect(panel.x, panel.y, panel.w, panel.h, theme::panel, 10.0f);
+        surface(panel.x, panel.y, panel.w, panel.h, 10.0f, Surface::Panel);
         label(panel.x + 16.0f, panel.y + 30.0f, "Metronome", theme::text, 16.0f, ALIGN_LEFT | ALIGN_MIDDLE);
         drawValueButton({ panel.x + panel.w - 30.0f, panel.y + 6.0f, 24.0f, 24.0f }, "×", false, Hit::MetroPanel, 0, 0);
 
@@ -3030,7 +3088,7 @@ private:
     {
         const Rect panel { 16.0f, kTopBarHeight + 16.0f, fWidth - 32.0f,
                            fHeight - kBottomBarHeight - kTopBarHeight - 32.0f };
-        fillRect(panel.x, panel.y, panel.w, panel.h, theme::panel, 10.0f);
+        surface(panel.x, panel.y, panel.w, panel.h, 10.0f, Surface::Panel);
         const bool active = tunerActive();
         const float cents = active ? fTunerCents : 0.0f;
         const bool inTune = active && std::fabs(cents) <= kTunerInTuneCents;
@@ -3360,7 +3418,7 @@ private:
     {
         const Rect& r = fLayout.merge;
         const bool hover = r.contains(fMouseX, fMouseY);
-        fillRect(r.x, r.y, r.w, r.h, hover ? theme::tileHover : theme::tile, 10.0f);
+        surface(r.x, r.y, r.w, r.h, 10.0f, Surface::Tile, hover);
         if (fMergeSelected)
         {
             beginPath();
@@ -3400,7 +3458,7 @@ private:
         translate(x, y);
         this->scale(k, k);
 
-        fillRect(0, 0, kTileSize, kTileSize, hover ? theme::tileHover : theme::tile, 10.0f);
+        surface(0, 0, kTileSize, kTileSize, 10.0f, Surface::Tile, hover);
         if (i == fSelected && !fMergeSelected)
         {
             beginPath();
@@ -3452,7 +3510,7 @@ private:
         const float height = fHeight - kBottomBarHeight - top - 16.0f;
         if (height < 60.0f)
             return;
-        fillRect(left, top, width, height, theme::panel, 10.0f);
+        surface(left, top, width, height, 10.0f, Surface::Panel);
 
         if (fMergeSelected && fChain.split)
         {
@@ -3510,7 +3568,7 @@ private:
         const float imageX = left + kPanelMargin, imageY = top + kPanelMargin;
         if (imageSize >= 60.0f)
         {
-            fillRect(imageX, imageY, imageSize, imageSize, theme::inset, 8.0f);
+            surface(imageX, imageY, imageSize, imageSize, 8.0f, Surface::Inset);
             const bool bypassed = fParams[slotBypassParam(block.slot)] >= 0.5f;
             globalAlpha(bypassed ? 0.35f : 1.0f);
             if (NanoImage* img = blockImage(block))
@@ -3595,12 +3653,7 @@ private:
         const float w = std::min(680.0f, fWidth - 64.0f);
         const float h = std::min(440.0f, fHeight - 64.0f);
         const float x = (fWidth - w) / 2, y = (fHeight - h) / 2;
-        fillRect(x, y, w, h, theme::dialog, 12.0f);
-        beginPath();
-        roundedRect(x, y, w, h, 12.0f);
-        strokeColor(theme::border);
-        strokeWidth(1.0f);
-        stroke();
+        surface(x, y, w, h, 12.0f, Surface::Dialog);
         fHits.push_back({ { x, y, w, h }, Hit::DialogPanel, 0 });
 
         label(x + 20.0f, y + 26.0f, "Add Block", theme::text, 16.0f, ALIGN_LEFT | ALIGN_MIDDLE);
@@ -3663,7 +3716,7 @@ private:
         {
             const int col = static_cast<int>(i) / rows, row = static_cast<int>(i) % rows;
             const Rect r { itemsX + col * (itemW + 8.0f), listTop + row * (itemH + 8.0f), itemW, itemH };
-            fillRect(r.x, r.y, r.w, r.h, r.contains(fMouseX, fMouseY) ? theme::tileHover : theme::tile, 8.0f);
+            surface(r.x, r.y, r.w, r.h, 8.0f, Surface::Tile, r.contains(fMouseX, fMouseY));
             if (NanoImage* img = items[i].type ? builtinImage(items[i].type->typeId) : nullptr)
                 drawImageFit(*img, r.x + 10.0f, r.y + 8.0f, 60.0f, r.h - 16.0f, 3.0f);
             else
@@ -3863,7 +3916,7 @@ private:
 
             const Rect r { x, y0, w, rowH - 4.0f };
             const bool hover = r.contains(fMouseX, fMouseY) && fMouseY >= listY && fMouseY < listY + listH;
-            fillRect(r.x, r.y, r.w, r.h, hover ? theme::tileHover : theme::tile, 6.0f);
+            surface(r.x, r.y, r.w, r.h, 6.0f, Surface::Tile, hover);
 
             NanoImage* img = row.entry ? image(row.entry->image) : builtinImage(row.type->typeId);
             if (img)
@@ -3914,12 +3967,7 @@ private:
         const float h = fMenu.size() * itemH + 8.0f;
         const float x = std::min(fMenuX, fWidth - menuW - 8.0f);
         const float y = std::min(fMenuY, fHeight - h - 8.0f);
-        fillRect(x, y, menuW, h, theme::dialog, 8.0f);
-        beginPath();
-        roundedRect(x, y, menuW, h, 8.0f);
-        strokeColor(theme::border);
-        strokeWidth(1.0f);
-        stroke();
+        surface(x, y, menuW, h, 8.0f, Surface::Dialog);
         fHits.push_back({ { x, y, menuW, h }, Hit::DialogPanel, 0 });
 
         for (size_t i = 0; i < fMenu.size(); ++i)
@@ -3948,7 +3996,7 @@ private:
         Rectangle<float> bounds;
         const float w = textBounds(0, 0, fToast.c_str(), nullptr, bounds) + 32.0f;
         const float x = (fWidth - w) / 2, y = fHeight - kBottomBarHeight - 52.0f;
-        fillRect(x, y, w, 32.0f, theme::dialog, 8.0f);
+        fillRect(x, y, w, 32.0f, theme::dialogFill, 8.0f);
         beginPath();
         roundedRect(x, y, w, 32.0f, 8.0f);
         strokeColor(theme::accent.withAlpha(0.6f));
@@ -3965,12 +4013,7 @@ private:
         const float w = std::min(640.0f, fWidth - 64.0f);
         const float h = std::min(420.0f, fHeight - 48.0f);
         const float x = (fWidth - w) / 2, y = (fHeight - h) / 2;
-        fillRect(x, y, w, h, theme::dialog, 12.0f);
-        beginPath();
-        roundedRect(x, y, w, h, 12.0f);
-        strokeColor(theme::border);
-        strokeWidth(1.0f);
-        stroke();
+        surface(x, y, w, h, 12.0f, Surface::Dialog);
         fHits.push_back({ { x, y, w, h }, Hit::DialogPanel, 0 });
 
         label(x + 20.0f, y + 26.0f, "Settings", theme::text, 16.0f, ALIGN_LEFT | ALIGN_MIDDLE);
@@ -4086,7 +4129,7 @@ private:
     void drawBottomBar()
     {
         const float top = fHeight - kBottomBarHeight;
-        fillRect(0, top, fWidth, kBottomBarHeight, theme::bar);
+        surface(0, top, fWidth, kBottomBarHeight, 0.0f, Surface::Bar);
 
         const float cy = top + 46.0f;
         const bool stereo = fParams[kParamInputMode] >= 0.5f;
@@ -4158,6 +4201,7 @@ private:
     float fLearnCcCount = 0.0f;
     std::string fToast;
     std::chrono::steady_clock::time_point fToastAt;
+    FontId fUiFont = -1;
     Category fDialogCategory = Category::LocalNam;
     FolderPicker fFolderPicker;
     Field fFolderField = kFieldNamDir;
