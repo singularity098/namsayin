@@ -102,6 +102,8 @@ The file browser opens in the host's working directory. Final checks happen in R
 
 ## Conventions
 
+- **Git: work directly on `main` until v1.0** (the owner's decision: Claude writes nearly all the code, so branches and PRs add little). Commit to `main` and push `main`, even when a session is set up with its own feature branch; no PRs unless the owner asks. Run the tests before every push, since there's no PR CI gate. Revisit after v1.0.
+
 - DPF style: classes in `START_NAMESPACE_DISTRHO`, members prefixed `f` in DPF subclasses, 4-space indent.
 - The audio thread (`run()` and everything it calls) must never allocate, lock or touch files. Heavy work (model loading, chain rebuilds, tuner analysis) happens on other threads and is handed over lock-free.
 - The UI may run in a separate process (LV2), so DSP↔UI communication goes through parameters and state only — no direct pointers.
