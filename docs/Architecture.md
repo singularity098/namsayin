@@ -240,7 +240,7 @@ Notes:
 - Scans the NAM directory and the IR directory on a background thread (`LibraryScanner`), including inside `.zip` files. Files inside zips are addressed as `archive.zip!/folder/model.nam`. When a block uses one, the file is extracted to the cache directory (`cache/extracted/`) off the audio thread and loaded from there.
 - An index cache per kind (path, size, modification time, hash, metadata) keeps rescans fast. Only new or changed files are read and hashed. A rescan runs when the UI opens, when a folder changes, and from the Rescan button.
 - NAM metadata (gear make/model/type) is shown under each model in the list.
-- **Sidecar images**: for `My Amp.nam`, it looks for `My Amp.png`, then `.jpg`, then `.jpeg` next to it (inside zips too). They're shown on the tile and in the block panel; otherwise the placeholder art. 8-bit PNG or JPEG only (DPF's stb_image doesn't decode 16-bit PNG).
+- **Sidecar images**: for `My Amp.nam`, it looks for `My Amp.png`, then `.jpg`, then `.jpeg` next to it (inside zips too). They're shown on the tile and in the block panel; otherwise the block type's built-in image (`resources/blocks/<typeId>.*`, embedded by `tools/embed_block_images.py`), otherwise the placeholder art. 8-bit PNG or JPEG only (DPF's stb_image doesn't decode 16-bit PNG).
 - **Add Block → Local NAM / Local IR** lists the library: search (all words must match name, folder or metadata), a favorites filter, a star per file, and Browse… for a file outside the library.
 
 ## 7. User interface

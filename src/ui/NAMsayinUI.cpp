@@ -3,6 +3,7 @@
 
 #include "DistrhoUI.hpp"
 
+#include "BlockImages.hpp"
 #include "OpenUrl.hpp"
 #include "engine/BlockRegistry.hpp"
 #include "engine/Params.hpp"
@@ -1869,16 +1870,33 @@ private:
         return it->second->isValid() ? it->second.get() : nullptr;
     }
 
-    // The sidecar image of a block's file, if it has one
+    // The sidecar image of a block's file if it has one, else its type's built-in image if that has one
     NanoImage* blockImage(const BlockState& block)
     {
         const std::string path = block.config.value("path", std::string());
-        if (path.empty())
-            return nullptr;
-        auto it = fSidecars.find(path);
-        if (it == fSidecars.end())
-            it = fSidecars.emplace(path, findSidecarImage(path)).first;
-        return image(it->second);
+        if (!path.empty())
+        {
+            auto it = fSidecars.find(path);
+            if (it == fSidecars.end())
+                it = fSidecars.emplace(path, findSidecarImage(path)).first;
+            if (NanoImage* img = image(it->second))
+                return img;
+        }
+        return builtinImage(block.typeId);
+    }
+
+    // A block type's built-in image (resources/blocks/), if it has one
+    NanoImage* builtinImage(const std::string& typeId)
+    {
+        auto it = fBuiltinImages.find(typeId);
+        if (it == fBuiltinImages.end())
+        {
+            it = fBuiltinImages.emplace(typeId, std::make_unique<NanoImage>()).first;
+            const BuiltinImage builtin = builtinBlockImage(typeId.c_str());
+            if (builtin.data != nullptr)
+                *it->second = createImageFromMemory(builtin.data, builtin.size, IMAGE_GENERATE_MIPMAPS);
+        }
+        return it->second->isValid() ? it->second.get() : nullptr;
     }
 
     // Draws an image scaled to fit the rect, centred, keeping its aspect ratio
@@ -3276,7 +3294,10 @@ private:
             const int col = static_cast<int>(i) / rows, row = static_cast<int>(i) % rows;
             const Rect r { itemsX + col * (itemW + 8.0f), listTop + row * (itemH + 8.0f), itemW, itemH };
             fillRect(r.x, r.y, r.w, r.h, r.contains(fMouseX, fMouseY) ? theme::tileHover : theme::tile, 8.0f);
-            drawBlockArt(items[i].type, r.x + 10.0f, r.y + 8.0f, 60.0f, r.h - 16.0f, false);
+            if (NanoImage* img = items[i].type ? builtinImage(items[i].type->typeId) : nullptr)
+                drawImageFit(*img, r.x + 10.0f, r.y + 8.0f, 60.0f, r.h - 16.0f, 3.0f);
+            else
+                drawBlockArt(items[i].type, r.x + 10.0f, r.y + 8.0f, 60.0f, r.h - 16.0f, false);
             label(r.x + 84.0f, r.y + r.h / 2, items[i].label.c_str(), theme::text, 14.0f, ALIGN_LEFT | ALIGN_MIDDLE);
             fHits.push_back({ r, Hit::DialogItem, static_cast<int>(i) });
         }
@@ -3681,7 +3702,8 @@ private:
     bool fScanning = false;
     bool fScanned = false;
 
-    std::map<std::string, std::unique_ptr<NanoImage>> fImages; // by image path
+    std::map<std::string, std::unique_ptr<NanoImage>> fImages;        // by image path
+    std::map<std::string, std::unique_ptr<NanoImage>> fBuiltinImages; // by block typeId
     std::map<std::string, std::string> fSidecars;             // block file path -> its image path
 
     // metronome
