@@ -181,6 +181,7 @@ private:
     Meter fInMeters[2], fOutMeters[2];
 
     std::vector<float> fWork[2], fDry[2], fScratch[2];
+    std::vector<float> fRigInput[2]; // the chain input, for blocks keyed from it (Block::setRigInput)
     std::vector<float> fBranch[2], fBranchScratch[2]; // branch B of a split
     std::vector<float> fClick;
 };

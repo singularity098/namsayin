@@ -87,3 +87,10 @@
 - Reverb block (room, hall and plate types)
 - Compressor block (studio style: threshold, ratio, attack, release, knee, makeup, mix, with a gain-reduction meter), added to M3 at the owner's request
 - Everything else in this document (Tone3000 integration, IR loader, other effect categories, etc.) follows in later versions, but the architecture must allow for it
+
+### Pedals (owner's decision, 2026-10-22)
+v1 is not rushed: before the v1 release, build a wide set of built-in pedals, from scratch, with several varieties each (a Type choice per block where it makes sense). The easy ones come first; the hard ones (polyphonic pitch, synth) only if time allows.
+- Wanted: noise gate, flanger, chorus, octaver, doubler, auto wah, phaser, EQ, overdrive, tremolo, synth
+- Also agreed (suggested by Claude): fuzz, distortion, boost, spring reverb, wah (expression, via MIDI learn), volume pedal, auto swell, rotary speaker, vibrato, pitch shifter / harmonizer / whammy, ring modulator, bitcrusher / lo-fi, shimmer reverb, freeze, tape echo, ducking delay, looper (last; it needs its own UI)
+- Each block has at most 8 controls (its parameter slot)
+

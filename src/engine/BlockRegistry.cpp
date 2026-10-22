@@ -3,11 +3,19 @@
 
 #include "engine/BlockRegistry.hpp"
 
+#include "engine/blocks/ChorusBlock.hpp"
 #include "engine/blocks/CompressorBlock.hpp"
 #include "engine/blocks/DelayBlock.hpp"
+#include "engine/blocks/DoublerBlock.hpp"
+#include "engine/blocks/EqBlocks.hpp"
+#include "engine/blocks/FlangerBlock.hpp"
+#include "engine/blocks/GateBlock.hpp"
 #include "engine/blocks/IrBlock.hpp"
 #include "engine/blocks/NamBlock.hpp"
+#include "engine/blocks/PhaserBlock.hpp"
 #include "engine/blocks/ReverbBlock.hpp"
+#include "engine/blocks/TremoloBlock.hpp"
+#include "engine/blocks/WahBlocks.hpp"
 
 namespace namsayin {
 
@@ -45,8 +53,18 @@ const BlockRegistry& BlockRegistry::builtin()
         &kNamBlockDescriptor,
         &kIrBlockDescriptor,
         &kCompressorBlockDescriptor,
-        &kDelayBlockDescriptor,
+        &kGateBlockDescriptor,
+        &kGraphicEqBlockDescriptor,
+        &kParametricEqBlockDescriptor,
+        &kChorusBlockDescriptor,
+        &kFlangerBlockDescriptor,
+        &kPhaserBlockDescriptor,
+        &kTremoloBlockDescriptor,
+        &kDoublerBlockDescriptor,
         &kReverbBlockDescriptor,
+        &kDelayBlockDescriptor,
+        &kWahBlockDescriptor,
+        &kAutoWahBlockDescriptor,
     });
     return registry;
 }

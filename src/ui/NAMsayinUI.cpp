@@ -72,6 +72,11 @@ const Color cab(0x4a, 0x4a, 0x52);
 const Color pedalDelay(0x2f, 0x9e, 0x91);
 const Color pedalReverb(0x4c, 0x7c, 0xe0);
 const Color pedalDynamics(0xd0, 0x82, 0x2e);
+const Color pedalDrive(0xc8, 0x44, 0x3c);
+const Color pedalModulation(0x8e, 0x5c, 0xd0);
+const Color pedalEq(0x9a, 0xa0, 0xa8);
+const Color pedalPitch(0xd0, 0xb0, 0x40);
+const Color pedalFilter(0x5c, 0xa0, 0x3a);
 const Color pedalOther(0x70, 0x70, 0x7a);
 } // namespace theme
 
@@ -1313,9 +1318,9 @@ private:
             const int slot = static_cast<int>(offset / kSlotParamCount);
             const int param = static_cast<int>(offset % kSlotParamCount) - 1;
             const BlockState* block = blockInSlot(slot);
-            if (block && block->typeId == kDelayBlockDescriptor.typeId && param == kDelayParamTime
-                && fParams[slotParam(slot, kDelayParamSync)] >= 0.5f)
-                return delayNoteName(delayNoteIndex(fParams[index]));
+            const BlockDescriptor* type = block ? BlockRegistry::builtin().find(block->typeId) : nullptr;
+            if (type && type->syncedParam == param && fParams[slotParam(slot, type->syncParam)] >= 0.5f)
+                return noteName(type->syncedIsRate ? rateNoteIndex(fParams[index]) : timeNoteIndex(fParams[index]));
             if (spec->unit[0] == ':')
             {
                 std::snprintf(buf, sizeof(buf), "%.1f%s", v, spec->unit);
@@ -2217,12 +2222,19 @@ private:
 
         // pedal: portrait enclosure with knobs, a name, an LED and a footswitch
         Color color = theme::pedalOther;
-        if (type->category == Category::Delay)
-            color = theme::pedalDelay;
-        else if (type->category == Category::Reverb)
-            color = theme::pedalReverb;
-        else if (type->category == Category::Dynamics)
-            color = theme::pedalDynamics;
+        switch (type->category)
+        {
+        case Category::Delay:      color = theme::pedalDelay; break;
+        case Category::Reverb:     color = theme::pedalReverb; break;
+        case Category::Dynamics:   color = theme::pedalDynamics; break;
+        case Category::Distortion: color = theme::pedalDrive; break;
+        case Category::Modulation: color = theme::pedalModulation; break;
+        case Category::Eq:         color = theme::pedalEq; break;
+        case Category::PitchSynth: color = theme::pedalPitch; break;
+        case Category::Filter:
+        case Category::Wah:        color = theme::pedalFilter; break;
+        default:                   break;
+        }
 
         float pw = h * 0.62f, ph = h;
         if (pw > w)
@@ -3038,7 +3050,7 @@ private:
             controls.push_back({ Cell::Param, p });
         if (type == &kNamBlockDescriptor)
             controls.push_back({ Cell::A2Size, 0 });
-        if (type == &kCompressorBlockDescriptor)
+        if (type->meterName)
             controls.push_back({ Cell::Meter, 0 });
         const int count = static_cast<int>(controls.size());
 
@@ -3120,7 +3132,7 @@ private:
             }
             if (control.cell == Cell::Meter)
             {
-                drawBlockMeter(cx, cy, fParams[slotMeterParam(block.slot)], 24.0f, "Reduction");
+                drawBlockMeter(cx, cy, fParams[slotMeterParam(block.slot)], type->meterRange, type->meterName);
                 continue;
             }
 
@@ -3193,10 +3205,17 @@ private:
                   theme::textDim, 13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
             return;
         }
-        const float itemH = 64.0f;
+        // one column of tall rows while they fit; then two columns, and shorter rows if needed
+        const float itemsH = y + h - 12.0f - listTop;
+        const int count = static_cast<int>(items.size());
+        const int columns = count * 72.0f > itemsH ? 2 : 1;
+        const int rows = (count + columns - 1) / columns;
+        const float itemH = std::clamp((itemsH + 8.0f) / rows - 8.0f, 30.0f, 64.0f);
+        const float itemW = (itemsW - (columns - 1) * 8.0f) / columns;
         for (size_t i = 0; i < items.size(); ++i)
         {
-            const Rect r { itemsX, listTop + i * (itemH + 8.0f), itemsW, itemH };
+            const int col = static_cast<int>(i) / rows, row = static_cast<int>(i) % rows;
+            const Rect r { itemsX + col * (itemW + 8.0f), listTop + row * (itemH + 8.0f), itemW, itemH };
             fillRect(r.x, r.y, r.w, r.h, r.contains(fMouseX, fMouseY) ? theme::tileHover : theme::tile, 8.0f);
             drawBlockArt(items[i].type, r.x + 10.0f, r.y + 8.0f, 60.0f, r.h - 16.0f, false);
             label(r.x + 84.0f, r.y + r.h / 2, items[i].label.c_str(), theme::text, 14.0f, ALIGN_LEFT | ALIGN_MIDDLE);

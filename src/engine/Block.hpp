@@ -115,6 +115,10 @@ public:
 
     // RT. Clears internal state (delay lines, tails).
     virtual void reset() {}
+
+    // RT. The rig's input (after the input level, before the chain), called before every process() with the same
+    // frame count; for blocks that listen to it, like a noise gate keyed from the guitar. numChannels is 1 or 2.
+    virtual void setRigInput(const float* const* /*input*/, uint32_t /*numChannels*/) {}
 };
 
 struct BlockDescriptor {
@@ -124,6 +128,16 @@ struct BlockDescriptor {
     int numParams;
     std::array<ParamSpec, kParamsPerSlot> params;
     std::unique_ptr<Block> (*create)();
+
+    // Optional UI hints.
+    // A Toggle that makes `syncedParam` pick a note value (TempoSync) instead of its own unit; the knob's top is
+    // the longest note for a time and the shortest for a rate.
+    int syncParam = -1;
+    int syncedParam = -1;
+    bool syncedIsRate = false;
+    // The UI shows meter() as a gain reduction in dB (0..meterRange) under this name
+    const char* meterName = nullptr;
+    float meterRange = 24.0f;
 };
 
 } // namespace namsayin
