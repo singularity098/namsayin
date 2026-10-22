@@ -37,6 +37,7 @@ enum class ParamScale {
     Log,     // min and max must be > 0
     Toggle,
     Choice,  // integer steps from min to max
+    Momentary, // 0/1 like a toggle, but the UI shows a button that is 1 only while held (footswitch actions)
 };
 
 // One block parameter. The host sees every slot parameter as 0..1; the spec maps that to the real value.
@@ -57,6 +58,7 @@ struct ParamSpec {
         case ParamScale::Log:
             return min * std::pow(max / min, n);
         case ParamScale::Toggle:
+        case ParamScale::Momentary:
             return n >= 0.5f ? 1.0f : 0.0f;
         case ParamScale::Choice:
             return std::round(min + n * (max - min));
@@ -75,6 +77,7 @@ struct ParamSpec {
             n = std::log(value / min) / std::log(max / min);
             break;
         case ParamScale::Toggle:
+        case ParamScale::Momentary:
             n = value >= 0.5f ? 1.0f : 0.0f;
             break;
         default:
@@ -107,6 +110,10 @@ public:
     // RT. The host tempo, called before every process(). 120 BPM when the host doesn't report one.
     virtual void setTempo(double /*bpm*/) {}
 
+    // RT. While the host's transport plays: the song position at the start of the coming process() buffer, in
+    // quarter notes from the start of the song. Tempo-synced LFOs lock their phase to it, so they land on the beat.
+    virtual void setSongPosition(double /*beats*/) {}
+
     // RT. A level the UI shows on the block (e.g. a compressor's gain reduction in dB); read after process().
     virtual float meter() const { return 0.0f; }
 
@@ -115,6 +122,15 @@ public:
 
     // RT. Clears internal state (delay lines, tails).
     virtual void reset() {}
+
+    // RT. The rig's input (after the input level, before the chain), called before every process() with the same
+    // frame count; for blocks that listen to it, like a noise gate keyed from the guitar. numChannels is 1 or 2.
+    virtual void setRigInput(const float* const* /*input*/, uint32_t /*numChannels*/) {}
+};
+
+enum class MeterStyle {
+    Reduction, // dB, positive
+    Looper,    // LooperStatus::encode()
 };
 
 struct BlockDescriptor {
@@ -124,6 +140,17 @@ struct BlockDescriptor {
     int numParams;
     std::array<ParamSpec, kParamsPerSlot> params;
     std::unique_ptr<Block> (*create)();
+
+    // Optional UI hints.
+    // A Toggle that makes `syncedParam` pick a note value (TempoSync) instead of its own unit; the knob's top is
+    // the longest note for a time and the shortest for a rate.
+    int syncParam = -1;
+    int syncedParam = -1;
+    bool syncedIsRate = false;
+    // The UI shows meter() as a gain reduction in dB (0..meterRange) under this name, or as the looper's status
+    const char* meterName = nullptr;
+    float meterRange = 24.0f;
+    MeterStyle meterStyle = MeterStyle::Reduction;
 };
 
 } // namespace namsayin

@@ -31,10 +31,12 @@ public:
 };
 
 // Test block: a gain (param 0, -24..24 dB) with optional latency and a configure() failure, set via config:
-// {"latency": samples, "fail": true}. Its meter() reports the host tempo it was given.
+// {"latency": samples, "fail": true}. Its meter() reports the host tempo it was given; sLastSongBeat the last song
+// position (-1 if none).
 class GainBlock : public namsayin::Block {
 public:
     static inline int sCreated = 0;
+    static inline double sLastSongBeat = -1.0;
 
     GainBlock() { ++sCreated; }
 
@@ -73,6 +75,7 @@ public:
 
     uint32_t latency() const override { return fLatency; }
     void setTempo(double bpm) override { fTempo = bpm; }
+    void setSongPosition(double beats) override { sLastSongBeat = beats; }
     float meter() const override { return static_cast<float>(fTempo); }
 
 private:

@@ -24,6 +24,19 @@ public:
         return fValue;
     }
 
+    // For values that need a filter redesign: moves one step and returns true, or returns false once arrived.
+    // Snaps when float precision stalls it short of the target (large values like 20000 Hz).
+    bool advance()
+    {
+        if (settled())
+            return false;
+        const float before = fValue;
+        next();
+        if (fValue == before)
+            snap(fTarget);
+        return true;
+    }
+
     float value() const { return fValue; }
     float target() const { return fTarget; }
     bool settled() const { return std::fabs(fTarget - fValue) < 1e-6f; }

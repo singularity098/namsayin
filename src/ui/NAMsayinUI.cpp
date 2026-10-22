@@ -3,14 +3,13 @@
 
 #include "DistrhoUI.hpp"
 
-#include "LogoImage.hpp"
 #include "OpenUrl.hpp"
 #include "engine/BlockRegistry.hpp"
 #include "engine/Params.hpp"
 #include "engine/blocks/CompressorBlock.hpp"
 #include "engine/blocks/DelayBlock.hpp"
-#include "engine/blocks/DoppelgangerBlock.hpp"
 #include "engine/blocks/IrBlock.hpp"
+#include "engine/blocks/LooperBlock.hpp"
 #include "engine/blocks/NamBlock.hpp"
 #include "state/ChainExchange.hpp"
 #include "state/ChainState.hpp"
@@ -74,6 +73,11 @@ const Color cab(0x4a, 0x4a, 0x52);
 const Color pedalDelay(0x2f, 0x9e, 0x91);
 const Color pedalReverb(0x4c, 0x7c, 0xe0);
 const Color pedalDynamics(0xd0, 0x82, 0x2e);
+const Color pedalDrive(0xc8, 0x44, 0x3c);
+const Color pedalModulation(0x8e, 0x5c, 0xd0);
+const Color pedalEq(0x9a, 0xa0, 0xa8);
+const Color pedalPitch(0xd0, 0xb0, 0x40);
+const Color pedalFilter(0x5c, 0xa0, 0x3a);
 const Color pedalOther(0x70, 0x70, 0x7a);
 } // namespace theme
 
@@ -106,6 +110,7 @@ struct Rect {
 enum class Hit {
     Knob,         // index = host parameter
     Toggle,       // index = host parameter (0/1 parameters)
+    Momentary,    // index = host parameter: 1 while the mouse is held, then 0
     Tile,         // index = position in the chain
     TileBypass,
     TileRemove,
@@ -611,6 +616,16 @@ protected:
             editParameter(hit->index, true);
             return true;
 
+        case Hit::Momentary:
+            // a footswitch press: no undo step, and back to 0 on release
+            if (fMomentaryReleasePending)
+                releaseMomentary();
+            fMomentaryParam = hit->index;
+            fMomentaryPressedAt = std::chrono::steady_clock::now();
+            fMomentaryReleasePending = false;
+            setNormalized(static_cast<uint32_t>(hit->index), 1.0f, true);
+            return true;
+
         case Hit::Toggle:
             if (isSlot(hit->index))
                 beginEdit();
@@ -1025,6 +1040,8 @@ protected:
 
     void uiIdle() override
     {
+        if (fMomentaryReleasePending && std::chrono::steady_clock::now() - fMomentaryPressedAt >= kMomentaryMinHold)
+            releaseMomentary();
         if (!fToast.empty() && std::chrono::steady_clock::now() - fToastAt > std::chrono::seconds(5))
             repaint();
         if (std::optional<LibraryScanner::Result> result = fScanner.poll())
@@ -1315,12 +1332,9 @@ private:
             const int slot = static_cast<int>(offset / kSlotParamCount);
             const int param = static_cast<int>(offset % kSlotParamCount) - 1;
             const BlockState* block = blockInSlot(slot);
-            static_assert(int(kDoppelParamTime) == int(kDelayParamTime) && int(kDoppelParamSync) == int(kDelayParamSync));
-            if (block
-                && (block->typeId == kDelayBlockDescriptor.typeId
-                    || block->typeId == kDoppelgangerBlockDescriptor.typeId)
-                && param == kDelayParamTime && fParams[slotParam(slot, kDelayParamSync)] >= 0.5f)
-                return delayNoteName(delayNoteIndex(fParams[index]));
+            const BlockDescriptor* type = block ? BlockRegistry::builtin().find(block->typeId) : nullptr;
+            if (type && type->syncedParam == param && fParams[slotParam(slot, type->syncParam)] >= 0.5f)
+                return type->syncedIsRate ? rateNoteName(rateNoteIndex(fParams[index])) : noteName(timeNoteIndex(fParams[index]));
             if (spec->unit[0] == ':')
             {
                 std::snprintf(buf, sizeof(buf), "%.1f%s", v, spec->unit);
@@ -1608,7 +1622,8 @@ private:
         if (hit == nullptr || fDialog != Dialog::None)
             return false;
 
-        if (hit->kind == Hit::Knob || hit->kind == Hit::Toggle || hit->kind == Hit::Choice)
+        if (hit->kind == Hit::Knob || hit->kind == Hit::Toggle || hit->kind == Hit::Momentary
+            || hit->kind == Hit::Choice)
         {
             const auto param = static_cast<uint32_t>(hit->index);
             if (!isMidiMappable(param))
@@ -1977,8 +1992,27 @@ private:
         return ((low | (high << 16)) >> slot) & 1u;
     }
 
+    void releaseMomentary()
+    {
+        setNormalized(static_cast<uint32_t>(fMomentaryParam), 0.0f, true);
+        fMomentaryParam = -1;
+        fMomentaryReleasePending = false;
+    }
+
     bool onRelease(float x, float y)
     {
+        if (fMomentaryParam >= 0)
+        {
+            // a quick click is held a moment longer (uiIdle releases it), so the DSP sees the press even if the
+            // release would land in the same audio buffer
+            if (std::chrono::steady_clock::now() - fMomentaryPressedAt < kMomentaryMinHold)
+            {
+                fMomentaryReleasePending = true;
+                return true;
+            }
+            releaseMomentary();
+            return true;
+        }
         if (fDragParam >= 0)
         {
             editParameter(static_cast<uint32_t>(fDragParam), false);
@@ -2134,6 +2168,23 @@ private:
                    Hit::Choice, static_cast<int>(index));
     }
 
+    // The looper's state, position in the loop and length
+    void drawLooperStatus(float cx, float cy, float value)
+    {
+        const LooperStatus status = LooperStatus::decode(value);
+        static constexpr const char* names[] = { "Empty", "Recording", "Playing", "Overdub", "Stopped" };
+        const Color colors[] = { theme::textDim, theme::bad, theme::good, theme::warn, theme::textDim };
+        const int state = static_cast<int>(status.state);
+        label(cx, cy - 18.0f, names[state], colors[state], 13.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        const float w = 84.0f;
+        fillRect(cx - w / 2, cy - 4.0f, w, 8.0f, theme::inset, 3.0f);
+        if (status.state == LooperState::Playing || status.state == LooperState::Overdubbing)
+            fillRect(cx - w / 2, cy - 4.0f, w * (status.progress + 1) / 100.0f, 8.0f, colors[state], 3.0f);
+        char text[24];
+        std::snprintf(text, sizeof(text), "%.1f s", status.lengthTenths / 10.0);
+        label(cx, cy + 18.0f, text, theme::text, 12.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+    }
+
     // Gain-reduction style meter for a block (fills downward from the top), in dB
     void drawBlockMeter(float cx, float cy, float db, float maxDb, const char* name)
     {
@@ -2224,12 +2275,19 @@ private:
 
         // pedal: portrait enclosure with knobs, a name, an LED and a footswitch
         Color color = theme::pedalOther;
-        if (type->category == Category::Delay)
-            color = theme::pedalDelay;
-        else if (type->category == Category::Reverb)
-            color = theme::pedalReverb;
-        else if (type->category == Category::Dynamics)
-            color = theme::pedalDynamics;
+        switch (type->category)
+        {
+        case Category::Delay:      color = theme::pedalDelay; break;
+        case Category::Reverb:     color = theme::pedalReverb; break;
+        case Category::Dynamics:   color = theme::pedalDynamics; break;
+        case Category::Distortion: color = theme::pedalDrive; break;
+        case Category::Modulation: color = theme::pedalModulation; break;
+        case Category::Eq:         color = theme::pedalEq; break;
+        case Category::PitchSynth: color = theme::pedalPitch; break;
+        case Category::Filter:
+        case Category::Wah:        color = theme::pedalFilter; break;
+        default:                   break;
+        }
 
         float pw = h * 0.62f, ph = h;
         if (pw > w)
@@ -2299,16 +2357,7 @@ private:
     void drawTopBar()
     {
         fillRect(0, 0, fWidth, kTopBarHeight, theme::bar);
-        // the logo, with the name as text if it can't be loaded
-        if (!fLogo.isValid() && !fLogoTried)
-        {
-            fLogoTried = true;
-            fLogo = createImageFromMemory(kLogoPng, kLogoPngSize, IMAGE_GENERATE_MIPMAPS);
-        }
-        if (fLogo.isValid())
-            drawImageFit(fLogo, 12.0f, 4.0f, 116.0f, kTopBarHeight - 8.0f, 0.0f);
-        else
-            label(16.0f, kTopBarHeight / 2, "NAMsayin", theme::text, 20.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        label(16.0f, kTopBarHeight / 2, "NAMsayin", theme::text, 20.0f, ALIGN_LEFT | ALIGN_MIDDLE);
 
         // preset menu with the preset's name (• when changed since it was saved or opened)
         const std::string preset = presetName() + (presetModified() ? " •" : "") + "  ▾";
@@ -3054,7 +3103,7 @@ private:
             controls.push_back({ Cell::Param, p });
         if (type == &kNamBlockDescriptor)
             controls.push_back({ Cell::A2Size, 0 });
-        if (type == &kCompressorBlockDescriptor)
+        if (type->meterName)
             controls.push_back({ Cell::Meter, 0 });
         const int count = static_cast<int>(controls.size());
 
@@ -3136,7 +3185,10 @@ private:
             }
             if (control.cell == Cell::Meter)
             {
-                drawBlockMeter(cx, cy, fParams[slotMeterParam(block.slot)], 24.0f, "Reduction");
+                if (type->meterStyle == MeterStyle::Looper)
+                    drawLooperStatus(cx, cy, fParams[slotMeterParam(block.slot)]);
+                else
+                    drawBlockMeter(cx, cy, fParams[slotMeterParam(block.slot)], type->meterRange, type->meterName);
                 continue;
             }
 
@@ -3145,6 +3197,9 @@ private:
             if (spec.scale == ParamScale::Toggle)
                 drawButton({ cx - 40.0f, cy - 14.0f, 80.0f, 28.0f }, spec.name, fParams[index] >= 0.5f, theme::accent,
                            Hit::Toggle, static_cast<int>(index));
+            else if (spec.scale == ParamScale::Momentary)
+                drawButton({ cx - 40.0f, cy - 22.0f, 80.0f, 44.0f }, spec.name, fParams[index] >= 0.5f, theme::accent,
+                           Hit::Momentary, static_cast<int>(index));
             else if (spec.scale == ParamScale::Choice)
                 drawChoice(cx, cy, index, spec.name);
             else
@@ -3209,10 +3264,17 @@ private:
                   theme::textDim, 13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
             return;
         }
-        const float itemH = 64.0f;
+        // one column of tall rows while they fit; then two columns, and shorter rows if needed
+        const float itemsH = y + h - 12.0f - listTop;
+        const int count = static_cast<int>(items.size());
+        const int columns = count * 72.0f > itemsH ? 2 : 1;
+        const int rows = (count + columns - 1) / columns;
+        const float itemH = std::clamp((itemsH + 8.0f) / rows - 8.0f, 30.0f, 64.0f);
+        const float itemW = (itemsW - (columns - 1) * 8.0f) / columns;
         for (size_t i = 0; i < items.size(); ++i)
         {
-            const Rect r { itemsX, listTop + i * (itemH + 8.0f), itemsW, itemH };
+            const int col = static_cast<int>(i) / rows, row = static_cast<int>(i) % rows;
+            const Rect r { itemsX + col * (itemW + 8.0f), listTop + row * (itemH + 8.0f), itemW, itemH };
             fillRect(r.x, r.y, r.w, r.h, r.contains(fMouseX, fMouseY) ? theme::tileHover : theme::tile, 8.0f);
             drawBlockArt(items[i].type, r.x + 10.0f, r.y + 8.0f, 60.0f, r.h - 16.0f, false);
             label(r.x + 84.0f, r.y + r.h / 2, items[i].label.c_str(), theme::text, 14.0f, ALIGN_LEFT | ALIGN_MIDDLE);
@@ -3573,6 +3635,10 @@ private:
     float fScrollX = 0.0f;
 
     int fDragParam = -1;
+    int fMomentaryParam = -1; // a momentary button being held
+    std::chrono::steady_clock::time_point fMomentaryPressedAt;
+    bool fMomentaryReleasePending = false;
+    static constexpr std::chrono::milliseconds kMomentaryMinHold { 80 };
     float fDragStartY = 0.0f;
     float fDragStartValue = 0.0f;
     uint fLastClickTime = 0;
@@ -3616,8 +3682,6 @@ private:
     bool fScanned = false;
 
     std::map<std::string, std::unique_ptr<NanoImage>> fImages; // by image path
-    NanoImage fLogo;
-    bool fLogoTried = false;
     std::map<std::string, std::string> fSidecars;             // block file path -> its image path
 
     // metronome

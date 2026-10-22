@@ -71,14 +71,36 @@ target_include_directories(xxhash SYSTEM INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/d
 
 add_library(namsayin-engine STATIC
   src/engine/BlockRegistry.cpp
+  src/engine/blocks/AmbientBlocks.cpp
+  src/engine/blocks/BitcrusherBlock.cpp
+  src/engine/blocks/ChorusBlock.cpp
   src/engine/blocks/CompressorBlock.cpp
   src/engine/blocks/DelayBlock.cpp
   src/engine/blocks/DoppelgangerBlock.cpp
+  src/engine/blocks/DoublerBlock.cpp
+  src/engine/blocks/DriveBlocks.cpp
+  src/engine/blocks/EchoBlocks.cpp
+  src/engine/blocks/EqBlocks.cpp
+  src/engine/blocks/FilterBlock.cpp
+  src/engine/blocks/FlangerBlock.cpp
+  src/engine/blocks/GateBlock.cpp
   src/engine/blocks/IrBlock.cpp
+  src/engine/blocks/LooperBlock.cpp
   src/engine/blocks/NamBlock.cpp
+  src/engine/blocks/OctaveBlock.cpp
+  src/engine/blocks/PhaserBlock.cpp
+  src/engine/blocks/PitchBlocks.cpp
   src/engine/blocks/ReverbBlock.cpp
+  src/engine/blocks/RingModBlock.cpp
+  src/engine/blocks/RotaryBlock.cpp
+  src/engine/blocks/SpringReverbBlock.cpp
+  src/engine/blocks/SynthBlock.cpp
+  src/engine/blocks/TremoloBlock.cpp
+  src/engine/blocks/VolumeBlocks.cpp
+  src/engine/blocks/WahBlocks.cpp
   src/engine/Engine.cpp
   src/engine/ParallelWorker.cpp
+  src/engine/TempoSync.cpp
   src/engine/metronome/ClickSamples.cpp
   src/engine/metronome/Metronome.cpp
   src/engine/tuner/PitchDetector.cpp
@@ -109,7 +131,6 @@ dpf_add_plugin(namsayin
   FILES_DSP
     src/plugin/NAMsayinPlugin.cpp
   FILES_UI
-    src/ui/LogoImage.cpp
     src/ui/NAMsayinUI.cpp
     src/ui/OpenUrl.cpp)
 
@@ -132,16 +153,19 @@ if(NAMSAYIN_BUILD_TESTS)
   enable_testing()
   add_executable(namsayin-tests
     tests/TestMain.cpp
+    tests/BlockSanityTests.cpp
     tests/ChainStateTests.cpp
     tests/CompressorBlockTests.cpp
     tests/DelayBlockTests.cpp
     tests/DoppelgangerBlockTests.cpp
+    tests/DriveTests.cpp
     tests/DspTests.cpp
     tests/EngineTests.cpp
     tests/IrBlockTests.cpp
     tests/LibraryTests.cpp
     tests/MetronomeTests.cpp
     tests/NamBlockTests.cpp
+    tests/PedalTests.cpp
     tests/PresetTests.cpp
     tests/ReverbBlockTests.cpp
     tests/SettingsTests.cpp

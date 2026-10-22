@@ -8,7 +8,7 @@ NAMsayin is a guitar rig plugin (VST3 + LV2) in C++20, built with DPF (plugin fr
 
 - **Requirements**: `docs/Requirements.md` — the owner's feature list plus agreed decisions. Treat it as the source of truth; record new decisions there.
 - **Architecture and milestones**: `docs/Architecture.md` — design, v1 milestones (M0–M10) and decisions log.
-- **Current milestone**: M1, M2 (minus resampling), M3 (delay, reverb, compressor), M5 (library, settings), M6 (split/merge), M7 (presets, undo/redo, MIDI learn), M8 (tuner) and M9 (metronome) are done, and M4 is done except real block images (the owner will provide them). The IR loader (local .wav cab IRs) and the Doppelganger Delay (echoes alternate flanger/chorus; `docs/Architecture.md` 4.7b) are also done, at the owner's request. Next: M10 (v1.0 release: performance, DAW testing, docs).
+- **Current milestone**: M1, M2 (minus resampling), M3 (delay, reverb, compressor), M5 (library, settings), M6 (split/merge), M7 (presets, undo/redo, MIDI learn), M8 (tuner) and M9 (metronome) are done, and M4 is done except real block images (the owner will provide them). The IR loader (local .wav cab IRs) and the Doppelganger Delay (echoes alternate flanger/chorus; `docs/Architecture.md` 4.7b) are also done, at the owner's request, and so is the pedal set (`docs/Requirements.md` "Pedals", Architecture 4.11; owner's call: no rush to v1). Next: M10 (v1.0 release: performance, DAW testing, docs).
 
 ## Fixed decisions (don't revisit without the owner)
 
@@ -37,14 +37,22 @@ src/engine/           Audio engine, independent of DPF (static library `namsayin
   Params.*            Host parameter indices and global parameter specs
   Block.hpp           Block base class, ParamSpec, BlockDescriptor, Category
   BlockRegistry.*     The list of built-in block types — add new effects here
+  TempoSync.*         Note values for tempo-synced knobs (delay time, LFO rates)
   Engine.*            Input stage, chain (with split/merge), tone stack, output, limiter, meters; lock-free chain swaps
   ParallelWorker.*    Thread that runs split branch B on a second core
   SpscQueue.hpp       Lock-free queue (retired graphs go back to the non-RT side through it)
-  dsp/                Smoother, Biquad, ToneStack, Limiter, Meter
+  dsp/                Smoother, Biquad, ToneStack, Limiter, Meter, Lfo (+ RandomLfo), Svf (+ OnePole, EnvelopeFollower),
+                      Waveshapers (clipping curves), PitchShifter (delay-line voices), Fdn (8-line reverb tank),
+                      PitchTracker (YIN, real time; synth, harmonizer, octave), PeriodFinder (autocorrelation;
+                      pitch-synchronous splices for the pitch shifter, chords included)
+                      Oversampler (polyphase IIR half-band, 4x, zero latency)
   dsp/DelayLine.hpp   Delay line with Hermite reads, sine LFO, dry/wet mix law; AlignmentDelay (split branches)
   tuner/              PitchDetector (MPM + sub-cent refinement), Tuner (ring buffer from the audio thread, analysis off it)
   metronome/          Metronome (sample-accurate, free and DAW sync), ClickSamples.cpp (generated)
-  blocks/             Block implementations (NamBlock, IrBlock, DelayBlock, DoppelgangerBlock, ReverbBlock, CompressorBlock)
+  blocks/             Block implementations (NAM, IR, delay, Doppelganger delay, reverb, compressor, gate, EQs, chorus, flanger, phaser,
+                      tremolo, doubler, wah, auto wah, boost, overdrive, distortion, fuzz, bitcrusher, volume,
+                      auto swell, ring mod, rotary, octave, pitch shifter, whammy, poly octave, spring reverb,
+                      shimmer, freeze, tape echo, ducking delay, synth, looper, harmonizer, filter)
 src/state/            Plain data shared by DSP and UI, no DPF:
   ChainState          the chain (JSON; the split is a block range + per-block branch tag)
   ChainExchange       chain file route for hosts that drop UI state messages
@@ -57,11 +65,9 @@ src/state/            Plain data shared by DSP and UI, no DPF:
 src/plugin/           DistrhoPluginInfo.h + DSP side (Plugin subclass; thin wrapper around Engine)
 src/ui/               UI side (UI subclass, NanoVG). Immediate-mode: draw functions record hit areas, mouse handlers look them up.
                       Tuner and metronome panels are overlays over the chain. OpenUrl.cpp keeps <windows.h> out of the DPF code
-                      LogoImage.cpp (generated) holds the top bar logo
 tests/                doctest unit tests; TestSupport.hpp has a test block and an allocation counter
 docs/                 Requirements and architecture
 resources/sounds/     Classic metronome samples from Fretbored; tools/embed_sounds.py turns them into ClickSamples.cpp
-resources/logo/       logo.png (the owner's logo, as given) and logo-ui.png (transparent, made by tools/embed_logo.py)
 deps/khronos/         Vendored glext.h + khrplatform.h (MSVC has none; DPF's download is unreliable)
 .github/workflows/    CI: Linux (Ninja) and Windows (MSVC) builds + tests
 .github/scripts/      CI helper scripts
@@ -109,8 +115,11 @@ The file browser opens in the host's working directory. Final checks happen in R
 - The UI may run in a separate process (LV2), so DSP↔UI communication goes through parameters and state only — no direct pointers.
 - `CMAKE_CXX_EXTENSIONS` is ON because DPF's UI code uses `typeof`.
 - **Host parameter indices are DAW automation IDs — never reorder or remove them.** Globals come first, then 32 slots × 17 (bypass + 16; was 8, raised before release for the Doppelganger Delay — fixed from v1.0 on). Parameters added later go after the slots (`kFirstLaterParam` in `src/engine/Params.hpp`).
-- Slot parameters are normalized 0..1 for the host; each block's `ParamSpec` maps them to real values. `Choice` params list their labels in `ParamSpec::choices`; the UI draws them as a button that steps through the choices.
-- Blocks get the host tempo through `Block::setTempo()` and can show a level in the UI through `Block::meter()` (one hidden output parameter per slot, `slotMeterParam()`).
+- Slot parameters are normalized 0..1 for the host; each block's `ParamSpec` maps them to real values. `Choice` params list their labels in `ParamSpec::choices`; the UI draws them as a button that steps through the choices. `Momentary` params are footswitch actions (the looper's buttons): 1 while held (the UI holds a quick click for 80 ms so the DSP sees it), and the block acts on the 0 -> 1 edge, which also suits MIDI footswitches.
+- Blocks get the host tempo through `Block::setTempo()` and can show a level in the UI through `Block::meter()` (one hidden output parameter per slot, `slotMeterParam()`; the descriptor's `meterName` makes the panel show it). `Block::setRigInput()` gives blocks the chain's input (the noise gate's "Rig In" key).
+- Tempo sync is generic: a descriptor's `syncParam`/`syncedParam`/`syncedIsRate` make the UI show note values (`TempoSync.hpp`); the block maps the knob itself. While the host plays, `Block::setSongPosition()` gives the position in quarter notes; synced LFOs lock to it (`Lfo::syncTo`), so they land on the beat.
+- A `Choice` parameter's list must never grow or shrink once released: its normalized values would map to other choices in saved projects. Add a new block type instead.
+- `tests/BlockSanityTests.cpp` runs every registered block at default, extreme and random settings (finite, bounded, no allocation, silent for silence). New blocks get behaviour tests too (`tests/PedalTests.cpp`).
 - Block `typeId`s are stored in presets and plugin state — never rename one.
 - Parameter values live in the host. `ChainState.params`/`bypass` are only for presets and undo; the UI pushes them to the host.
 - The chain reaches the DSP as the `chain` state string (JSON). `setState()` runs off the audio thread and builds the new graph there.
@@ -126,7 +135,6 @@ The file browser opens in the host's working directory. Final checks happen in R
 - The engine reports running slots through two output parameters (`kParamRunningSlotsLow/High`); the UI marks blocks that haven't started 2.5 s after a chain change, and shows a banner if none have.
 - **Reaper's LV2 hosting doesn't deliver the UI's state messages to the DSP** (confirmed by the owner; VST3 works). So the chain has a second route: the UI writes it to a per-instance file and bumps the hidden Chain Revision parameter; a DSP thread reads the file (`src/state/ChainExchange.*`). The DSP also keeps the chain itself (`DISTRHO_PLUGIN_WANT_FULL_STATE`) for project save/restore and writes the file so a reopened UI can read it. Test the fallback with a build configured with `-DCMAKE_CXX_FLAGS=-DNAMSAYIN_TEST_NO_STATE_MESSAGE` (UI never sends the state message) in jalv.
 - Metronome: see `docs/Architecture.md` 4.10. All its settings are host parameters (most hidden), not state, so they reach the DSP in every host. After changing `resources/sounds/`, run `python3 tools/embed_sounds.py`; never edit `ClickSamples.cpp` by hand. Digital and Beep are generated in code. Only add samples the owner has cleared for MIT (two Digital samples carrying a third-party artist credit were removed).
-- Logo: the top bar draws `resources/logo/logo-ui.png`, built into the binary as `src/ui/LogoImage.cpp`. After changing `resources/logo/logo.png`, run `python3 tools/embed_logo.py` (needs Pillow); never edit `LogoImage.cpp` by hand. The owner calls it the logo "for now".
 - Tuner: see `docs/Architecture.md` 4.9. The plugin runs `Engine::analyzeTuner()` on its own thread every 20 ms while the tuner is on. Accuracy tests are in `tests/TunerTests.cpp`; keep them passing (±0.1 cent from 31 to 1319 Hz) when touching the detector.
 - Split/merge: see `docs/Architecture.md` 4.4. The merge controls are host parameters (after the slots). Parallel processing is the Settings toggle; the DSP reads it when it builds a chain.
 - Not done yet in the NAM block: resampling when the host rate differs from the model's training rate.

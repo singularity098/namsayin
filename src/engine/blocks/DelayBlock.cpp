@@ -3,6 +3,7 @@
 
 #include "engine/blocks/DelayBlock.hpp"
 
+#include "engine/TempoSync.hpp"
 #include "engine/dsp/Biquad.hpp"
 #include "engine/dsp/DelayLine.hpp"
 #include "engine/dsp/Smoother.hpp"
@@ -13,17 +14,6 @@
 namespace namsayin {
 
 namespace {
-
-struct Note {
-    const char* name;
-    double beats;
-};
-
-constexpr Note kNotes[kDelayNoteCount] = {
-    { "1/1", 4.0 },       { "1/2.", 3.0 },        { "1/2", 2.0 },   { "1/4.", 1.5 },  { "1/2T", 4.0 / 3.0 },
-    { "1/4", 1.0 },       { "1/8.", 0.75 },       { "1/4T", 2.0 / 3.0 }, { "1/8", 0.5 }, { "1/16.", 0.375 },
-    { "1/8T", 1.0 / 3.0 }, { "1/16", 0.25 },      { "1/16T", 1.0 / 6.0 }, { "1/32", 0.125 },
-};
 
 constexpr const char* kModeNames[] = { "Mono", "Stereo", "Ping-Pong" };
 
@@ -250,18 +240,17 @@ private:
 int delayNoteIndex(float normalizedTime)
 {
     // the top of the knob is the longest note, like the unsynced time
-    const float n = std::clamp(normalizedTime, 0.0f, 1.0f);
-    return kDelayNoteCount - 1 - static_cast<int>(std::lround(n * (kDelayNoteCount - 1)));
+    return timeNoteIndex(normalizedTime);
 }
 
 const char* delayNoteName(int index)
 {
-    return kNotes[std::clamp(index, 0, kDelayNoteCount - 1)].name;
+    return noteName(index);
 }
 
 double delayNoteBeats(int index)
 {
-    return kNotes[std::clamp(index, 0, kDelayNoteCount - 1)].beats;
+    return noteBeats(index);
 }
 
 const BlockDescriptor kDelayBlockDescriptor = {
@@ -280,6 +269,8 @@ const BlockDescriptor kDelayBlockDescriptor = {
         ParamSpec { "Mod", "%", 0.0f, 100.0f, 0.0f, ParamScale::Linear },
     },
     [] { return std::unique_ptr<Block>(new DelayBlock()); },
+    kDelayParamSync,
+    kDelayParamTime,
 };
 
 } // namespace namsayin

@@ -158,6 +158,10 @@ const BlockDescriptor kCompressorBlockDescriptor = {
         ParamSpec { "Mix", "%", 0.0f, 100.0f, 100.0f, ParamScale::Linear },
     },
     [] { return std::unique_ptr<Block>(new CompressorBlock()); },
+    -1,
+    -1,
+    false,
+    "Reduction",
 };
 
 } // namespace namsayin

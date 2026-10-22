@@ -269,6 +269,35 @@ TEST_CASE("blocks get the host tempo, and their meters reach the slot meter para
     CHECK(rig.engine.getParameter(slotMeterParam(7)) == doctest::Approx(93.5f));
 }
 
+TEST_CASE("blocks get the song position while the transport plays")
+{
+    Rig rig;
+    REQUIRE(rig.engine.setChain(gainChain(7)));
+    rig.run(2);
+    testing::GainBlock::sLastSongBeat = -1.0;
+    const float* in[2] = { rig.inL.data(), rig.inR.data() };
+    float* out[2] = { rig.outL.data(), rig.outR.data() };
+
+    Transport transport;
+    transport.valid = true;
+    transport.playing = false;
+    transport.bpm = 120.0;
+    transport.beat = 8.0;
+    rig.engine.process(in, out, kBuffer, &transport);
+    CHECK(testing::GainBlock::sLastSongBeat == -1.0); // stopped: nothing
+
+    transport.playing = true;
+    rig.engine.process(in, out, kBuffer, &transport);
+    CHECK(testing::GainBlock::sLastSongBeat == doctest::Approx(8.0));
+
+    // a host buffer longer than the engine's: later chunks get the position at their own start
+    std::vector<float> longIn(kBuffer * 3, 0.0f), longOut(kBuffer * 3, 0.0f);
+    const float* longIns[2] = { longIn.data(), longIn.data() };
+    float* longOuts[2] = { longOut.data(), longOut.data() };
+    rig.engine.process(longIns, longOuts, kBuffer * 3, &transport);
+    CHECK(testing::GainBlock::sLastSongBeat == doctest::Approx(8.0 + 2.0 * kBuffer * 2.0 / kRate));
+}
+
 TEST_CASE("MIDI CCs move mapped parameters and are reported for MIDI learn")
 {
     Rig rig;

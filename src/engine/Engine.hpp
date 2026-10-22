@@ -166,6 +166,8 @@ private:
     float fRampStep = 1.0f;
     float fGlobalBypassMix = 0.0f;
     double fTempo = 120.0;
+    bool fSongPlaying = false; // the host transport plays; fSongBeat is the position at the current chunk's start
+    double fSongBeat = 0.0;
     uint32_t fCcCount = 0;
     float fTunerMuteMix = 0.0f; // 1 = guitar muted by the tuner
     bool fTunerOn = false;
@@ -181,6 +183,7 @@ private:
     Meter fInMeters[2], fOutMeters[2];
 
     std::vector<float> fWork[2], fDry[2], fScratch[2];
+    std::vector<float> fRigInput[2]; // the chain input, for blocks keyed from it (Block::setRigInput)
     std::vector<float> fBranch[2], fBranchScratch[2]; // branch B of a split
     std::vector<float> fClick;
 };

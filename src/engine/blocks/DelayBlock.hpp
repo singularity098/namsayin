@@ -4,6 +4,7 @@
 #pragma once
 
 #include "engine/Block.hpp"
+#include "engine/TempoSync.hpp"
 
 namespace namsayin {
 
@@ -28,7 +29,7 @@ enum class DelayMode { Mono, Stereo, PingPong };
 constexpr double kDelayMaxSeconds = 4.0;
 
 // Tempo-synced note values, longest first
-constexpr int kDelayNoteCount = 14;
+constexpr int kDelayNoteCount = kNoteCount;
 
 // The note value a normalized Time knob position selects when synced
 int delayNoteIndex(float normalizedTime);

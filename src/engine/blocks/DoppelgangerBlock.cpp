@@ -354,6 +354,9 @@ const BlockDescriptor kDoppelgangerBlockDescriptor = {
         ParamSpec { "Chorus Mix", "%", 0.0f, 100.0f, 100.0f, ParamScale::Linear },
     },
     [] { return std::unique_ptr<Block>(new DoppelgangerBlock()); },
+    kDoppelParamSync,
+    kDoppelParamTime,
+    false,
 };
 
 } // namespace namsayin

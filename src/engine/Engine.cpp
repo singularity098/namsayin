@@ -133,6 +133,7 @@ void Engine::prepare(double sampleRate, uint32_t maxFrames)
         fWork[ch].assign(fMaxFrames, 0.0f);
         fDry[ch].assign(fMaxFrames, 0.0f);
         fScratch[ch].assign(fMaxFrames, 0.0f);
+        fRigInput[ch].assign(fMaxFrames, 0.0f);
         fBranch[ch].assign(fMaxFrames, 0.0f);
         fBranchScratch[ch].assign(fMaxFrames, 0.0f);
     }
@@ -346,6 +347,15 @@ void Engine::processChunk(const float* const* inputs, float* const* outputs, uin
     if (tunerOn)
         fTuner.push(fWork[0].data(), stereo ? fWork[1].data() : nullptr, frames);
 
+    // Song position for blocks that lock to the beat
+    fSongPlaying = transport && transport->valid && transport->playing;
+    if (fSongPlaying)
+        fSongBeat = transport->beat + offset * transport->bpm / 60.0 / fSampleRate;
+
+    // Blocks keyed from the rig input read this copy (the chain processes fWork in place)
+    for (uint32_t ch = 0; ch < numChannels; ++ch)
+        std::memcpy(fRigInput[ch].data(), fWork[ch].data(), sizeof(float) * frames);
+
     // Chain, with a fade out/in around graph swaps
     if (fFade == Fade::Idle)
     {
@@ -554,6 +564,10 @@ void Engine::processNodes(const std::vector<Node>& nodes, float* const* work, fl
         }
         slot.applyAll = false;
         block.setTempo(fTempo);
+        if (fSongPlaying)
+            block.setSongPosition(fSongBeat);
+        const float* rig[2] = { fRigInput[0].data(), fRigInput[1].data() };
+        block.setRigInput(rig, numChannels);
 
         const float bypassTarget = param(slotBypassParam(node.slot)) >= 0.5f ? 1.0f : 0.0f;
         if (slot.bypassMix == bypassTarget)
