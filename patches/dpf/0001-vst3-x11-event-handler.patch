@@ -1,0 +1,211 @@
+diff --git a/distrho/src/DistrhoUIInternal.hpp b/distrho/src/DistrhoUIInternal.hpp
+index f7b578e6..d2cf55dc 100644
+--- a/distrho/src/DistrhoUIInternal.hpp
++++ b/distrho/src/DistrhoUIInternal.hpp
+@@ -18,6 +18,7 @@
+ #define DISTRHO_UI_INTERNAL_HPP_INCLUDED
+ 
+ #include "DistrhoUIPrivateData.hpp"
++#include "../extra/Time.hpp"
+ 
+ START_NAMESPACE_DISTRHO
+ 
+@@ -218,6 +219,25 @@ public:
+     }
+    #endif
+ 
++   #if !(defined(DISTRHO_OS_MAC) || defined(DISTRHO_OS_WINDOWS) || defined(__EMSCRIPTEN__))
++    int getX11ConnectionFd()
++    {
++        return uiData->app.getX11ConnectionFd();
++    }
++
++    // Handles pending window events (and the redraws they ask for) without the UI's idle work, so a redraw's own
++    // X11 traffic can't keep waking it. Events that Xlib queued while drawing are handled too, for up to 8 ms, so a
++    // slow redraw can't hold up the host's GUI thread.
++    void plugin_events()
++    {
++        DISTRHO_SAFE_ASSERT_RETURN(ui != nullptr,);
++        const uint32_t start = d_gettime_ms();
++        do {
++            uiData->app.idle();
++        } while (uiData->app.hasQueuedX11Events() && d_gettime_ms() - start < 8);
++    }
++   #endif
++
+     bool plugin_idle()
+     {
+         DISTRHO_SAFE_ASSERT_RETURN(ui != nullptr, false);
+diff --git a/distrho/src/DistrhoUIPrivateData.hpp b/distrho/src/DistrhoUIPrivateData.hpp
+index 108e76b6..5a6ea549 100644
+--- a/distrho/src/DistrhoUIPrivateData.hpp
++++ b/distrho/src/DistrhoUIPrivateData.hpp
+@@ -70,6 +70,11 @@ int dpf_webview_start(int argc, char* argv[]);
+ // --------------------------------------------------------------------------------------------------------------------
+ // Plugin Application, will set class name based on plugin details
+ 
++#if !(defined(DISTRHO_OS_MAC) || defined(DISTRHO_OS_WINDOWS) || defined(__EMSCRIPTEN__))
++extern "C" int XConnectionNumber(struct _XDisplay*);
++extern "C" int XEventsQueued(struct _XDisplay*, int);
++#endif
++
+ class PluginApplication : public DGL_NAMESPACE::Application
+ {
+ public:
+@@ -105,6 +110,25 @@ public:
+         pData->repaintIfNeeeded();
+     }
+ 
++   #if !(defined(DISTRHO_OS_MAC) || defined(DISTRHO_OS_WINDOWS) || defined(__EMSCRIPTEN__))
++    // The file descriptor of the X11 connection, so a host run loop can wake the UI as soon as events arrive
++    int getX11ConnectionFd()
++    {
++        if (void* const display = puglGetNativeWorld(pData->world))
++            return XConnectionNumber(static_cast<struct _XDisplay*>(display));
++        return -1;
++    }
++
++    // Whether Xlib has already read events into its queue (as it may while drawing), which leaves the connection's
++    // file descriptor quiet even though there's work to do
++    bool hasQueuedX11Events()
++    {
++        if (void* const display = puglGetNativeWorld(pData->world))
++            return XEventsQueued(static_cast<struct _XDisplay*>(display), 0 /* QueuedAlready */) > 0;
++        return false;
++    }
++   #endif
++
+     DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginApplication)
+ };
+ 
+diff --git a/distrho/src/DistrhoUIVST3.cpp b/distrho/src/DistrhoUIVST3.cpp
+index 744551c4..6c5d8309 100644
+--- a/distrho/src/DistrhoUIVST3.cpp
++++ b/distrho/src/DistrhoUIVST3.cpp
+@@ -547,6 +547,16 @@ public:
+         fUI.plugin_idle();
+         doIdleStuff();
+     }
++
++    int getX11ConnectionFd()
++    {
++        return fUI.getX11ConnectionFd();
++    }
++
++    void onEvents()
++    {
++        fUI.plugin_events();
++    }
+    #else
+     // ----------------------------------------------------------------------------------------------------------------
+     // special idle callback without v3_timer_handler
+@@ -1020,6 +1030,61 @@ struct dpf_timer_handler : v3_timer_handler_cpp {
+         timer->uivst3->onTimer();
+     }
+ };
++
++// --------------------------------------------------------------------------------------------------------------------
++// dpf_event_handler: runs the UI as soon as its X11 connection has events, instead of waiting for the timer (hosts
++// may run timers far slower than asked, which makes mouse drags choppy)
++
++struct dpf_event_handler : v3_event_handler_cpp {
++    std::atomic_int refcounter;
++    ScopedPointer<UIVst3>& uivst3;
++    bool valid;
++
++    dpf_event_handler(ScopedPointer<UIVst3>& v)
++        : refcounter(1),
++          uivst3(v),
++          valid(true)
++    {
++        // v3_funknown, single instance
++        query_interface = query_interface_event_handler;
++        ref = dpf_single_instance_ref<dpf_event_handler>;
++        unref = dpf_single_instance_unref<dpf_event_handler>;
++
++        // v3_event_handler
++        handler.on_fd_is_set = on_fd_is_set;
++    }
++
++    // ----------------------------------------------------------------------------------------------------------------
++    // v3_funknown
++
++    static v3_result V3_API query_interface_event_handler(void* self, const v3_tuid iid, void** iface)
++    {
++        dpf_event_handler* const handler = *static_cast<dpf_event_handler**>(self);
++
++        if (v3_tuid_match(iid, v3_funknown_iid) ||
++            v3_tuid_match(iid, v3_event_handler_iid))
++        {
++            ++handler->refcounter;
++            *iface = self;
++            return V3_OK;
++        }
++
++        *iface = NULL;
++        return V3_NO_INTERFACE;
++    }
++
++    // ----------------------------------------------------------------------------------------------------------------
++    // v3_event_handler
++
++    static void V3_API on_fd_is_set(void* self, int)
++    {
++        dpf_event_handler* const handler = *static_cast<dpf_event_handler**>(self);
++
++        DISTRHO_SAFE_ASSERT_RETURN(handler->valid,);
++
++        handler->uivst3->onEvents();
++    }
++};
+ #endif
+ 
+ // --------------------------------------------------------------------------------------------------------------------
+@@ -1041,6 +1106,7 @@ struct dpf_plugin_view : v3_plugin_view_cpp {
+     ScopedPointer<dpf_plugin_view_content_scale> scale;
+    #if DPF_VST3_USING_HOST_RUN_LOOP
+     ScopedPointer<dpf_timer_handler> timer;
++    ScopedPointer<dpf_event_handler> eventHandler;
+    #endif
+     ScopedPointer<UIVst3> uivst3;
+     // cached values
+@@ -1278,6 +1344,17 @@ struct dpf_plugin_view : v3_plugin_view_cpp {
+                 v3_cpp_obj(runloop)->register_timer(runloop,
+                                                     (v3_timer_handler**)&view->timer,
+                                                     DPF_VST3_TIMER_INTERVAL);
++
++                // and handle X11 events as soon as they arrive (the timer stays as a fallback)
++                const int fd = view->uivst3->getX11ConnectionFd();
++                if (fd >= 0)
++                {
++                    view->eventHandler = new dpf_event_handler(view->uivst3);
++                    if (v3_cpp_obj(runloop)->register_event_handler(runloop,
++                                                                    (v3_event_handler**)&view->eventHandler,
++                                                                    fd) != V3_OK)
++                        view->eventHandler = nullptr;
++                }
+                #endif
+ 
+                 return V3_OK;
+@@ -1297,6 +1374,21 @@ struct dpf_plugin_view : v3_plugin_view_cpp {
+         // unregister our timer as needed
+         if (v3_run_loop** const runloop = view->runloop)
+         {
++            if (view->eventHandler != nullptr && view->eventHandler->valid)
++            {
++                v3_cpp_obj(runloop)->unregister_event_handler(runloop, (v3_event_handler**)&view->eventHandler);
++
++                if (const int refcount = --view->eventHandler->refcounter)
++                {
++                    view->eventHandler->valid = false;
++                    d_stderr("VST3 warning: Host run loop did not give away event handler (refcount %d)", refcount);
++                }
++                else
++                {
++                    view->eventHandler = nullptr;
++                }
++            }
++
+             if (view->timer != nullptr && view->timer->valid)
+             {
+                 v3_cpp_obj(runloop)->unregister_timer(runloop, (v3_timer_handler**)&view->timer);

@@ -28,6 +28,28 @@ endif()
 # ---------------------------------------------------------------------------------------------------------------------
 # Dependencies
 
+# Our patches to DPF (patches/dpf/, see the README there), applied to the submodule's checkout once. They only change
+# Linux code, and a Windows checkout may have CRLF line endings that a patch wouldn't apply to.
+if(NOT WIN32)
+  find_package(Git REQUIRED)
+  file(GLOB NAMSAYIN_DPF_PATCHES ${CMAKE_CURRENT_SOURCE_DIR}/patches/dpf/*.patch)
+endif()
+list(SORT NAMSAYIN_DPF_PATCHES)
+foreach(patch ${NAMSAYIN_DPF_PATCHES})
+  execute_process(COMMAND ${GIT_EXECUTABLE} apply --reverse --check ${patch}
+                  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/deps/DPF
+                  RESULT_VARIABLE NAMSAYIN_PATCH_APPLIED OUTPUT_QUIET ERROR_QUIET)
+  if(NOT NAMSAYIN_PATCH_APPLIED EQUAL 0)
+    execute_process(COMMAND ${GIT_EXECUTABLE} apply ${patch}
+                    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/deps/DPF
+                    RESULT_VARIABLE NAMSAYIN_PATCH_FAILED)
+    if(NOT NAMSAYIN_PATCH_FAILED EQUAL 0)
+      message(FATAL_ERROR "Can't apply ${patch} to deps/DPF (was the submodule updated?)")
+    endif()
+    message(STATUS "Applied ${patch}")
+  endif()
+endforeach()
+
 add_subdirectory(deps/DPF)
 
 # NeuralAmpModelerCore is built as a static library from its sources; its own CMake also builds tools we don't need

@@ -27,7 +27,7 @@ NAMsayin is a guitar rig plugin (VST3 + LV2) in C++20, built with DPF (plugin fr
 
 ```
 CMakeLists.txt        Top-level build; builds NAM Core as the static library `nam`
-deps/DPF              Submodule (DPF main)
+deps/DPF              Submodule (DPF main), patched at configure time from patches/dpf/ (Linux only; see its README)
 deps/NeuralAmpModelerCore  Submodule, pinned to tag v0.6.0
 deps/doctest          Submodule, pinned to v2.4.12 (unit tests)
 deps/FFTConvolver     Submodule (MIT): zero-latency partitioned convolution for the IR block
@@ -74,6 +74,7 @@ resources/blocks/     Built-in block images, named <typeId>.<ext>; tools/embed_b
 deps/khronos/         Vendored glext.h + khrplatform.h (MSVC has none; DPF's download is unreliable)
 .github/workflows/    CI: Linux (Ninja) and Windows (MSVC) builds + tests
 .github/scripts/      CI helper scripts
+patches/dpf/          Our DPF patches (VST3: X11 events wake the UI at once), applied by CMake
 ```
 
 Planned layout for later milestones is in `docs/Architecture.md` section 2.
@@ -154,5 +155,5 @@ The file browser opens in the host's working directory. Final checks happen in R
 - Presets store the global sound controls (input mode, input, bass, middle, treble, output, limiter) and the merge controls by parameter symbol; ones a preset lacks go back to their defaults on load. Embedded files live under `files/<hash>/` in the zip and are extracted to `cache/presets/<hash>/` with their sidecar images.
 - DPF's file browser doesn't open in the headless test setup (no desktop portal), so presets were tested there through the Recent list; check Open/Save As in Reaper.
 - Fretbored (the owner's other app, https://github.com/singularity098/fretbored) is the reference for the metronome and tuner features (`js/metronome.js`, `js/pitch.js`, `js/tuner.js`).
-- Redraw rate: on Linux the UI can only redraw once per host idle tick (pugl processes X11 events and exposes from the host's idle/timer callback; DPF asks VST3 hosts for 16 ms, LV2 hosts choose their own rate, jalv ~30 Hz). A frame costs well under 1 ms of CPU, so drawing isn't the bottleneck. Windows redraws from the native message loop. The owner saw choppy dragging in Reaper on Linux in both LV2 and VST3. DPF leaves the GL swap interval at the driver default (usually vsync on), so each swap could block the host's GUI thread until the next refresh; the UI now turns vsync off for its window (`src/ui/Vsync.cpp`, GLX). Start the host with `NAMSAYIN_SHOW_FPS=1` to show a readout (idle ticks/s, frames/s, worst gap, draw time) to see what limits it. If the host's tick rate is the limit, the next step is a DPF patch registering the X11 connection with VST3's `IRunLoop` event handler (DPF only uses its timer).
+- Redraw rate: on Linux the UI can only redraw once per host idle tick (pugl processes X11 events and exposes from the host's idle/timer callback; DPF asks VST3 hosts for 16 ms, LV2 hosts choose their own rate, jalv ~30 Hz). A frame costs well under 1 ms of CPU, so drawing isn't the bottleneck. Windows redraws from the native message loop. The owner saw choppy dragging in Reaper on Linux in both LV2 and VST3. DPF leaves the GL swap interval at the driver default (usually vsync on), so each swap could block the host's GUI thread until the next refresh; the UI now turns vsync off for its window (`src/ui/Vsync.cpp`, GLX). Start the host with `NAMSAYIN_SHOW_FPS=1` to show a readout (idle ticks/s, frames/s, worst gap, draw time) to see what limits it. The owner's readout in Reaper: idle 36/s, frames 36/s, worst gap 31 ms, draw 0.17 ms, so Reaper's tick rate is the limit. Fix for VST3: `patches/dpf/0001-vst3-x11-event-handler.patch` registers the X11 connection with the host run loop's event handler, so mouse events are handled and redrawn as they arrive. LV2 has no such mechanism (only the host's idle calls), so in Reaper the VST3 version is the smooth one.
 - Tone3000's site is blocked by this cloud environment's network policy, so its API docs can't be fetched here.

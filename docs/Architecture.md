@@ -256,7 +256,7 @@ Notes:
   - Right-click a block: bypass, remove, MIDI learn.
   - Double-click a knob to reset it; Shift-drag for fine control.
 - **Dialogs**: Add Block (categories on the left), Settings, and the Tuner and Metronome panels (overlays).
-- **Redraws on Linux** happen once per host idle tick. The UI turns vsync off for its GL window, so a buffer swap never stalls the host's GUI thread waiting for the screen. `NAMSAYIN_SHOW_FPS=1` in the host's environment shows a frame-rate readout.
+- **Redraws on Linux**: X11 events are only read when the host calls the UI. LV2 hosts call it on their idle tick (Reaper: ~30-36 Hz), so dragging redraws at that rate. For VST3, a DPF patch (`patches/dpf/`) registers the X11 connection with the host run loop's event handler, so events are handled and redrawn as they arrive, whatever the host's timer rate. The UI turns vsync off for its GL window, so a buffer swap never stalls the host's GUI thread waiting for the screen. `NAMSAYIN_SHOW_FPS=1` in the host's environment shows a frame-rate readout.
 - **Hover help**: resting the mouse on a control for 0.6 s shows a translucent popup with its name and a plain-English explanation of what it does and how to use it. The texts are in `src/ui/ParamHelp.cpp` (block controls by typeId and control name, the others by parameter symbol); `tests/ParamHelpTests.cpp` checks that every block control and every global control has one, at least 80 characters long. The top-bar icon buttons and the metronome's beat, grouping and tap controls have popups too.
 - A dark theme defined as colour tokens in one file, so it can be restyled: pure black window, flat near-black gray bars and panels.
 - The Fretbored link opens the browser through a small platform helper (`xdg-open` / `ShellExecute`).
