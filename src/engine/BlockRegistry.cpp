@@ -3,12 +3,14 @@
 
 #include "engine/BlockRegistry.hpp"
 
+#include "engine/blocks/AmbientBlocks.hpp"
 #include "engine/blocks/BitcrusherBlock.hpp"
 #include "engine/blocks/ChorusBlock.hpp"
 #include "engine/blocks/CompressorBlock.hpp"
 #include "engine/blocks/DelayBlock.hpp"
 #include "engine/blocks/DoublerBlock.hpp"
 #include "engine/blocks/DriveBlocks.hpp"
+#include "engine/blocks/EchoBlocks.hpp"
 #include "engine/blocks/EqBlocks.hpp"
 #include "engine/blocks/FlangerBlock.hpp"
 #include "engine/blocks/GateBlock.hpp"
@@ -16,9 +18,11 @@
 #include "engine/blocks/NamBlock.hpp"
 #include "engine/blocks/OctaveBlock.hpp"
 #include "engine/blocks/PhaserBlock.hpp"
+#include "engine/blocks/PitchBlocks.hpp"
 #include "engine/blocks/ReverbBlock.hpp"
 #include "engine/blocks/RingModBlock.hpp"
 #include "engine/blocks/RotaryBlock.hpp"
+#include "engine/blocks/SpringReverbBlock.hpp"
 #include "engine/blocks/TremoloBlock.hpp"
 #include "engine/blocks/VolumeBlocks.hpp"
 #include "engine/blocks/WahBlocks.hpp"
@@ -77,8 +81,16 @@ const BlockRegistry& BlockRegistry::builtin()
         &kDoublerBlockDescriptor,
         &kRingModBlockDescriptor,
         &kReverbBlockDescriptor,
+        &kSpringReverbBlockDescriptor,
+        &kShimmerBlockDescriptor,
+        &kFreezeBlockDescriptor,
         &kDelayBlockDescriptor,
+        &kTapeEchoBlockDescriptor,
+        &kDuckingDelayBlockDescriptor,
         &kOctaveBlockDescriptor,
+        &kPolyOctaveBlockDescriptor,
+        &kPitchShifterBlockDescriptor,
+        &kWhammyBlockDescriptor,
         &kWahBlockDescriptor,
         &kAutoWahBlockDescriptor,
     });

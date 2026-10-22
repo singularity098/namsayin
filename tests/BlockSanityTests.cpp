@@ -103,7 +103,8 @@ TEST_CASE("every built-in block stays finite and bounded, and doesn't allocate, 
             {
                 for (const int channels : { 1, 2 })
                 {
-                    CAPTURE(type->typeId);
+            const std::string typeId = type->typeId;
+            CAPTURE(typeId);
                     CAPTURE(s);
                     CAPTURE(rate);
                     CAPTURE(channels);
@@ -123,7 +124,8 @@ TEST_CASE("every built-in block is silent for silence at its defaults")
 {
     for (const BlockDescriptor* type : BlockRegistry::builtin().types())
     {
-        CAPTURE(type->typeId);
+            const std::string typeId = type->typeId;
+            CAPTURE(typeId);
         std::unique_ptr<Block> block = testing::createWithDefaults(*type, 48000.0, 256);
         std::vector<std::vector<float>> x(2, std::vector<float>(48000, 0.0f));
         testing::runBlock(*block, x, 256);
@@ -139,7 +141,8 @@ TEST_CASE("block descriptors are consistent")
 {
     for (const BlockDescriptor* type : BlockRegistry::builtin().types())
     {
-        CAPTURE(type->typeId);
+            const std::string typeId = type->typeId;
+            CAPTURE(typeId);
         CHECK(type->numParams <= kParamsPerSlot);
         CHECK(BlockRegistry::builtin().find(type->typeId) == type);
         for (int p = 0; p < type->numParams; ++p)
@@ -157,6 +160,47 @@ TEST_CASE("block descriptors are consistent")
         {
             CHECK(type->params[type->syncParam].scale == ParamScale::Toggle);
             CHECK(type->syncedParam >= 0);
+        }
+    }
+}
+
+TEST_CASE("no built-in block runs away over a long stretch")
+{
+    // 3 s of bursts, then silence: the last second (9-10 s) must not be louder than the loudest second before it
+    // up to 6 s (feedback loops at their limits may hold, but never grow once the input stops)
+    std::mt19937 rng(99);
+    std::uniform_real_distribution<float> unit(0.0f, 1.0f);
+    const double rate = 48000.0;
+    for (const BlockDescriptor* type : BlockRegistry::builtin().types())
+    {
+        std::vector<std::vector<float>> sets;
+        std::vector<float> high, random;
+        for (int p = 0; p < type->numParams; ++p)
+        {
+            high.push_back(1.0f);
+            random.push_back(unit(rng));
+        }
+        sets.push_back(high);
+        sets.push_back(random);
+        for (size_t s = 0; s < sets.size(); ++s)
+        {
+            const std::string typeId = type->typeId;
+            CAPTURE(typeId);
+            CAPTURE(s);
+            std::unique_ptr<Block> block = type->create();
+            block->prepare(rate, 256);
+            block->configure(nlohmann::json::object());
+            for (int p = 0; p < type->numParams; ++p)
+                block->setParam(p, type->params[p].toValue(sets[s][p]));
+            std::vector<std::vector<float>> x = bursts(static_cast<size_t>(rate * 10), 1, 7);
+            std::fill(x[0].begin() + static_cast<long>(rate * 3), x[0].end(), 0.0f);
+            testing::runBlock(*block, x, 256);
+            double loudest = 0.0;
+            for (size_t second = 0; second < 6; ++second)
+                loudest = std::max(loudest, testing::rms(x[0], second * 48000, (second + 1) * 48000));
+            const double last = testing::rms(x[0], 9 * 48000, 10 * 48000);
+            CHECK(std::isfinite(last));
+            CHECK(last <= loudest * 1.0001 + 1e-9);
         }
     }
 }

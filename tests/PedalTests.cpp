@@ -7,16 +7,20 @@
 
 #include "TestSupport.hpp"
 #include "engine/TempoSync.hpp"
+#include "engine/blocks/AmbientBlocks.hpp"
 #include "engine/blocks/BitcrusherBlock.hpp"
 #include "engine/blocks/ChorusBlock.hpp"
 #include "engine/blocks/DoublerBlock.hpp"
+#include "engine/blocks/EchoBlocks.hpp"
 #include "engine/blocks/EqBlocks.hpp"
 #include "engine/blocks/FlangerBlock.hpp"
 #include "engine/blocks/GateBlock.hpp"
 #include "engine/blocks/OctaveBlock.hpp"
 #include "engine/blocks/PhaserBlock.hpp"
+#include "engine/blocks/PitchBlocks.hpp"
 #include "engine/blocks/RingModBlock.hpp"
 #include "engine/blocks/RotaryBlock.hpp"
+#include "engine/blocks/SpringReverbBlock.hpp"
 #include "engine/blocks/TremoloBlock.hpp"
 #include "engine/blocks/VolumeBlocks.hpp"
 #include "engine/blocks/WahBlocks.hpp"
@@ -323,6 +327,19 @@ double toneAt(const std::vector<float>& x, double hz, size_t from, size_t to)
     return 4.0 * std::sqrt(re * re + im * im) / n;
 }
 
+// Level in a band around `hz` (+-6%): delay-line pitch shifting spreads a tone into sidebands at the grain rate,
+// so a single DFT bin misses most of it
+double bandAt(const std::vector<float>& x, double hz, size_t from, size_t to)
+{
+    double power = 0.0;
+    for (double f = hz * 0.94; f <= hz * 1.06; f += 2.0)
+    {
+        const double a = toneAt(x, f, from, to);
+        power += a * a;
+    }
+    return std::sqrt(power);
+}
+
 } // namespace
 
 TEST_CASE("octave divides by two and four, and rectifies up")
@@ -442,4 +459,142 @@ TEST_CASE("rotary speeds up gradually and its mix at zero is dry")
     const auto reference = dry;
     testing::runBlock(*block, dry);
     CHECK(dry[0][23999] == doctest::Approx(reference[0][23999]).epsilon(1e-4));
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Pitch, reverbs and echoes
+
+TEST_CASE("pitch shifter moves a tone by its interval")
+{
+    for (const float shift : { 12.0f, -12.0f, 7.0f })
+    {
+        CAPTURE(shift);
+        auto block = make(kPitchShifterBlockDescriptor);
+        block->setParam(kPitchParamShift1, shift);
+        block->setParam(kPitchParamDry, 0.0f);
+        auto x = sine(440.0, 0.3f, 48000);
+        testing::runBlock(*block, x);
+        const double target = 440.0 * std::exp2(shift / 12.0);
+        CHECK(bandAt(x[0], target, 24000, 48000) > 4.0 * bandAt(x[0], 440.0, 24000, 48000));
+        CHECK(testing::rms(x[0], 24000, 48000) == doctest::Approx(0.3 / std::sqrt(2.0)).epsilon(0.1));
+    }
+}
+
+TEST_CASE("whammy bends from no shift to its interval")
+{
+    auto block = make(kWhammyBlockDescriptor); // +1 Oct
+    auto x = sine(440.0, 0.3f, 48000);
+    testing::runBlock(*block, x);
+    CHECK(toneAt(x[0], 440.0, 24000, 48000) > 0.25);
+    block->setParam(kWhammyParamPosition, 100.0f);
+    auto y = sine(440.0, 0.3f, 48000);
+    testing::runBlock(*block, y);
+    CHECK(bandAt(y[0], 880.0, 24000, 48000) > 4.0 * bandAt(y[0], 440.0, 24000, 48000));
+}
+
+TEST_CASE("poly octave adds an octave down")
+{
+    auto block = make(kPolyOctaveBlockDescriptor);
+    block->setParam(kPolyOctParamDry, 0.0f);
+    block->setParam(kPolyOctParamSub1, 100.0f);
+    auto x = sine(440.0, 0.3f, 48000);
+    testing::runBlock(*block, x);
+    CHECK(bandAt(x[0], 220.0, 24000, 48000) > 4.0 * bandAt(x[0], 440.0, 24000, 48000));
+}
+
+TEST_CASE("spring reverb decays at about its set time")
+{
+    auto block = make(kSpringReverbBlockDescriptor);
+    block->setParam(kSpringParamMix, 100.0f);
+    block->setParam(kSpringParamDecay, 2.0f);
+    std::vector<std::vector<float>> x(1, std::vector<float>(48000 * 3, 0.0f));
+    for (size_t i = 0; i < 480; ++i)
+        x[0][i] = 0.5f * static_cast<float>(std::sin(i * 0.3));
+    testing::runBlock(*block, x);
+    const double early = testing::rms(x[0], 24000, 36000);
+    const double late = testing::rms(x[0], 72000, 84000);
+    // 2 s RT60: 30 dB per second, one second apart; the damping takes the highs down faster
+    const double drop = 20.0 * std::log10(early / late);
+    CHECK(drop > 20.0);
+    CHECK(drop < 50.0);
+}
+
+TEST_CASE("shimmer's tail climbs an octave")
+{
+    auto run = [](float shimmer) {
+        auto block = make(kShimmerBlockDescriptor);
+        block->setParam(kShimmerParamShimmer, shimmer);
+        block->setParam(kShimmerParamMix, 100.0f);
+        block->setParam(kShimmerParamTone, 16000.0f);
+        auto x = sine(440.0, 0.3f, 48000 * 4);
+        std::fill(x[0].begin() + 48000, x[0].end(), 0.0f);
+        testing::runBlock(*block, x);
+        return bandAt(x[0], 880.0, 48000 * 3, 48000 * 4) / bandAt(x[0], 440.0, 48000 * 3, 48000 * 4);
+    };
+    CHECK(run(100.0f) > 10.0 * run(0.0f));
+}
+
+TEST_CASE("freeze holds the sound until it's turned off")
+{
+    auto block = make(kFreezeBlockDescriptor);
+    block->setParam(kFreezeParamFadeOut, 500.0f);
+    auto x = sine(440.0, 0.3f, 48000);
+    testing::runBlock(*block, x); // the tank listens
+    block->setParam(kFreezeParamFreeze, 1.0f);
+    std::vector<std::vector<float>> held(1, std::vector<float>(48000 * 6, 0.0f));
+    testing::runBlock(*block, held);
+    const double start = testing::rms(held[0], 48000, 96000);
+    const double end = testing::rms(held[0], 48000 * 5, 48000 * 6);
+    CHECK(start > 0.01);
+    CHECK(end > 0.8 * start);
+
+    block->setParam(kFreezeParamFreeze, 0.0f);
+    std::vector<std::vector<float>> after(1, std::vector<float>(48000 * 2, 0.0f));
+    testing::runBlock(*block, after);
+    CHECK(testing::rms(after[0], 48000, 96000) < 0.001 * start);
+}
+
+TEST_CASE("tape echo plays its heads at 1x, 2x and 3x the time")
+{
+    auto block = make(kTapeEchoBlockDescriptor);
+    block->setParam(kTapeParamTime, 100.0f);
+    block->setParam(kTapeParamWow, 0.0f);
+    block->setParam(kTapeParamFeedback, 0.0f);
+    block->setParam(kTapeParamTone, 20000.0f);
+    block->setParam(kTapeParamHeads, 6.0f); // 1+2+3
+    std::vector<std::vector<float>> x(1, std::vector<float>(19200, 0.0f));
+    x[0][0] = 0.5f;
+    testing::runBlock(*block, x);
+    for (const size_t at : { 4800u, 9600u, 14400u })
+    {
+        CAPTURE(at);
+        double around = 0.0;
+        for (size_t i = at - 10; i < at + 10; ++i)
+            around += std::fabs(x[0][i]);
+        CHECK(around > 0.1);
+    }
+    double between = 0.0;
+    for (size_t i = 6000; i < 8400; ++i)
+        between += std::fabs(x[0][i]);
+    CHECK(between < 0.05);
+}
+
+TEST_CASE("ducking delay turns the repeats down while playing")
+{
+    auto block = make(kDuckingDelayBlockDescriptor);
+    block->setParam(kDuckParamTime, 400.0f);
+    block->setParam(kDuckParamMix, 100.0f); // wet only
+    block->setParam(kDuckParamFeedback, 0.0f);
+    block->setParam(kDuckParamThreshold, -40.0f);
+    block->setParam(kDuckParamDuck, 20.0f);
+    block->setParam(kDuckParamRelease, 50.0f);
+    auto x = sine(440.0, 0.3f, 48000);
+    std::fill(x[0].begin() + 24000, x[0].end(), 0.0f);
+    testing::runBlock(*block, x, 128);
+    // the echo starts at 400 ms while the note still plays: 20 dB down
+    const double ducked = testing::rms(x[0], 20000, 24000);
+    CHECK(block->meter() < 0.1f);
+    // from 250 ms after the note stops, the echo is free
+    const double free = testing::rms(x[0], 24000 + 12000, 24000 + 19000);
+    CHECK(20.0 * std::log10(free / ducked) == doctest::Approx(20.0).epsilon(0.1));
 }
