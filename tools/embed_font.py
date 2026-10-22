@@ -4,7 +4,8 @@
 """Regenerates src/ui/FontData.cpp from resources/fonts/Jost[wght].ttf.
 
 Jost (SIL Open Font License, resources/fonts/OFL.txt) is a variable font. NanoVG reads only a font's default
-instance, so this makes a static instance at WEIGHT and embeds it. Glyphs Jost lacks (★, ▾) fall back to DPF's DejaVu.
+instance, so this makes static instances at the WEIGHTS and embeds them: Light for most text, Regular for small text.
+Glyphs Jost lacks (★, ▾) fall back to DPF's DejaVu.
 
 Needs fontTools. Run from the repository root after changing the font or the weight: python3 tools/embed_font.py
 """
@@ -17,12 +18,7 @@ from fontTools.varLib import instancer
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "resources" / "fonts" / "Jost[wght].ttf"
 OUT = ROOT / "src" / "ui" / "FontData.cpp"
-WEIGHT = 300  # Light
-
-font = instancer.instantiateVariableFont(TTFont(SOURCE), {"wght": WEIGHT})
-buf = io.BytesIO()
-font.save(buf)
-data = buf.getvalue()
+WEIGHTS = {"kUiFontLight": 300, "kUiFontRegular": 400}
 
 lines = [
     "// SPDX-License-Identifier: MIT",
@@ -35,17 +31,16 @@ lines = [
     "",
     "namespace namsayin {",
     "",
-    "const unsigned char kUiFont[] = {",
 ]
-for i in range(0, len(data), 20):
-    lines.append("    " + ", ".join(str(b) for b in data[i:i + 20]) + ",")
-lines += [
-    "};",
-    "",
-    "const unsigned int kUiFontSize = sizeof(kUiFont);",
-    "",
-    "} // namespace namsayin",
-    "",
-]
+for name, weight in WEIGHTS.items():
+    font = instancer.instantiateVariableFont(TTFont(SOURCE), {"wght": weight})
+    buf = io.BytesIO()
+    font.save(buf)
+    data = buf.getvalue()
+    lines.append("const unsigned char %s[] = {" % name)
+    for i in range(0, len(data), 20):
+        lines.append("    " + ", ".join(str(b) for b in data[i:i + 20]) + ",")
+    lines += ["};", "const unsigned int %sSize = sizeof(%s);" % (name, name), ""]
+    print("%s: Jost %d, %d bytes" % (name, weight, len(data)))
+lines += ["} // namespace namsayin", ""]
 OUT.write_text("\n".join(lines))
-print("%s: Jost %d, %d bytes" % (OUT.relative_to(ROOT), WEIGHT, len(data)))

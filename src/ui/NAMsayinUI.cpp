@@ -55,7 +55,7 @@ const Color inset(0x05, 0x05, 0x06);
 const Color overlay(0, 0, 0, 0.7f);
 const Color border(255, 255, 255, 0.10f);
 const Color text(0xe6, 0xe6, 0xea);
-const Color textDim(0x78, 0x78, 0x82);
+const Color textDim(0x8a, 0x8a, 0x94);
 const Color good(0x4c, 0xc9, 0x7a);
 const Color warn(0xf0, 0xc0, 0x40);
 const Color bad(0xe5, 0x48, 0x4d);
@@ -371,6 +371,33 @@ bool matchesSearch(const BlockDescriptor& type, const std::string& query)
     return matchesWords(std::string(type.displayName) + " " + categoryName(type.category), query);
 }
 
+// Appends a Unicode code point as UTF-8
+void appendUtf8(std::string& text, uint32_t c)
+{
+    if (c < 0x80)
+    {
+        text += static_cast<char>(c);
+    }
+    else if (c < 0x800)
+    {
+        text += static_cast<char>(0xc0 | (c >> 6));
+        text += static_cast<char>(0x80 | (c & 0x3f));
+    }
+    else if (c < 0x10000)
+    {
+        text += static_cast<char>(0xe0 | (c >> 12));
+        text += static_cast<char>(0x80 | ((c >> 6) & 0x3f));
+        text += static_cast<char>(0x80 | (c & 0x3f));
+    }
+    else if (c < 0x110000)
+    {
+        text += static_cast<char>(0xf0 | (c >> 18));
+        text += static_cast<char>(0x80 | ((c >> 12) & 0x3f));
+        text += static_cast<char>(0x80 | ((c >> 6) & 0x3f));
+        text += static_cast<char>(0x80 | (c & 0x3f));
+    }
+}
+
 // Removes the last UTF-8 character
 void popUtf8(std::string& text)
 {
@@ -446,9 +473,14 @@ public:
         : UI(DISTRHO_UI_DEFAULT_WIDTH, DISTRHO_UI_DEFAULT_HEIGHT)
     {
         loadSharedResources();
-        fUiFont = createFontFromMemory("jost", kUiFont, kUiFontSize, false);
-        if (fUiFont >= 0)
-            nvgAddFallbackFontId(getContext(), fUiFont, nvgFindFont(getContext(), NANOVG_DEJAVU_SANS_TTF)); // ★, ▾
+        fUiFont = createFontFromMemory("jost", kUiFontLight, kUiFontLightSize, false);
+        fUiFontSmall = createFontFromMemory("jost-regular", kUiFontRegular, kUiFontRegularSize, false);
+        const FontId dejavu = nvgFindFont(getContext(), NANOVG_DEJAVU_SANS_TTF);
+        for (FontId font : { fUiFont, fUiFontSmall })
+        {
+            if (font >= 0)
+                nvgAddFallbackFontId(getContext(), font, dejavu); // ★, ▾
+        }
 
         for (uint32_t i = 0; i < kParamCount; ++i)
         {
@@ -572,8 +604,6 @@ protected:
         save();
         this->scale(scale, scale);
         fontSize(14.0f);
-        if (fUiFont >= 0)
-            fontFaceId(fUiFont);
 
         fillRect(0, 0, fWidth, fHeight, theme::background);
         drawTopBar();
@@ -796,16 +826,13 @@ protected:
 
         case Hit::TextField:
             if (fFocusedField != hit->index)
-            {
-                fFocusedField = hit->index;
-                fFieldBeforeEdit = fFields[hit->index];
-            }
+                focusField(static_cast<Field>(hit->index));
             repaint();
             return true;
 
         case Hit::FieldClear:
             fFields[hit->index].clear();
-            fFocusedField = hit->index;
+            focusField(static_cast<Field>(hit->index));
             if (hit->index == kFieldSearch)
                 fListScroll = 0.0f;
             repaint();
@@ -1031,7 +1058,11 @@ protected:
         // control characters (and Ctrl+key combinations) are handled in onKeyboard
         if (ev.character >= 32 && ev.character != 127)
         {
-            fFields[fFocusedField] += ev.string;
+            // keys a VST3 host forwards (onKeyDown) come with the character but no string
+            if (ev.string[0] != '\0')
+                fFields[fFocusedField] += ev.string;
+            else
+                appendUtf8(fFields[fFocusedField], ev.character);
             if (fFocusedField == kFieldSearch)
                 fListScroll = 0.0f;
             repaint();
@@ -1850,10 +1881,17 @@ private:
         {
             // ready to type a new search
             fFields[kFieldSearch].clear();
-            fFocusedField = kFieldSearch;
-            fFieldBeforeEdit.clear();
+            focusField(kFieldSearch);
         }
         repaint();
+    }
+
+    // Starts editing a text field, and asks for the keyboard: hosts often keep it until the plugin window takes it
+    void focusField(Field field)
+    {
+        fFocusedField = field;
+        fFieldBeforeEdit = fFields[field];
+        getWindow().focus();
     }
 
     void closeDialog()
@@ -2235,6 +2273,18 @@ private:
         strokeColor(color);
         strokeWidth(1.0f);
         stroke();
+    }
+
+    // Jost is small for its size (a low x-height), so text is drawn larger than the sizes the layout names, and small
+    // text in Regular rather than Light so it stays readable. Hides NanoVG::fontSize for everything in this class.
+    void fontSize(float size)
+    {
+        constexpr float kFontScale = 1.3f;
+        constexpr float kSmallBelow = 13.0f; // layout sizes under this are small text
+        NanoVG::fontSize(size * kFontScale);
+        const FontId face = size < kSmallBelow ? fUiFontSmall : fUiFont;
+        if (face >= 0)
+            fontFaceId(face);
     }
 
     void label(float x, float y, const char* str, const Color& color, float size, int align)
@@ -4201,7 +4251,8 @@ private:
     float fLearnCcCount = 0.0f;
     std::string fToast;
     std::chrono::steady_clock::time_point fToastAt;
-    FontId fUiFont = -1;
+    FontId fUiFont = -1;      // Jost Light
+    FontId fUiFontSmall = -1; // Jost Regular, for small text
     Category fDialogCategory = Category::LocalNam;
     FolderPicker fFolderPicker;
     Field fFolderField = kFieldNamDir;
