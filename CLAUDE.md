@@ -71,7 +71,7 @@ tests/                doctest unit tests; TestSupport.hpp has a test block and a
 docs/                 Requirements and architecture
 resources/sounds/     Classic metronome samples from Fretbored; tools/embed_sounds.py turns them into ClickSamples.cpp
 resources/fonts/      Jost (variable TTF + OFL.txt); tools/embed_font.py makes the Light, Regular and Bold instances into src/ui/FontData.cpp
-resources/background/ The window background image (the owner's); tools/embed_background.py makes it src/ui/BackgroundImage.cpp (JPEG)
+resources/background/ The window background image (the owner's, generated with Krea-2 in ComfyUI); tools/embed_background.py makes it src/ui/BackgroundImage.cpp (JPEG)
 resources/blocks/     Built-in block images, named <typeId>.<ext>; tools/embed_block_images.py turns them into BlockImages.cpp
 deps/khronos/         Vendored glext.h + khrplatform.h (MSVC has none; DPF's download is unreliable)
 .github/workflows/    CI: Linux (Ninja) and Windows (MSVC) builds + tests
@@ -125,7 +125,7 @@ The file browser opens in the host's working directory. Final checks happen in R
 - Blocks get the host tempo through `Block::setTempo()` and can show a level in the UI through `Block::meter()` (one hidden output parameter per slot, `slotMeterParam()`; the descriptor's `meterName` makes the panel show it). `Block::setRigInput()` gives blocks the chain's input (the noise gate's "Rig In" key).
 - Tempo sync is generic: a descriptor's `syncParam`/`syncedParam`/`syncedIsRate` make the UI show note values (`TempoSync.hpp`); the block maps the knob itself. While the host plays, `Block::setSongPosition()` gives the position in quarter notes; synced LFOs lock to it (`Lfo::syncTo`), so they land on the beat.
 - A `Choice` parameter's list must never grow or shrink once released: its normalized values would map to other choices in saved projects. Add a new block type instead.
-- Every control needs a hover help text in `src/ui/ParamHelp.cpp` (plain English: what it does and how to use it); `tests/ParamHelpTests.cpp` fails for a block or global control without one. Help is keyed by typeId and control name, so renaming a control means renaming its help entry.
+- Every control needs a hover help text in `src/ui/ParamHelp.cpp` (plain English: what it does and how to use it), and so does every block type (`blockTypeHelp()`: what it is, what it's for, where it goes in the chain; shown when hovering a tile or a block in Add Block); `tests/ParamHelpTests.cpp` fails for a block type, block control or global control without one. Help is keyed by typeId and control name, so renaming a control means renaming its help entry.
 - `tests/BlockSanityTests.cpp` runs every registered block at default, extreme and random settings (finite, bounded, no allocation, silent for silence). New blocks get behaviour tests too (`tests/PedalTests.cpp`).
 - Block `typeId`s are stored in presets and plugin state — never rename one.
 - Parameter values live in the host. `ChainState.params`/`bypass` are only for presets and undo; the UI pushes them to the host.

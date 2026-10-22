@@ -3,7 +3,7 @@
 # Copyright (c) 2026 singularity098
 """Regenerates src/ui/BackgroundImage.cpp from resources/background/background.*.
 
-The window background behind every panel (the owner's image). It's embedded as a JPEG, which DPF's stb_image
+The window background behind every panel (the owner's image, generated with Krea-2 in ComfyUI). It's embedded as a JPEG, which DPF's stb_image
 decodes, at most WIDTH px wide.
 
 Needs Pillow. Run from the repository root after changing the image: python3 tools/embed_background.py

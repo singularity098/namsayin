@@ -728,6 +728,168 @@ constexpr BlockHelp kBlockHelp[] = {
 #undef WINDOW_HELP
 #undef WIDTH_HELP
 
+struct TypeHelp {
+    const char* typeId;
+    const char* help;
+};
+
+// What each block is, what it's for and how to use it: shown when hovering a block's tile or its entry in Add Block
+constexpr TypeHelp kTypeHelp[] = {
+    { "nam",
+      "A Neural Amp Modeler capture: a machine-learning model of a real amp, pedal or full rig, loaded from a .nam "
+      "file in your library. It responds to your playing dynamics like the original. Put drive pedals before it and "
+      "a cab IR after it (unless the capture already includes the cab), and set Input for the amount of gain you "
+      "want." },
+    { "ir",
+      "A cabinet impulse response: a .wav file that recreates the sound of a speaker cabinet and the microphone on "
+      "it. Put it right after an amp model that has no cab of its own; without one, an amp sounds harsh and fizzy. "
+      "Low Cut and High Cut tidy up the result for a mix." },
+    { "boost",
+      "A clean boost to push the next block harder or lift your level for solos. Clean adds level without "
+      "colouring the sound, Treble brightens it like a classic treble booster, and Mid pushes the midrange so a lead "
+      "cuts through. Put it before an amp model for more gain, or at the end of the chain for a pure volume lift." },
+    { "overdrive",
+      "A smooth, amp-like drive pedal. Screamer has the famous mid hump that tightens the low end, Blues is a "
+      "looser, more open crunch, and Transparent keeps your guitar's own tone. Use it on its own for crunch, or "
+      "with low Drive and high Level in front of a driven amp model to tighten and push it." },
+    { "distortion",
+      "A hard-clipping distortion pedal with more gain than an overdrive. RAT is gritty and raw, DS-1 is bright and "
+      "buzzy, and Metal is a tight, high-gain sound for heavy riffs. Put it before an amp model set fairly clean, "
+      "or use it with a cab IR for a complete pedal-into-cab sound." },
+    { "fuzz",
+      "A vintage fuzz pedal: thick, saturated and woolly. Face is the round, warm 60s fuzz, Muff is the big, "
+      "sustaining wall of fuzz, and Octave adds a ringing upper octave, best on the neck pickup above the 12th fret. "
+      "Bias starves the circuit for a sputtery, gated sound. Fuzzes like to be first in the chain." },
+    { "bitcrusher",
+      "A lo-fi effect that lowers the bit depth and sample rate, for crunchy, broken, video-game sounds. Fewer Bits "
+      "add grainy distortion, a lower Rate adds metallic, aliased tones. Use Mix to blend a little grit in, or go "
+      "all the way for something extreme." },
+    { "compressor",
+      "A studio compressor that evens out your level: it turns loud notes down so quiet ones sound fuller. Use it "
+      "early in the chain for snappy, even clean tones and more sustain, or at the end to glue everything together. "
+      "Start with Threshold so a few dB are reduced, then raise Makeup to match the level." },
+    { "gate",
+      "A noise gate that silences hiss and hum when you stop playing. Put it after high-gain blocks, or set Key to "
+      "Rig In so it listens to your guitar before any drive, which keeps it from chopping off sustained notes. Raise "
+      "Threshold until the noise between notes disappears, but not so far that quiet notes get cut." },
+    { "volume",
+      "A volume pedal. Map Volume to an expression pedal with MIDI learn (right-click the knob) to fade in, swell or "
+      "turn down. Before drive blocks it changes how hard they're hit; after them it only changes the level. Audio "
+      "taper feels natural to the ear." },
+    { "swell",
+      "Automatic volume swells: each note fades in, removing the pick attack, for violin-like pads. Attack sets "
+      "how slow the fade-in is. It works best with a delay or reverb after it, which smears the swells into an "
+      "ambient wash." },
+    { "eq.graphic",
+      "A 7-band graphic EQ, like the classic pedal: each slider boosts or cuts one range from 100 Hz (low end) to "
+      "6.4 kHz (presence and fizz). Use it before an amp model to shape what drives it, or after the cab to shape "
+      "your final tone. Level makes up for the change in volume." },
+    { "eq.parametric",
+      "A precise studio EQ: low and high shelves, a sweepable mid band with adjustable width (Q), and low and high "
+      "cuts. Use it after the cab to fix problems, like cutting a boomy low end, taming harsh highs or boosting "
+      "the mids so a solo cuts through." },
+    { "chorus",
+      "Chorus thickens your sound by adding slightly detuned, moving copies of it, for shimmering cleans and lush "
+      "80s tones. Classic is the familiar pedal, Dimension is a subtle, wide studio thickener, Tri is three voices "
+      "for a rich ensemble, and Vibrato is pitch wobble only. Best after drive, in Stereo mode for width." },
+    { "flanger",
+      "A flanger sweeps a short, comb-filtered echo for the classic jet-plane whoosh. More Feedback makes it more "
+      "metallic and resonant; Manual sets where the sweep sits. Slow rates suit chords; fast ones give a "
+      "warbling effect. Put it after drive for a dramatic sweep." },
+    { "phaser",
+      "A phaser sweeps notches through your tone for a swirling, liquid movement. More stages give a deeper, more "
+      "dramatic sweep; Vibe recreates the throbbing Uni-Vibe of 60s and 70s rock. Slow rates are great on cleans "
+      "and funk, faster ones on leads." },
+    { "tremolo",
+      "Tremolo rhythmically turns your volume up and down, from the gentle pulse of a vintage amp to a hard "
+      "chop. Opto is the soft, classic amp tremolo, Harmonic pulses the lows and highs in turns for a subtle, "
+      "swirling sound, and Pan moves your sound from side to side in Stereo mode. Try Sync to lock it to the song's tempo." },
+    { "rotary",
+      "A rotating speaker cabinet, as used with organs and guitars: a spinning horn and drum give a swirling, "
+      "Doppler sound. Switch Speed between Slow (chorale) and Fast (tremolo) while you play, and the rotors speed up "
+      "and slow down naturally. Map Speed to a footswitch with MIDI learn." },
+    { "doubler",
+      "Makes it sound like you recorded the same part twice (or three times), for a wide, thick rhythm sound "
+      "without the swirl of a chorus. Use it in Stereo mode with Width up to spread the copies across the "
+      "speakers. Short delays sound tight, longer ones more like separate takes." },
+    { "ringmod",
+      "A ring modulator multiplies your signal with a tone, for metallic, bell-like and robotic sounds that often "
+      "ignore the key you're playing in. Low frequencies give a tremolo-like warble, higher ones clangy "
+      "inharmonic tones. Rate and Depth sweep the frequency for sci-fi effects." },
+    { "reverb",
+      "Studio reverb puts your guitar in a space. Room is small and natural, Hall is big and lush, and Plate is "
+      "bright and dense like a classic studio plate. Put it at the end of the chain, after delay. Keep Mix low "
+      "for a natural sense of space, or raise Decay and Mix for ambient sounds." },
+    { "reverb.spring",
+      "The drippy, splashy spring reverb from vintage amps and surf rock. Drip and Dwell bring out the springy "
+      "splash when you pick hard. Put it after the amp model, as in a real amp; more Mix and Dwell give the classic "
+      "surf sound." },
+    { "shimmer",
+      "An ambient reverb that pitches its tail up (or down), for a glowing, choir-like halo behind your notes. "
+      "Shimmer sets how much of the shifted sound feeds back into the tail. Long Decay and slow playing make "
+      "huge pads; keep it at the end of the chain." },
+    { "freeze",
+      "Holds the sound you're playing as an endless pad. Turn Freeze on to capture it and play over it; Layer adds "
+      "what you play next on top. Fade In and Fade Out make the frozen sound appear and disappear smoothly. Map "
+      "Freeze to a footswitch with MIDI learn for live use." },
+    { "delay",
+      "A clean digital delay: repeats of what you play. Use short times (80-150 ms) for slapback, around 300-500 ms "
+      "for leads, or Sync to lock the repeats to the song's tempo. Ping-Pong bounces the repeats between the "
+      "speakers in Stereo mode. Usually goes after drive and the amp, before reverb." },
+    { "doppelganger",
+      "A delay whose echoes take turns being flanged and chorused, so each repeat has its own colour as it "
+      "fades. Order picks which effect comes first, and the Flange and Chorus controls shape each one. Great for "
+      "lush, moving leads and ambient parts; in Stereo mode, Bounce moves the echoes between the speakers." },
+    { "tapeecho",
+      "A vintage tape echo: warm, darkening repeats with a little wobble and saturation, like the classic "
+      "multi-head machines. Heads picks which playback heads sound, for rhythmic patterns. High Feedback makes it "
+      "build into self-oscillation. Put it after the amp, before reverb." },
+    { "duckdelay",
+      "A delay that gets out of the way while you play: the echoes are turned down while you're playing and come "
+      "back up when you stop. You get big, long delays on leads without the repeats cluttering fast phrases. Set "
+      "Threshold so your playing ducks the echoes, and Duck for how much." },
+    { "looper",
+      "Records a phrase and plays it back as a loop, so you can play over it. Rec/Dub records, then overdubs on "
+      "top; Play/Stop and Clear control the loop. Reverse and Half Speed change the playback. Map the buttons to "
+      "MIDI footswitches with MIDI learn. Keeps one loop of up to a minute." },
+    { "octave",
+      "Adds notes one and two octaves below, and one above, what you play, for bass-like riffs and big, organ-like "
+      "sounds. It tracks single notes; play cleanly and put it before any drive for the best tracking. Raise "
+      "Sub 1 for a bass line under your riff." },
+    { "polyoctave",
+      "An octave pedal that works on chords too: adds copies one or two octaves below and above everything you "
+      "play. Use the subs for huge, organ-like chords or a bass under your riffs, and the octaves up for 12-string "
+      "sparkle. Put it before drive and time-based effects." },
+    { "pitch",
+      "Shifts your sound up or down by up to two octaves, with two independent voices. Use small Detune amounts for "
+      "a thick, chorus-like doubling, a few semitones for harmonies, or a full shift to play in a different tuning. "
+      "Put it early in the chain, before drive." },
+    { "whammy",
+      "The classic pitch-bending pedal. Position bends the pitch from no shift to the chosen Interval, for "
+      "dive bombs, octave squeals and smooth bends. Map Position to an expression pedal with MIDI learn. Harmony "
+      "mode keeps the dry sound so you get a fixed interval harmony instead." },
+    { "harmonizer",
+      "Adds harmony voices that follow the key and scale you choose, so a third above stays in key as you play "
+      "up the neck. Set Key and Scale to the song, then pick intervals for the two voices. Play single notes "
+      "cleanly; put it before drive for the clearest harmonies." },
+    { "synth",
+      "Turns your guitar into a monophonic synthesizer: it tracks the pitch you play and drives an oscillator "
+      "through a resonant filter. Wave picks the tone, Env makes the filter open on each note, and Glide slides "
+      "between notes. Play single notes cleanly, near the neck, for the best tracking." },
+    { "filter",
+      "A resonant filter swept by an LFO, for rhythmic, synth-like movement: auto-wah sweeps, pulsing low-pass "
+      "chops, or a fixed filter to shape your tone. Sync locks the movement to the song's tempo, and Shape picks "
+      "how it moves, from a smooth sine to stepped random-like patterns." },
+    { "wah",
+      "A wah pedal: a sweeping, vocal-like filter you control with Position. Map Position to an expression pedal "
+      "with MIDI learn to rock it like a real wah, or leave it fixed for a cocked-wah tone. Classic is the familiar "
+      "pedal, Vox is smoother, Wide sweeps further and Bass suits low notes. Put it before drive." },
+    { "autowah",
+      "A wah that sweeps by itself as you play: the harder you pick, the further it opens, for funky, quacking "
+      "rhythms. Sensitivity sets how much your picking moves it, Decay how fast it falls back. Down reverses the "
+      "sweep for a different, vocal feel. Put it before drive." },
+};
+
 struct GlobalHelp {
     const char* symbol;
     const char* help;
@@ -864,6 +1026,18 @@ const char* globalParamHelp(uint32_t index)
     for (const GlobalHelp& entry : kGlobalHelp)
     {
         if (std::strcmp(entry.symbol, symbol) == 0)
+            return entry.help;
+    }
+    return nullptr;
+}
+
+const char* blockTypeHelp(const char* typeId)
+{
+    if (typeId == nullptr)
+        return nullptr;
+    for (const TypeHelp& entry : kTypeHelp)
+    {
+        if (std::strcmp(entry.typeId, typeId) == 0)
             return entry.help;
     }
     return nullptr;

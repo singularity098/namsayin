@@ -19,6 +19,17 @@ constexpr size_t kMinHelpLength = 80;
 
 } // namespace
 
+TEST_CASE("every block type has help")
+{
+    for (const BlockDescriptor* type : BlockRegistry::builtin().types())
+    {
+        const char* help = blockTypeHelp(type->typeId);
+        CAPTURE(std::string(type->typeId));
+        REQUIRE(help != nullptr);
+        CHECK(std::strlen(help) >= 2 * kMinHelpLength);
+    }
+}
+
 TEST_CASE("every block control has help")
 {
     for (const BlockDescriptor* type : BlockRegistry::builtin().types())

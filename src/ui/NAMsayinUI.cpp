@@ -90,6 +90,7 @@ const Color pedalOther(0x70, 0x70, 0x7a);
 enum class Surface { Bar, Panel, Tile, Button, Dialog, Inset };
 
 constexpr float kTopBarHeight = 60.0f;
+constexpr float kFontScale = 1.69f; // text is drawn this much larger than layout sizes (see fontSize())
 constexpr float kBottomBarHeight = 132.0f;
 constexpr float kTileSize = 120.0f;
 constexpr float kSplitTileSize = 100.0f; // tiles are smaller with a split, to fit two rows
@@ -2416,7 +2417,6 @@ private:
     // text in Regular rather than Light so it stays readable. Hides NanoVG::fontSize for everything in this class.
     void fontSize(float size)
     {
-        constexpr float kFontScale = 1.69f;
         constexpr float kSmallBelow = 13.0f; // layout sizes under this are small text
         NanoVG::fontSize(size * kFontScale);
         const FontId face = size < kSmallBelow ? fUiFontSmall : fUiFont;
@@ -2633,6 +2633,20 @@ private:
             return { "Split",
                      "Splits the chain here into two parallel paths, A and B, which both start empty. Add blocks to "
                      "each with its +; the merge after them mixes the two back together. One split at a time." };
+        case Hit::Tile:
+            if (hit.index >= 0 && hit.index < static_cast<int>(fChain.blocks.size()))
+                return typeHelp(BlockRegistry::builtin().find(fChain.blocks[hit.index].typeId));
+            return {};
+        case Hit::DialogItem: {
+            const std::vector<AddItem> items = addItems(fDialogCategory);
+            return hit.index >= 0 && hit.index < static_cast<int>(items.size()) ? typeHelp(items[hit.index].type)
+                                                                                 : HelpText {};
+        }
+        case Hit::ListRow:
+            // built-in blocks in the search results (library files are just files of the NAM or IR block)
+            if (hit.index >= 0 && hit.index < static_cast<int>(fRows.size()) && fRows[hit.index].entry == nullptr)
+                return typeHelp(fRows[hit.index].type);
+            return {};
         case Hit::MetroAccent:
             return { "Beat " + std::to_string(hit.index + 1), globalParamHelp(kParamMetroAccent1) };
         case Hit::MetroGrouping:
@@ -2657,6 +2671,13 @@ private:
         default:
             return {};
         }
+    }
+
+    static HelpText typeHelp(const BlockDescriptor* type)
+    {
+        if (type == nullptr)
+            return {};
+        return { type->displayName, blockTypeHelp(type->typeId) };
     }
 
     // Is a mouse button held on something (a knob drag, a tile drag)?
@@ -2712,14 +2733,15 @@ private:
         fHelpShown = true;
 
         // measure the wrapped text, then place the popup below the control (above it if there's no room)
-        constexpr float width = 300.0f, pad = 12.0f, titleSize = 14.0f, bodySize = 12.5f;
+        constexpr float width = 440.0f, pad = 14.0f, titleSize = 14.0f, bodySize = 12.5f;
         fontSize(bodySize);
         textLineHeight(1.35f);
         textAlign(ALIGN_LEFT | ALIGN_TOP);
         float bounds[4] = {};
         textBoxBounds(0.0f, 0.0f, width - 2 * pad, help.body, nullptr, bounds);
         const float bodyHeight = bounds[3] - bounds[1];
-        const float h = pad + titleSize + 8.0f + bodyHeight + pad;
+        const float titleH = titleSize * kFontScale; // drawn size
+        const float h = pad + titleH + 6.0f + bodyHeight + pad;
         const Rect& r = hit->rect;
         float x = std::clamp(r.x + r.w / 2 - width / 2, 8.0f, fWidth - width - 8.0f);
         float y = r.y + r.h + 6.0f;
@@ -2734,12 +2756,12 @@ private:
         strokeWidth(1.0f);
         stroke();
 
-        label(x + pad, y + pad + titleSize / 2, help.title.c_str(), theme::accent, titleSize, ALIGN_LEFT | ALIGN_MIDDLE);
+        label(x + pad, y + pad + titleH / 2, help.title.c_str(), theme::accent, titleSize, ALIGN_LEFT | ALIGN_MIDDLE);
         fontSize(bodySize);
         textLineHeight(1.35f);
         textAlign(ALIGN_LEFT | ALIGN_TOP);
         fillColor(theme::text);
-        textBox(x + pad, y + pad + titleSize + 8.0f, width - 2 * pad, help.body, nullptr);
+        textBox(x + pad, y + pad + titleH + 6.0f, width - 2 * pad, help.body, nullptr);
         textLineHeight(1.0f);
     }
 
