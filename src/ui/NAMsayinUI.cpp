@@ -909,6 +909,7 @@ protected:
         const float y = static_cast<float>(ev.pos.getY() / getScaleFactor());
         fMouseX = x;
         fMouseY = y;
+        ++fMotionCount;
 
         if (fDragParam >= 0 && fSliderRect.w > 0.0f)
         {
@@ -2342,15 +2343,18 @@ private:
         const float elapsed = std::chrono::duration<float>(now - fFpsSince).count();
         if (elapsed >= 1.0f)
         {
-            std::snprintf(fFpsText, sizeof(fFpsText), "idle %.0f/s · frames %.0f/s · worst gap %.0f ms · draw %.2f ms",
-                          fIdleCount / elapsed, fFpsFrames / elapsed, fFpsMaxGap, fFpsDrawMs / std::max(1, fFpsFrames));
+            std::snprintf(fFpsText, sizeof(fFpsText),
+                          "idle %.0f/s · mouse %.0f/s · frames %.0f/s · worst gap %.0f ms · draw %.2f ms",
+                          fIdleCount / elapsed, fMotionCount / elapsed, fFpsFrames / elapsed, fFpsMaxGap,
+                          fFpsDrawMs / std::max(1, fFpsFrames));
+            fMotionCount = 0;
             fFpsSince = now;
             fIdleCount = 0;
             fFpsFrames = 0;
             fFpsMaxGap = 0.0f;
             fFpsDrawMs = 0.0f;
         }
-        fillRect(fWidth - 372.0f, fHeight - 24.0f, 364.0f, 18.0f, Color(0, 0, 0, 0.7f), 4.0f);
+        fillRect(fWidth - 452.0f, fHeight - 24.0f, 444.0f, 18.0f, Color(0, 0, 0, 0.7f), 4.0f);
         label(fWidth - 12.0f, fHeight - 15.0f, fFpsText, theme::warn, 11.0f, ALIGN_RIGHT | ALIGN_MIDDLE);
     }
 
@@ -4008,12 +4012,13 @@ private:
         return value != nullptr && value[0] != '\0' && value[0] != '0';
     }();
     int fIdleCount = 0;
+    int fMotionCount = 0; // mouse motion events
     int fFpsFrames = 0;
     float fFpsMaxGap = 0.0f;
     float fFpsDrawMs = 0.0f;
     std::chrono::steady_clock::time_point fFpsSince = std::chrono::steady_clock::now();
     std::chrono::steady_clock::time_point fFpsLastFrame = std::chrono::steady_clock::now();
-    char fFpsText[96] = "measuring…";
+    char fFpsText[128] = "measuring…";
     int fHelpIndex = -1;
     std::chrono::steady_clock::time_point fHelpSince;
     bool fHelpShown = false;

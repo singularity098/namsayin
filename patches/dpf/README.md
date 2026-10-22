@@ -13,5 +13,6 @@ stops with an error if a patch no longer applies.
   registers a 16 ms timer, which Reaper runs at about 30 Hz, so dragging was choppy. The event callback only
   processes window events (no `uiIdle`), so a redraw's own X11 traffic can't keep waking it; the timer still drives
   idle work. Events Xlib queued while drawing (the fd stays quiet for those) are handled in the same call, for up to
-  8 ms. In a test host with a 30 ms timer and 125 Hz mouse motion, frames went from 33/s to 53-66/s under software
+  8 ms; the timer callback does the same after its idle work (its redraws can leave events queued, which then waited
+  a whole tick: the owner saw 21 ms worst gaps at ~80 frames/s). In a test host with a 30 ms timer and 125 Hz mouse motion, frames went from 33/s to 53-66/s under software
   OpenGL (llvmpipe, ~16 ms a frame); with a GPU it should keep up with the mouse. Worth offering upstream.

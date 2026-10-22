@@ -1,5 +1,5 @@
 diff --git a/distrho/src/DistrhoUIInternal.hpp b/distrho/src/DistrhoUIInternal.hpp
-index f7b578e6..d2cf55dc 100644
+index f7b578e6..94fad2e6 100644
 --- a/distrho/src/DistrhoUIInternal.hpp
 +++ b/distrho/src/DistrhoUIInternal.hpp
 @@ -18,6 +18,7 @@
@@ -10,7 +10,7 @@ index f7b578e6..d2cf55dc 100644
  
  START_NAMESPACE_DISTRHO
  
-@@ -218,6 +219,25 @@ public:
+@@ -218,6 +219,30 @@ public:
      }
     #endif
  
@@ -18,6 +18,11 @@ index f7b578e6..d2cf55dc 100644
 +    int getX11ConnectionFd()
 +    {
 +        return uiData->app.getX11ConnectionFd();
++    }
++
++    bool hasQueuedX11Events()
++    {
++        return uiData->app.hasQueuedX11Events();
 +    }
 +
 +    // Handles pending window events (and the redraws they ask for) without the UI's idle work, so a redraw's own
@@ -79,13 +84,19 @@ index 108e76b6..5a6ea549 100644
  };
  
 diff --git a/distrho/src/DistrhoUIVST3.cpp b/distrho/src/DistrhoUIVST3.cpp
-index 744551c4..6c5d8309 100644
+index 744551c4..148186a6 100644
 --- a/distrho/src/DistrhoUIVST3.cpp
 +++ b/distrho/src/DistrhoUIVST3.cpp
-@@ -547,6 +547,16 @@ public:
+@@ -546,6 +546,21 @@ public:
+     {
          fUI.plugin_idle();
          doIdleStuff();
-     }
++
++        // the idle work may have drawn, and Xlib may have read events off the connection meanwhile; its fd won't wake
++        // us for those, so handle them now rather than on the next tick
++        if (fUI.hasQueuedX11Events())
++            fUI.plugin_events();
++    }
 +
 +    int getX11ConnectionFd()
 +    {
@@ -95,11 +106,10 @@ index 744551c4..6c5d8309 100644
 +    void onEvents()
 +    {
 +        fUI.plugin_events();
-+    }
+     }
     #else
      // ----------------------------------------------------------------------------------------------------------------
-     // special idle callback without v3_timer_handler
-@@ -1020,6 +1030,61 @@ struct dpf_timer_handler : v3_timer_handler_cpp {
+@@ -1020,6 +1035,61 @@ struct dpf_timer_handler : v3_timer_handler_cpp {
          timer->uivst3->onTimer();
      }
  };
@@ -161,7 +171,7 @@ index 744551c4..6c5d8309 100644
  #endif
  
  // --------------------------------------------------------------------------------------------------------------------
-@@ -1041,6 +1106,7 @@ struct dpf_plugin_view : v3_plugin_view_cpp {
+@@ -1041,6 +1111,7 @@ struct dpf_plugin_view : v3_plugin_view_cpp {
      ScopedPointer<dpf_plugin_view_content_scale> scale;
     #if DPF_VST3_USING_HOST_RUN_LOOP
      ScopedPointer<dpf_timer_handler> timer;
@@ -169,7 +179,7 @@ index 744551c4..6c5d8309 100644
     #endif
      ScopedPointer<UIVst3> uivst3;
      // cached values
-@@ -1278,6 +1344,17 @@ struct dpf_plugin_view : v3_plugin_view_cpp {
+@@ -1278,6 +1349,17 @@ struct dpf_plugin_view : v3_plugin_view_cpp {
                  v3_cpp_obj(runloop)->register_timer(runloop,
                                                      (v3_timer_handler**)&view->timer,
                                                      DPF_VST3_TIMER_INTERVAL);
@@ -187,7 +197,7 @@ index 744551c4..6c5d8309 100644
                 #endif
  
                  return V3_OK;
-@@ -1297,6 +1374,21 @@ struct dpf_plugin_view : v3_plugin_view_cpp {
+@@ -1297,6 +1379,21 @@ struct dpf_plugin_view : v3_plugin_view_cpp {
          // unregister our timer as needed
          if (v3_run_loop** const runloop = view->runloop)
          {
