@@ -3327,8 +3327,8 @@ private:
         for (size_t k = 0; k < l.splitGaps.size(); ++k)
         {
             const float cx = l.splitGaps[k];
-            // the gap and a little of the tiles either side, so it's easy to hit
-            const Rect zone { cx - kTileGap / 2 - 3.0f, l.rowY[0], kTileGap + 6.0f, l.tile };
+            // just the gap, so a click near the edge of a tile still selects the tile
+            const Rect zone { cx - kTileGap / 2, l.rowY[0], kTileGap, l.tile };
             fHits.push_back({ zone, Hit::Split, static_cast<int>(k) });
             if (!zone.contains(fMouseX, fMouseY) || fDialog != Dialog::None)
                 continue;
@@ -3748,7 +3748,7 @@ private:
         drawButton({ x + w - 92.0f, y, 92.0f, headerH }, "Browse…", false, theme::accent, Hit::LibraryBrowse, 0);
 
         const float listY = y + headerH + 10.0f;
-        const float listH = h - headerH - 10.0f;
+        const float listH = h - headerH - 10.0f - kCountHeight;
 
         fRows.clear();
         for (const LibraryEntry& entry : library)
@@ -3826,12 +3826,14 @@ private:
                   ALIGN_LEFT | ALIGN_MIDDLE);
             return;
         }
-        drawRows(x, y, w, h);
+        drawRows(x, y, w, h - kCountHeight);
 
         char count[64];
         std::snprintf(count, sizeof(count), matches == 1 ? "%zu match" : "%zu matches", matches);
         label(x + w, y + h + 2.0f, count, theme::textDim, 10.0f, ALIGN_RIGHT | ALIGN_BOTTOM);
     }
+
+    static constexpr float kCountHeight = 12.0f; // under the list: "12 of 40", "5 matches"
 
     // Draws fRows as a scrolling list: headings, and rows to click (library files with a favorite star)
     void drawRows(float x, float listY, float w, float listH)
