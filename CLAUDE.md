@@ -43,7 +43,8 @@ src/engine/           Audio engine, independent of DPF (static library `namsayin
   SpscQueue.hpp       Lock-free queue (retired graphs go back to the non-RT side through it)
   dsp/                Smoother, Biquad, ToneStack, Limiter, Meter, Lfo (+ RandomLfo), Svf (+ OnePole, EnvelopeFollower),
                       Waveshapers (clipping curves), PitchShifter (delay-line voices), Fdn (8-line reverb tank),
-                      PitchTracker (zero-crossing, real time; synth and harmonizer)
+                      PitchTracker (zero-crossing, real time; synth and harmonizer), PeriodFinder (autocorrelation;
+                      pitch-synchronous splices for the pitch shifter, chords included)
                       Oversampler (polyphase IIR half-band, 4x, zero latency)
   dsp/DelayLine.hpp   Delay line with Hermite reads, sine LFO, dry/wet mix law; AlignmentDelay (split branches)
   tuner/              PitchDetector (MPM + sub-cent refinement), Tuner (ring buffer from the audio thread, analysis off it)

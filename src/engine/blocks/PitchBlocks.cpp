@@ -5,6 +5,7 @@
 
 #include "engine/dsp/Biquad.hpp"
 #include "engine/dsp/DelayLine.hpp"
+#include "engine/dsp/PeriodFinder.hpp"
 #include "engine/dsp/PitchShifter.hpp"
 #include "engine/dsp/PitchTracker.hpp"
 #include "engine/dsp/Smoother.hpp"
@@ -19,8 +20,8 @@ namespace {
 
 constexpr double kMaxWindowMs = 120.0;
 
-// What the pitch blocks share: a delay line per channel and N voices per channel reading it, a pitch tracker on the
-// mono input (so windows can be pitch-synchronous while a single note sounds), a tone filter per channel, the window
+// What the pitch blocks share: a delay line per channel and N voices per channel reading it, a period finder and a
+// pitch tracker on the mono input (so windows can be pitch-synchronous), a tone filter per channel, the window
 template <int N>
 class PitchBase : public Block {
 public:
@@ -31,6 +32,7 @@ public:
             line.prepare(static_cast<size_t>(std::ceil(kMaxWindowMs / 1000.0 * sampleRate)) + 8);
         fMaxWindow = static_cast<float>(kMaxWindowMs / 1000.0 * sampleRate);
         fTracker.prepare(sampleRate);
+        fFinder.prepare(sampleRate);
         updateWindow();
         updateTone();
         reset();
@@ -39,6 +41,7 @@ public:
     void reset() override
     {
         fTracker.reset();
+        fFinder.reset();
         for (int ch = 0; ch < 2; ++ch)
         {
             fLines[ch].reset();
@@ -61,12 +64,17 @@ protected:
         updateTone();
     }
 
-    // Follows the input (mono) and returns the window for this sample: a whole number of the note's periods while
-    // a single note sounds, else the Window setting
+    // Follows the input (mono) and returns the window for this sample: a whole number of the signal's repetition
+    // period when it has a clear one (a note, or a chord's common period), else of the tracked note, else the Window
+    // setting
     float track(float in)
     {
         fTracker.process(in);
-        return pitchSyncWindow(fWindow, fTracker.sounding() ? fTracker.hz() : 0.0, fSampleRate, fMaxWindow);
+        fFinder.process(in);
+        double period = fFinder.period();
+        if (period <= 0.0 && fTracker.sounding() && fTracker.hz() > 0.0)
+            period = fSampleRate / fTracker.hz();
+        return pitchSyncWindow(fWindow, period, fMaxWindow);
     }
 
     double trackedHz() const { return fTracker.hz(); }
@@ -94,6 +102,7 @@ private:
     bool fToneOn = false;
     Biquad fTone[2];
     PitchTracker fTracker;
+    PeriodFinder fFinder;
 };
 
 // ---------------------------------------------------------------------------------------------------------------------

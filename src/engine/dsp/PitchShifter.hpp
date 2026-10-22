@@ -22,6 +22,7 @@ namespace namsayin {
 class PitchVoice {
 public:
     static constexpr float kMinDelay = 2.0f;
+    static constexpr float kMaxSteer = 0.06f; // of the window, per jump
 
     // `phase` 0..1 staggers voices that read one line
     void reset(float windowSamples, double phase = 0.0)
@@ -48,15 +49,17 @@ public:
             tap.delay += step;
             if (tap.delay < kMinDelay || tap.delay > kMinDelay + tap.window)
             {
-                // the end of the sweep: jump by the window, landing exactly half a window from the other tap, so
-                // with a pitch-synchronous window the two stay in phase (falls back to a plain jump while the
-                // other tap is still on an older window)
+                // the end of the sweep: jump by the window, and steer towards landing exactly half a window from
+                // the other tap, so with a pitch-synchronous window the two are in phase. The steering is limited
+                // to a small step per jump (the jumping tap is silent, and stays nearly so), so after a window
+                // change the taps settle into phase over a few jumps without a click.
                 const bool up = tap.delay < kMinDelay;
                 const float jumped = up ? tap.delay + window : tap.delay - tap.window;
                 const float locked = other.delay + (up ? 0.5f : -0.5f) * window;
+                const float limit = kMaxSteer * window;
                 tap.window = window;
-                tap.delay = std::fabs(locked - jumped) < 0.25f * window ? locked : jumped;
-                tap.delay = std::clamp(tap.delay, kMinDelay, kMinDelay + tap.window);
+                tap.delay = std::clamp(jumped + std::clamp(locked - jumped, -limit, limit), kMinDelay,
+                                       kMinDelay + tap.window);
             }
             const float p = (tap.delay - kMinDelay) / tap.window;
             const float s = std::sin(static_cast<float>(M_PI) * p);
@@ -76,13 +79,12 @@ private:
     Tap fTaps[2];
 };
 
-// A window near `baseSamples` that holds a whole, even number of periods of `hz` (even, so the taps' half-window
-// offset is in phase too); `baseSamples` when the pitch isn't known
-inline float pitchSyncWindow(float baseSamples, double hz, double sampleRate, float maxSamples)
+// A window near `baseSamples` that holds a whole, even number of `period`s (even, so the taps' half-window offset
+// lines up too); `baseSamples` when the period isn't known (0)
+inline float pitchSyncWindow(float baseSamples, double period, float maxSamples)
 {
-    if (hz <= 0.0)
+    if (period <= 0.0)
         return baseSamples;
-    const double period = sampleRate / hz;
     const double periods = std::max(2.0, 2.0 * std::round(baseSamples / (2.0 * period)));
     double window = periods * period;
     while (window > maxSamples && window > 2.0 * period)

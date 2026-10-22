@@ -819,3 +819,45 @@ TEST_CASE("pitch shifting a single note is clean (pitch-synchronous splices)")
         CHECK(shifted / (total * total) > 0.95);
     }
 }
+
+TEST_CASE("poly octave shifts chords cleanly too")
+{
+    // an open E chord, an octave down: nearly all the energy within 25 cents of the shifted partials, at the
+    // original level
+    const double notes[] = { 82.41, 123.47, 164.81, 207.65, 246.94, 329.63 };
+    auto block = make(kPolyOctaveBlockDescriptor);
+    block->setParam(kPolyOctParamDry, 0.0f);
+    block->setParam(kPolyOctParamSub1, 100.0f);
+    std::vector<std::vector<float>> x(1, std::vector<float>(96000));
+    for (size_t i = 0; i < x[0].size(); ++i)
+    {
+        double v = 0.0;
+        for (const double hz : notes)
+            for (int h = 1; h <= 4; ++h)
+                v += 0.1 / h * std::sin(2.0 * M_PI * hz * h * static_cast<double>(i) / kRate + h);
+        x[0][i] = static_cast<float>(v);
+    }
+    const double inputRms = testing::rms(x[0], 48000, 96000);
+    testing::runBlock(*block, x);
+    const double total = testing::rms(x[0], 48000, 96000);
+    CHECK(total == doctest::Approx(inputRms).epsilon(0.1));
+    // energy near the shifted partials: 1 Hz steps over a Hann-windowed DFT overcount a tone by 1.5
+    std::vector<bool> taken(2000, false);
+    double near = 0.0;
+    for (const double hz : notes)
+    {
+        for (int h = 1; h <= 4; ++h)
+        {
+            const double g = hz * h * 0.5;
+            for (int f = static_cast<int>(g * 0.985); f <= static_cast<int>(g * 1.015) + 1; ++f)
+            {
+                if (taken[static_cast<size_t>(f)])
+                    continue;
+                taken[static_cast<size_t>(f)] = true;
+                const double a = toneAt(x[0], f, 48000, 96000);
+                near += a * a / 2.0 / 1.5;
+            }
+        }
+    }
+    CHECK(near / (total * total) > 0.9);
+}
