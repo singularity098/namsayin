@@ -180,6 +180,41 @@ Added to v1 at the owner's request. Studio style, feed-forward: stereo-linked pe
 - Sounds: the Classic samples from Fretbored (`resources/sounds/`), built into the binary as `ClickSamples.cpp` by `tools/embed_sounds.py`, resampled to the host rate and edge-faded as in Fretbored. Digital (a short band-limited square wave) and Beep are generated in code. Fretbored's Digital samples were not used: their files credit a third-party artist, so they aren't cleared for MIT.
 - The top bar also has the Fretbored link (opens the web app in the default browser: `xdg-open` / `ShellExecute`).
 
+### 4.11 Pedals
+
+Added before v1 at the owner's request (Requirements, "Pedals"): every pedal is a block like the others, written from scratch, with several varieties as a `Type` choice where that makes sense. All are zero latency and real-time safe (buffers sized in `prepare()`), and each has at most 8 controls.
+
+| Category | Blocks (types) |
+| --- | --- |
+| Distortion | Boost (Clean, Treble, Mid), Overdrive (Screamer, Blues, Transparent), Distortion (RAT, DS-1, Metal), Fuzz (Face, Muff, Octave), Bitcrusher |
+| Dynamics | Compressor, Noise Gate (Gate, Expander; key from the block or the rig input), Volume (Audio, Linear taper), Auto Swell |
+| EQ | Graphic EQ (7 bands, GE-7 centres), Parametric EQ |
+| Modulation | Chorus (Classic, Dimension, Tri, Vibrato), Flanger, Phaser (4/6/8/12 stage, Vibe), Tremolo (Sine, Triangle, Square, Opto, Harmonic, Pan), Rotary, Doubler, Ring Mod |
+| Reverb | Reverb (Room, Hall, Plate), Spring Reverb, Shimmer, Freeze |
+| Delay | Delay, Tape Echo (seven head combinations), Ducking Delay, Looper |
+| Pitch/Synth | Octave (analog style), Poly Octave, Pitch Shifter, Whammy, Harmonizer, Synth |
+| Filter | Filter (LFO or random-step sweep) |
+| Wah | Wah (expression), Auto Wah (Wah, LP, BP, HP voicings) |
+
+Shared DSP (`src/engine/dsp/`):
+
+- **Oversampler**: the drives clip at 4x through polyphase IIR half-band filters (HIIR-style allpass pairs designed in code): flat to 0.49 fs, aliases more than 70 dB down, no added latency (IIR group delay only). Clipping curves are in `Waveshapers.hpp` (x / (1 + |x|^n)^(1/n), square roots only).
+- **Svf**: TPT state variable filter, stable when the cutoff moves every sample (wahs, auto wah, filter, synth). `OnePole` and `EnvelopeFollower` live with it.
+- **Lfo** (phase accumulator, any phase offset for stereo) and **RandomLfo** (smoothed random, for drift). `TempoSync.hpp` maps a synced knob to a note value: the top is the longest note for a time and the shortest for a rate. The descriptor's `syncParam`/`syncedParam`/`syncedIsRate` tell the UI.
+- **PitchShifter**: delay-line voices, two Hann-crossfaded taps sweeping a window at (1 - ratio) samples per sample. Polyphonic, no detection, no reported latency; a slight warble, and the shifted sound trails by about half the window (the Window control). Used by Pitch Shifter, Whammy, Poly Octave, Harmonizer and Shimmer.
+- **PitchTracker**: monophonic, from zero crossings of the band-limited guitar (the low-pass follows the note); two agreeing periods to accept a change. About two cycles to follow, no latency. Used by the Synth (oscillator pitch) and the Harmonizer (which note, so which interval in the scale).
+- **Fdn**: 8-line Householder feedback delay network with input diffusers, per-line damping and RT60 gains, two modulated lines; it can freeze (lossless loop, input shut). Used by Shimmer and Freeze.
+
+Notes:
+
+- **Levels**: default settings stay within a few dB of bypass (drives a few dB louder, like a pedal set at unity-plus).
+- **Noise gate key**: `Block::setRigInput()` gives every block the chain input (after the input level). With Key = Rig In, a gate after an amp opens and closes on the clean guitar.
+- **Momentary parameters** (`ParamScale::Momentary`, the looper's Rec/Dub, Play/Stop, Clear): 1 while held; blocks act on the 0 → 1 edge, so a MIDI footswitch's press/release maps directly. The UI holds a quick click for 80 ms so the press can't fall inside one audio buffer with its release.
+- **Looper**: a fixed buffer of 60 s at 48 kHz per channel (23 MB), allocated in `prepare()`. Its status (state, length, position) is encoded in the block meter (`LooperStatus`) and drawn in the panel (`MeterStyle::Looper`). The loop survives chain edits (the engine reuses the block) but not a sample-rate change.
+- **Spring reverb**: two springs, each a loop of 60 stretched first-order allpasses (the dispersion that makes the chirp), the transit delay and damping; after Välimäki, Parker and Abel (2010), simplified.
+- **Tests**: `tests/BlockSanityTests.cpp` runs every registered block at default, extreme and random settings, at 44.1/48/96 kHz, mono and stereo (finite, bounded, no allocation, silent for silence), and for ten seconds at its maximum to check that no feedback loop grows once the input stops. `tests/PedalTests.cpp` and `tests/DriveTests.cpp` check each pedal's behaviour (gains, notches, rates, intervals, aliasing, looper actions).
+- Voicing is by measurement, not by ear; the owner tunes the sound.
+
 ## 5. Plugin state, presets and settings
 
 - **Plugin state** (saved by the DAW with the project): a JSON string through DPF's state API, holding the chain, slots, split, block settings, MIDI mappings and metronome settings. File references store the path and the content hash.
@@ -255,6 +290,7 @@ Each milestone ends with a working build, passing tests and a short demo.
 | M7 | **Presets, undo/redo, MIDI learn** | Preset menu, embedding, missing-file handling, undo/redo, MIDI learn |
 | M8 | **Tuner** | Traditional and strobe views, mute, reference pitch, accuracy target met in tests |
 | M9 | **Metronome** | Full Fretbored feature set, free and DAW-sync modes |
+| P | **Pedals** (owner's request, before v1) | The pedal list in Requirements, with tests (section 4.11) |
 | M10 | **v1.0 release** | Performance targets met, DAW testing done, docs, first GitHub Release |
 
 M2–M3 and M4 can overlap, as can M8 and M9.
@@ -271,3 +307,7 @@ M2–M3 and M4 can overlap, as can M8 and M9.
 8. **Folder choice**: DPF's file browser can't pick folders, so "Choose…" takes the folder of any file picked in it; the path can also be typed or pasted.
 9. **MIDI map in the chain state** rather than a separate plugin state, so it follows the chain's routes (including the exchange file for Reaper's LV2) and is covered by undo and presets.
 10. **Metronome samples**: only the Classic clicks come from Fretbored. Its Digital samples carry a third-party artist credit (owner's call to remove them), so the Digital sound is generated in code.
+11. **Pedals before v1**: the owner asked for a wide pedal set first (no rush to v1). Varieties are a Type choice inside one block rather than separate blocks; a released Choice list never changes (saved values would map to other choices), so new varieties that don't fit become new blocks.
+12. **Pitch effects without latency**: delay-line pitch shifting (polyphonic, a slight warble) instead of FFT or PSOLA methods that add latency; the synth and harmonizer track pitch from zero crossings.
+13. **Looper controls as momentary parameters**, so footswitches map to them with MIDI learn; the looper keeps one loop (60 s at 48 kHz).
+

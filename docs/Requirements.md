@@ -93,4 +93,5 @@ v1 is not rushed: before the v1 release, build a wide set of built-in pedals, fr
 - Wanted: noise gate, flanger, chorus, octaver, doubler, auto wah, phaser, EQ, overdrive, tremolo, synth
 - Also agreed (suggested by Claude): fuzz, distortion, boost, spring reverb, wah (expression, via MIDI learn), volume pedal, auto swell, rotary speaker, vibrato, pitch shifter / harmonizer / whammy, ring modulator, bitcrusher / lo-fi, shimmer reverb, freeze, tape echo, ducking delay, looper (last; it needs its own UI)
 - Each block has at most 8 controls (its parameter slot)
+- Status: all of the above are built (see Architecture 4.11). Vibrato is a Chorus type (and the Phaser's Vibe at full mix); tone tuning by ear is the owner's
 
