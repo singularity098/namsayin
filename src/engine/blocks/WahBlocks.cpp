@@ -13,11 +13,11 @@ namespace namsayin {
 
 namespace {
 
-// A wah's voice: a resonant peak over attenuated lows (about 17 dB below the peak at the default resonance), made
+// A wah's voice: a resonant peak over attenuated lows (about 12 dB below the peak at the default resonance), made
 // up to roughly the bypassed level
 float wahVoice(const Svf::Out& out, float k)
 {
-    return 2.0f * (k * out.band + 0.18f * out.low);
+    return 2.0f * (k * out.band + 0.3f * out.low);
 }
 
 constexpr const char* kWahTypeNames[] = { "Classic", "Vox", "Wide", "Bass" };

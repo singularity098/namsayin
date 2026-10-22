@@ -235,9 +235,9 @@ TEST_CASE("flanger without sweep is a comb filter at the Manual delay")
     block->setParam(kFlangerParamManual, 1.0f);
     block->setParam(kFlangerParamFeedback, 0.0f);
     block->setParam(kFlangerParamMix, 50.0f);
-    // 1 ms: notches at 500 Hz, 1500 Hz...; peaks at 1 kHz, 2 kHz...
+    // 1 ms: notches at 500 Hz, 1500 Hz...; peaks at 1 kHz, 2 kHz... (3 dB up: the 50% mix's makeup gain)
     CHECK(sineGainDb(*block, 500.0) < -30.0);
-    CHECK(sineGainDb(*block, 1000.0) == doctest::Approx(0.0).epsilon(0.02));
+    CHECK(sineGainDb(*block, 1000.0) == doctest::Approx(3.0).epsilon(0.02));
 }
 
 TEST_CASE("phaser without sweep notches where its stages reach 180 degrees")
@@ -250,7 +250,7 @@ TEST_CASE("phaser without sweep notches where its stages reach 180 degrees")
     // four first-order allpasses at 1 kHz: -180 degrees total at 1000 * tan(22.5 deg) and 1000 * tan(67.5 deg)
     CHECK(sineGainDb(*block, 1000.0 * std::tan(M_PI / 8.0)) < -30.0);
     CHECK(sineGainDb(*block, 1000.0 * std::tan(3.0 * M_PI / 8.0)) < -30.0);
-    CHECK(sineGainDb(*block, 1000.0) == doctest::Approx(0.0).epsilon(0.02));
+    CHECK(sineGainDb(*block, 1000.0) == doctest::Approx(3.0).epsilon(0.02)); // with the 50% mix's makeup
 }
 
 TEST_CASE("doubler pans a delayed take out to one side")

@@ -140,7 +140,9 @@ public:
                 fLast[ch] = std::clamp(y, -4.0f, 4.0f);
 
                 const float x = io[ch][i];
-                io[ch][i] = x * (1.0f - mix) + y * mix;
+                // the notches take about 3 dB off at 50%; make that up
+                const float makeup = 1.0f + 1.66f * mix * (1.0f - mix);
+                io[ch][i] = (x * (1.0f - mix) + y * mix) * makeup;
             }
         }
     }

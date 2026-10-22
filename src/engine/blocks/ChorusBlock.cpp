@@ -100,8 +100,9 @@ public:
             const double phase = fLfo.advance();
             const float depth = fDepth.next();
             const float mix = v.wetOnly ? 1.0f : fMix.next();
-            const float dryGain = v.wetOnly ? 0.0f : dryGainForMix(mix);
-            const float wetGain = v.wetOnly ? 1.0f : wetGainForMix(mix);
+            // equal power, so the chorus doesn't jump in level when it's switched in
+            const float dryGain = v.wetOnly ? 0.0f : std::cos(mix * static_cast<float>(M_PI / 2.0));
+            const float wetGain = v.wetOnly ? 1.0f : std::sin(mix * static_cast<float>(M_PI / 2.0));
 
             for (uint32_t ch = 0; ch < numChannels; ++ch)
             {

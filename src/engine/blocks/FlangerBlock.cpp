@@ -101,9 +101,11 @@ public:
             const float manual = fManual.next();
             const float feedback = fFeedback.next();
             const float mix = fMix.next();
-            // equal parts at 50%, like a classic flanger (the comb's peaks at unity); feedback's boost is tamed
-            const float wetGain = mix * (1.0f - 0.5f * std::fabs(feedback));
-            const float dryGain = 1.0f - mix;
+            // equal parts at 50%, like a classic flanger; the comb's notches take about 3 dB off there, which is
+            // made up, and feedback's boost is tamed
+            const float makeup = 1.0f + 1.66f * mix * (1.0f - mix);
+            const float wetGain = mix * (1.0f - 0.5f * std::fabs(feedback)) * makeup;
+            const float dryGain = (1.0f - mix) * makeup;
 
             for (uint32_t ch = 0; ch < numChannels; ++ch)
             {

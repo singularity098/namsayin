@@ -7,6 +7,7 @@
 #include "engine/blocks/CompressorBlock.hpp"
 #include "engine/blocks/DelayBlock.hpp"
 #include "engine/blocks/DoublerBlock.hpp"
+#include "engine/blocks/DriveBlocks.hpp"
 #include "engine/blocks/EqBlocks.hpp"
 #include "engine/blocks/FlangerBlock.hpp"
 #include "engine/blocks/GateBlock.hpp"
@@ -52,6 +53,10 @@ const BlockRegistry& BlockRegistry::builtin()
     static const BlockRegistry registry({
         &kNamBlockDescriptor,
         &kIrBlockDescriptor,
+        &kBoostBlockDescriptor,
+        &kOverdriveBlockDescriptor,
+        &kDistortionBlockDescriptor,
+        &kFuzzBlockDescriptor,
         &kCompressorBlockDescriptor,
         &kGateBlockDescriptor,
         &kGraphicEqBlockDescriptor,

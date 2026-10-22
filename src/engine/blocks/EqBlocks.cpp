@@ -17,19 +17,6 @@ namespace {
 // parameters a step at a time, every kUpdateInterval samples, so sweeping a knob doesn't click.
 constexpr uint32_t kUpdateInterval = 32;
 
-// Moves a control one step; returns false once it has arrived. Snaps when float precision stalls it short of
-// the target (large values like 20000 Hz), so it doesn't keep recomputing filters forever.
-bool step(Smoother& s)
-{
-    if (s.settled())
-        return false;
-    const float before = s.value();
-    s.next();
-    if (s.value() == before)
-        s.snap(s.target());
-    return true;
-}
-
 class GraphicEqBlock : public Block {
 public:
     GraphicEqBlock()
@@ -74,7 +61,7 @@ public:
                 fCounter = 0;
                 bool moving = false;
                 for (Smoother& gain : fGain)
-                    moving |= step(gain);
+                    moving |= gain.advance();
                 if (moving)
                     updateFilters();
             }
@@ -170,7 +157,7 @@ public:
                 fCounter = 0;
                 bool moving = false;
                 for (Smoother* s : controls)
-                    moving |= step(*s);
+                    moving |= s->advance();
                 if (moving)
                     updateFilters();
             }
