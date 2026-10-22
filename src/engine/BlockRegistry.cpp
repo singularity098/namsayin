@@ -8,6 +8,7 @@
 #include "engine/blocks/ChorusBlock.hpp"
 #include "engine/blocks/CompressorBlock.hpp"
 #include "engine/blocks/DelayBlock.hpp"
+#include "engine/blocks/DoppelgangerBlock.hpp"
 #include "engine/blocks/DoublerBlock.hpp"
 #include "engine/blocks/DriveBlocks.hpp"
 #include "engine/blocks/EchoBlocks.hpp"
@@ -88,6 +89,7 @@ const BlockRegistry& BlockRegistry::builtin()
         &kShimmerBlockDescriptor,
         &kFreezeBlockDescriptor,
         &kDelayBlockDescriptor,
+        &kDoppelgangerBlockDescriptor,
         &kTapeEchoBlockDescriptor,
         &kDuckingDelayBlockDescriptor,
         &kLooperBlockDescriptor,

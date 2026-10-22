@@ -1347,6 +1347,8 @@ private:
             }
             if (std::strcmp(spec->unit, "Hz") == 0 && v >= 1000.0f)
                 std::snprintf(buf, sizeof(buf), "%.1f kHz", v / 1000.0f);
+            else if (std::strcmp(spec->unit, "Hz") == 0 && v < 10.0f)
+                std::snprintf(buf, sizeof(buf), "%.2f Hz", v); // LFO rates
             else
                 std::snprintf(buf, sizeof(buf), "%.1f %s", v, spec->unit);
             return buf;

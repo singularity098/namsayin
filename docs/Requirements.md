@@ -84,6 +84,7 @@
 - Local NAM blocks
 - Local IR blocks (cab impulse responses from .wav files), added to the prototype at the owner's request
 - Delay block (with stereo delay)
+- Doppelganger Delay block (the owner's idea): echoes alternate between a thick flanger (odd echoes) and a thick chorus (even echoes), each echo with only its own effect; all parameters configurable. Blocks have up to 16 parameters.
 - Reverb block (room, hall and plate types)
 - Compressor block (studio style: threshold, ratio, attack, release, knee, makeup, mix, with a gain-reduction meter), added to M3 at the owner's request
 - Everything else in this document (Tone3000 integration, IR loader, other effect categories, etc.) follows in later versions, but the architecture must allow for it
@@ -92,6 +93,6 @@
 v1 is not rushed: before the v1 release, build a wide set of built-in pedals, from scratch, with several varieties each (a Type choice per block where it makes sense). The easy ones come first; the hard ones (polyphonic pitch, synth) only if time allows.
 - Wanted: noise gate, flanger, chorus, octaver, doubler, auto wah, phaser, EQ, overdrive, tremolo, synth
 - Also agreed (suggested by Claude): fuzz, distortion, boost, spring reverb, wah (expression, via MIDI learn), volume pedal, auto swell, rotary speaker, vibrato, pitch shifter / harmonizer / whammy, ring modulator, bitcrusher / lo-fi, shimmer reverb, freeze, tape echo, ducking delay, looper (last; it needs its own UI)
-- Each block has at most 8 controls (its parameter slot)
+- Each block has at most 16 controls (its parameter slot; 8 when the pedals were built)
 - Status: all of the above are built (see Architecture 4.11). Vibrato is a Chorus type (and the Phaser's Vibe at full mix); tone tuning by ear is the owner's
 
