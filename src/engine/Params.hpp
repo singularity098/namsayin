@@ -8,7 +8,7 @@
 namespace namsayin {
 
 constexpr int kMaxBlocks = 32;
-constexpr int kParamsPerSlot = 8;
+constexpr int kParamsPerSlot = 16;
 constexpr int kSlotParamCount = 1 + kParamsPerSlot; // bypass + block parameters
 
 // Host parameter indices. These are the DAW's automation IDs, so existing indices must never move:

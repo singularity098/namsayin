@@ -29,7 +29,7 @@ src/
     ChainGraph        Immutable processing graph built from a ChainState
     Block             Base class for every block
     BlockRegistry     Table of available block types (the "modular effects" hook)
-    blocks/           NamBlock, IrBlock, DelayBlock, ReverbBlock, CompressorBlock
+    blocks/           NamBlock, IrBlock, DelayBlock, DoppelgangerBlock, ReverbBlock, CompressorBlock
     global/           InputStage, ToneStack (Bass/Mid/Treble), Limiter, Meters
     tuner/            PitchDetector, Tuner (done, M8)
     metronome/        Metronome, ClickSamples (done, M9)
@@ -110,7 +110,7 @@ Parameter values live in the host. `ChainState` also stores each block's normali
 The host sees a fixed parameter list:
 
 - **Global**: input mode, input, bass, middle, treble, output, global bypass, limiter on/off, tuner on/off, tuner mute, metronome on/off, metronome volume, and a few more.
-- **32 slots × 9 parameters**: slot bypass plus 8 block parameters. That's ~290 parameters in total, which hosts handle fine.
+- **32 slots × 17 parameters**: slot bypass plus 16 block parameters (8 until the Doppelganger Delay needed more; changed before release, so no saved automation was affected). That's ~550 slot parameters, which hosts handle fine.
 
 Each block is assigned a free slot when it is created and keeps it for its whole life, so dragging a block to a new position doesn't break automation. Host-facing names are generic ("Slot 05 · P2"). The UI shows real names, and the slot number on each block tile so users can find it in their DAW.
 
@@ -145,6 +145,16 @@ Parameters: time (ms, or a note value when synced), tempo sync on/off, feedback,
 - The feedback path has a fixed 40 Hz high-pass, the Tone low-pass and a soft limit above half scale, so 100% feedback stays bounded.
 - Ping-pong: the input (summed to mono) enters on the left, repeats alternate left and right.
 - Mix: the dry signal stays at full level up to 50%, and the wet signal reaches full level at 50% (also used by the reverb).
+
+### 4.7b Doppelganger Delay block
+
+The owner's idea: a delay whose echoes alternate between two effects. With the default order, echoes 1, 3, 5… are flanged and echoes 2, 4, 6… are chorused, and each echo has only its own effect (they don't stack).
+
+- An ordinary feedback delay keeps every echo in one loop, so effects in the loop would pile up. Instead, one clean line repeats at 2T with feedback g²: `s(t) = x(t) + g² F² s(t−2T)`. Reading it at T gives the odd echoes, `g F s(t−T)`; the loop's own feedback term gives the even ones. These are exactly the echoes of a delay with time T and feedback g, split by parity, so each stream goes through its own effect outside the loop. F is the Tone low-pass (and a 40 Hz high-pass), once per repeat, so repeats darken like the Delay block's.
+- Flanger: a 0.25–5.25 ms swept delay with regeneration (−95…95%), level-compensated. Chorus: 1–3 voices around 10 ms, spread evenly around the LFO cycle. Each has rate, depth and mix (0% = clean echoes).
+- Order swaps which effect gets the odd echoes. Width offsets the right channel's LFOs (up to 180° for the flanger, 90° for the chorus). Bounce leans flanged echoes left and chorused echoes right (stereo mode).
+- Time, Sync, Feedback and Mix work as in the Delay block (same note values; synced up to 4 s, so the line holds 8 s).
+- 16 parameters: time, sync, feedback, mix, tone, order, width, bounce, then flange rate/depth/regen/mix and chorus rate/depth/voices/mix.
 
 ### 4.8 Reverb block
 
@@ -271,3 +281,4 @@ M2–M3 and M4 can overlap, as can M8 and M9.
 8. **Folder choice**: DPF's file browser can't pick folders, so "Choose…" takes the folder of any file picked in it; the path can also be typed or pasted.
 9. **MIDI map in the chain state** rather than a separate plugin state, so it follows the chain's routes (including the exchange file for Reaper's LV2) and is covered by undo and presets.
 10. **Metronome samples**: only the Classic clicks come from Fretbored. Its Digital samples carry a third-party artist credit (owner's call to remove them), so the Digital sound is generated in code.
+11. **16 parameters per block** (was 8), for the Doppelganger Delay. Most host parameter indices moved, which was fine only because nothing was released yet; from v1.0 on the count is fixed.

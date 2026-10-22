@@ -9,6 +9,7 @@
 #include "engine/Params.hpp"
 #include "engine/blocks/CompressorBlock.hpp"
 #include "engine/blocks/DelayBlock.hpp"
+#include "engine/blocks/DoppelgangerBlock.hpp"
 #include "engine/blocks/IrBlock.hpp"
 #include "engine/blocks/NamBlock.hpp"
 #include "state/ChainExchange.hpp"
@@ -1314,8 +1315,11 @@ private:
             const int slot = static_cast<int>(offset / kSlotParamCount);
             const int param = static_cast<int>(offset % kSlotParamCount) - 1;
             const BlockState* block = blockInSlot(slot);
-            if (block && block->typeId == kDelayBlockDescriptor.typeId && param == kDelayParamTime
-                && fParams[slotParam(slot, kDelayParamSync)] >= 0.5f)
+            static_assert(int(kDoppelParamTime) == int(kDelayParamTime) && int(kDoppelParamSync) == int(kDelayParamSync));
+            if (block
+                && (block->typeId == kDelayBlockDescriptor.typeId
+                    || block->typeId == kDoppelgangerBlockDescriptor.typeId)
+                && param == kDelayParamTime && fParams[slotParam(slot, kDelayParamSync)] >= 0.5f)
                 return delayNoteName(delayNoteIndex(fParams[index]));
             if (spec->unit[0] == ':')
             {
@@ -1329,6 +1333,8 @@ private:
             }
             if (std::strcmp(spec->unit, "Hz") == 0 && v >= 1000.0f)
                 std::snprintf(buf, sizeof(buf), "%.1f kHz", v / 1000.0f);
+            else if (std::strcmp(spec->unit, "Hz") == 0 && v < 10.0f)
+                std::snprintf(buf, sizeof(buf), "%.2f Hz", v); // LFO rates
             else
                 std::snprintf(buf, sizeof(buf), "%.1f %s", v, spec->unit);
             return buf;

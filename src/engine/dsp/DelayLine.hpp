@@ -71,6 +71,14 @@ public:
         fY = std::sin(phase);
     }
 
+    // Changes the rate and keeps the phase. RT-safe.
+    void setRate(double sampleRate, double hz)
+    {
+        const double w = 2.0 * M_PI * hz / sampleRate;
+        fCos = std::cos(w);
+        fSin = std::sin(w);
+    }
+
     float next()
     {
         const double x = fX * fCos - fY * fSin;
@@ -80,6 +88,12 @@ public:
         fX = x * norm;
         fY = y * norm;
         return static_cast<float>(fY);
+    }
+
+    // The current value shifted by a phase offset, given as its cosine and sine (no trig per sample)
+    float shifted(float cosOffset, float sinOffset) const
+    {
+        return static_cast<float>(fY * cosOffset + fX * sinOffset);
     }
 
 private:
