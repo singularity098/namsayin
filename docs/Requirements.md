@@ -84,6 +84,7 @@
 - Local NAM blocks
 - Local IR blocks (cab impulse responses from .wav files), added to the prototype at the owner's request
 - Delay block (with stereo delay)
+- Doppelganger Delay block (the owner's idea): echoes alternate between a thick flanger (odd echoes) and a thick chorus (even echoes), each echo with only its own effect; all parameters configurable. Blocks have up to 16 parameters.
 - Reverb block (room, hall and plate types)
 - Compressor block (studio style: threshold, ratio, attack, release, knee, makeup, mix, with a gain-reduction meter), added to M3 at the owner's request
 - Everything else in this document (Tone3000 integration, IR loader, other effect categories, etc.) follows in later versions, but the architecture must allow for it

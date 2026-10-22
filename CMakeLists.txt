@@ -73,6 +73,7 @@ add_library(namsayin-engine STATIC
   src/engine/BlockRegistry.cpp
   src/engine/blocks/CompressorBlock.cpp
   src/engine/blocks/DelayBlock.cpp
+  src/engine/blocks/DoppelgangerBlock.cpp
   src/engine/blocks/IrBlock.cpp
   src/engine/blocks/NamBlock.cpp
   src/engine/blocks/ReverbBlock.cpp
@@ -134,6 +135,7 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/ChainStateTests.cpp
     tests/CompressorBlockTests.cpp
     tests/DelayBlockTests.cpp
+    tests/DoppelgangerBlockTests.cpp
     tests/DspTests.cpp
     tests/EngineTests.cpp
     tests/IrBlockTests.cpp

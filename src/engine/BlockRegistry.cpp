@@ -5,6 +5,7 @@
 
 #include "engine/blocks/CompressorBlock.hpp"
 #include "engine/blocks/DelayBlock.hpp"
+#include "engine/blocks/DoppelgangerBlock.hpp"
 #include "engine/blocks/IrBlock.hpp"
 #include "engine/blocks/NamBlock.hpp"
 #include "engine/blocks/ReverbBlock.hpp"
@@ -46,6 +47,7 @@ const BlockRegistry& BlockRegistry::builtin()
         &kIrBlockDescriptor,
         &kCompressorBlockDescriptor,
         &kDelayBlockDescriptor,
+        &kDoppelgangerBlockDescriptor,
         &kReverbBlockDescriptor,
     });
     return registry;
