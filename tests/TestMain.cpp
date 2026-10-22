@@ -38,6 +38,29 @@ void* operator new[](std::size_t size)
     return operator new(size);
 }
 
+// The nothrow forms too (std::stable_partition uses them), so every allocation is counted and freed consistently
+void* operator new(std::size_t size, const std::nothrow_t&) noexcept
+{
+    if (testing::gCountAllocations)
+        testing::gAllocations.fetch_add(1, std::memory_order_relaxed);
+    return std::malloc(size ? size : 1);
+}
+
+void* operator new[](std::size_t size, const std::nothrow_t& tag) noexcept
+{
+    return operator new(size, tag);
+}
+
+void operator delete(void* p, const std::nothrow_t&) noexcept
+{
+    std::free(p);
+}
+
+void operator delete[](void* p, const std::nothrow_t&) noexcept
+{
+    std::free(p);
+}
+
 void operator delete(void* p) noexcept
 {
     std::free(p);

@@ -31,8 +31,9 @@ src/
     BlockRegistry     Table of available block types (the "modular effects" hook)
     blocks/           NamBlock, IrBlock, DelayBlock, ReverbBlock, CompressorBlock
     global/           InputStage, ToneStack (Bass/Mid/Treble), Limiter, Meters
-    Tuner, Metronome
-    ParallelWorker    Second-core thread for split branch B
+    tuner/            PitchDetector, Tuner (done, M8)
+    metronome/        Metronome, ClickSamples (done, M9)
+    ParallelWorker    Second-core thread for split branch B (done, M6)
   state/              Plain data, shared by DSP and UI
     ChainState        Blocks, slots, split/merge, per-block settings (JSON)
     Preset            Load/save, embedding, missing-file handling
@@ -42,7 +43,7 @@ src/
   ui/                 DPF UI subclass and NanoVG widgets
     widgets/          Knob, Toggle, Button, Meter, BlockTile, ChainView, Dialog, ...
     theme/            Colours, sizes, fonts
-resources/            Fonts, generic block images, metronome sounds
+resources/            Fonts, generic block images, metronome sounds (resources/sounds, done)
 tests/
 docs/
 ```
@@ -117,10 +118,11 @@ Each block is assigned a free slot when it is created and keeps it for its whole
 
 ### 4.4 Split, merge and the second core
 
-- The chain has at most one split. `ChainState` stores it as `{splitBefore: i, mergeAfter: j, branchA: [...], branchB: [...]}`.
-- The merge has A/B balance, level, pan and phase invert per branch.
-- If the two branches have different latencies, the shorter branch is delayed to match.
-- **Parallel processing** (Settings toggle, on by default): a `ParallelWorker` thread is woken each buffer to run branch B while the audio thread runs branch A, and the audio thread then waits for it. The worker uses real-time priority where the OS allows it. If the worker hasn't finished in time, the audio thread waits briefly and then does nothing extra (no extra latency, but a risk of a dropout on an overloaded machine). With the toggle off, both branches run in sequence on the audio thread.
+- The chain has at most one split. `ChainState` keeps the blocks in one list, left to right, plus `split = {begin, end}`: blocks `[begin, end)` run in the two branches, and each of them has a `branch` tag (A or B). Blocks before `begin` run before the split, blocks from `end` on after the merge. A branch may be empty; it then carries the signal unchanged (a parallel dry path). `ChainState` has helpers (`sectionIndices`, `insert`, `remove`, `move`, `addSplit`, `removeSplit`) that keep the range and tags consistent. Removing the split keeps every block: the branches become serial, A then B. The chain JSON went to version 2 for this; version 1 still loads.
+- The merge has A/B balance, and a level, pan and phase invert per branch. These are host parameters (`kParamMergeBalance` … `kParamMergeInvertB`), so they can be automated; one set is enough, as there's only one split. Presets save them. Balance keeps both branches at full level in the middle and turns the other one down towards either end. Pan works like a balance control in Stereo mode and is ignored in Mono mode (the chain then has one channel). All merge gains are smoothed, so phase invert fades through zero instead of clicking.
+- If the two branches have different latencies, the shorter branch is delayed to match (`DelayLine`), and the host is told the longer one.
+- **Parallel processing** (on by default; Settings > Parallel processing. The DSP reads the setting when it builds a chain, and the UI resends the chain when it changes): a `ParallelWorker` thread is woken each buffer to run branch B while the audio thread runs branch A, and the audio thread then waits for it. Waking is lock-free (an atomic counter with `wait`/`notify_one`), and the audio thread spins briefly, then yields, until the worker is done. The worker copies the audio thread's scheduling policy and priority on its first job (Linux), or uses `THREAD_PRIORITY_TIME_CRITICAL` (Windows), and flushes denormals like a host audio thread. If the worker is late, the audio thread keeps waiting (no extra latency, but a risk of a dropout on an overloaded machine). With the toggle off, or with an empty branch B, both branches run in sequence on the audio thread. The worker thread is only started once a chain needs it.
+- UI: with a split, the chain view has two rows of slightly smaller tiles: branch A and everything outside the split on the top row, branch B below, and a tall merge tile where they join (click it for the merge controls, × to remove the split). Each branch and the part after the merge has its own "+". "Split" (shown while there's no split) splits around the selected block, which goes into branch A, or adds an empty split at the end. Blocks are dragged between rows and sections freely; a purple line shows where a block will land.
 
 ### 4.5 Latency
 
@@ -158,19 +160,25 @@ Added to v1 at the owner's request. Studio style, feed-forward: stereo-linked pe
 
 ### 4.9 Tuner
 
-- The dry input (plus boost) is copied into a lock-free ring buffer, and the analysis runs on a DSP-side worker thread, not the audio thread.
-- Pitch detection: McLeod Pitch Method (as in Fretbored), with parabolic peak interpolation and an analysis window long enough for 31 Hz (~100 ms).
-- The detected frequency, confidence and cents are sent to the UI as output parameters, so this works even when an LV2 host runs the UI in a separate process. Traditional and strobe views are both drawn in the UI from these values.
+- The input (after the Input level, before the chain) is copied into a lock-free ring buffer, and the analysis runs on a DSP-side thread every 20 ms while the tuner is on, never on the audio thread (`engine/tuner/Tuner`). Stereo input is analysed as the sum of both channels.
+- The detector doesn't depend on the level, so quiet inputs work as well as loud ones (this is what the "boost" in the signal flow stands for): only a gate at -74 dBFS RMS decides whether there's anything to analyse.
+- Pitch detection (`engine/tuner/PitchDetector`): McLeod Pitch Method (as in Fretbored) on an ~85 ms window (4096 samples at 48 kHz, enough for 31 Hz), FFT autocorrelation and parabolic peak interpolation, which on its own is good to about ±0.4 cent. It is then refined: a Hann-weighted normalized cross-correlation over a whole number of periods, low-passed above the 6th harmonic, measured at the largest multiple of the period that fits and divided back. The refinement uses up to four windows of audio (~340 ms) when the note has been steady that long, which makes it far less sensitive to noise.
+- Only audio at a steady level is analysed: levels are compared in chunks of whole periods, and a window that isn't steady (a note starting, stopping or changing) gives no reading at all, rather than a wrong one. The UI keeps showing the last note for a second.
+- The detected frequency and clarity are output parameters, so this works when an LV2 host runs the UI in a separate process. The UI takes the median of the last five readings (starting over when the note clearly changes) and works out the note and cents from the reference pitch. Traditional (needle, ±50 cents, green within ±2 cents) and strobe (three rows of bands for the fundamental and two octaves, drifting at a speed proportional to the error) views are drawn in the UI; the view is a hidden parameter, so it's saved with the project.
+- While the tuner is on, the guitar is muted by default (Tuner Mute; also in global bypass); the metronome stays audible.
 - Reference pitch A4 is adjustable from 415 to 466 Hz.
-- **Accuracy target: ±0.1 cent from 31 Hz up to the 24th fret of the high E string (~1319 Hz)**, checked by automated tests with synthetic and recorded signals.
+- **Accuracy target: ±0.1 cent from 31 Hz up to the 24th fret of the high E string (~1319 Hz)**, checked by tests at 44.1, 48 and 96 kHz on every half semitone, with pure tones, harmonic-rich tones and noisy tones with a weak fundamental (worst case about 0.01 cent), and through the start and end of notes (a gated tone; a plucked-string-like note whose harmonics decay at different rates). No recorded signals yet: the tests are synthetic.
 
 ### 4.10 Metronome
 
-- Runs in the DSP, scheduled to the exact sample.
-- **Free mode** (default): its own tempo and start/stop.
-- **DAW sync** (switch): follows the host's tempo, time signature and transport position (DPF `TimePosition`).
-- Features match Fretbored: 20–300 BPM, tap tempo, meter and beat grouping, per-beat accents, subdivisions, Classic/Digital/Beep sounds with separate subdivision volume, step and gradual trainer, gap trainer, visual pulse.
-- Sounds: the Classic and Digital samples from Fretbored, built into the binary. Beep is generated in code.
+- Runs in the DSP (`engine/metronome/Metronome`), scheduled to the exact sample: each beat's time is kept as a fractional sample position and rounded, so the tempo never drifts, whatever the buffer size. Clicks are mixed in after the Output level and before the limiter, so they can't clip the output; the tuner's mute doesn't silence them. Global bypass does (it's a true bypass).
+- **Free mode** (default): its own tempo, starting on beat 1 when switched on. Switching off lets the click that's sounding play out (cutting it would pop).
+- **DAW sync** (switch): follows the host's tempo, time signature and transport position (DPF `TimePosition`): clicks fall where the host's beat position crosses a beat or subdivision, only while the transport plays. Each click has an ID (beat × 16 + subdivision), so a click on a buffer boundary is never played twice or missed, and a jump (loop, locate) starts over at the new position. The tempo trainer doesn't apply in sync mode (the host sets the tempo); the gap trainer does, on the host's bars.
+- Features match Fretbored: 20–300 BPM (slider, ±1/±5, keyboard), tap tempo, 1–16 beats over 2/4/8/16 with beat grouping (cycled through every split into 2s and 3s; the default follows Fretbored, e.g. 7/8 = 2+2+3), per-beat accents (accent/normal/soft/mute, set by the grouping and by clicking a beat), the eleven subdivisions, Classic/Digital/Beep sounds with separate volume for subdivisions, step and gradual tempo trainer (also slowing down), gap trainer, and a visual pulse and pendulum sweep. Fretbored's "visual sync" offset (for Bluetooth speakers) isn't needed in a plugin.
+- **Every setting is a host parameter** (tempo, volume, on/off and sync are automatable; the rest are hidden), so it works the same in every host — including Reaper's LV2, which doesn't deliver UI state messages — and is saved with the project. The accents are 16 parameters; the grouping is a bit mask of the beats that start a group, kept only for the UI. The DSP reports the beat being heard, a beat counter (the UI pulses when it changes), the bar, the tempo being played and the gap trainer's mute as output parameters.
+- **Panel**: the top bar's Metronome button switches it on and off (and flashes on every beat); ▾ next to it opens the panel, which covers the chain while it's open. Shortcuts while the panel is open (so only while the plugin window has the keyboard focus): Space start/stop, ↑/↓ tempo (Shift: 5 BPM), T tap.
+- Sounds: the Classic samples from Fretbored (`resources/sounds/`), built into the binary as `ClickSamples.cpp` by `tools/embed_sounds.py`, resampled to the host rate and edge-faded as in Fretbored. Digital (a short band-limited square wave) and Beep are generated in code. Fretbored's Digital samples were not used: their files credit a third-party artist, so they aren't cleared for MIT.
+- The top bar also has the Fretbored link (opens the web app in the default browser: `xdg-open` / `ShellExecute`).
 
 ## 5. Plugin state, presets and settings
 
@@ -260,5 +268,6 @@ M2–M3 and M4 can overlap, as can M8 and M9.
 5. **Compressor**: added to M3, studio style (owner's choice over a simple pedal-style one).
 6. **Theme**: no gradient; pure black window, flat near-black gray surfaces.
 7. **Block panel**: large block image on the left, generic knobs right-justified.
-9. **MIDI map in the chain state** rather than a separate plugin state, so it follows the chain's routes (including the exchange file for Reaper's LV2) and is covered by undo and presets.
 8. **Folder choice**: DPF's file browser can't pick folders, so "Choose…" takes the folder of any file picked in it; the path can also be typed or pasted.
+9. **MIDI map in the chain state** rather than a separate plugin state, so it follows the chain's routes (including the exchange file for Reaper's LV2) and is covered by undo and presets.
+10. **Metronome samples**: only the Classic clicks come from Fretbored. Its Digital samples carry a third-party artist credit (owner's call to remove them), so the Digital sound is generated in code.

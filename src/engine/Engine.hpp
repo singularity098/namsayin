@@ -5,11 +5,15 @@
 
 #include "engine/BlockRegistry.hpp"
 #include "engine/Params.hpp"
+#include "engine/ParallelWorker.hpp"
 #include "engine/SpscQueue.hpp"
+#include "engine/dsp/DelayLine.hpp"
 #include "engine/dsp/Limiter.hpp"
 #include "engine/dsp/Meter.hpp"
 #include "engine/dsp/Smoother.hpp"
 #include "engine/dsp/ToneStack.hpp"
+#include "engine/metronome/Metronome.hpp"
+#include "engine/tuner/Tuner.hpp"
 #include "state/ChainState.hpp"
 
 #include <array>
@@ -21,7 +25,8 @@
 
 namespace namsayin {
 
-// The audio engine: input stage, signal chain, tone stack, output stage, limiter and meters.
+// The audio engine: input stage, signal chain (with an optional split), tone stack, output stage, metronome,
+// limiter and meters, and the tuner's input.
 //
 // Threads: process() runs on the audio thread and never allocates, locks or frees. setChain() and prepare()
 // run on other threads; a new chain is built there and handed to the audio thread lock-free, which swaps it in
@@ -59,11 +64,20 @@ public:
     };
     CcResult midiCc(int channel, int cc, int value);
 
-    // RT. Two inputs and two outputs; they may alias.
-    void process(const float* const* inputs, float* const* outputs, uint32_t frames);
+    // RT. Two inputs and two outputs; they may alias. `transport` is the host's, for the metronome's DAW sync.
+    void process(const float* const* inputs, float* const* outputs, uint32_t frames,
+                 const Transport* transport = nullptr);
 
     // Total latency of the active chain, in samples
     uint32_t latency() const { return fLatency.load(std::memory_order_relaxed); }
+
+    // Non-RT, any one thread. Runs the tuner's analysis on the latest input and publishes the result in the
+    // tuner output parameters. Call it every 20 ms or so while the tuner is on.
+    void analyzeTuner();
+
+    // Any thread. Whether branch B of a split runs on a second core (default on). Takes effect from the next
+    // setChain() if no worker thread was started yet.
+    void setParallelProcessing(bool enabled) { fParallel.store(enabled, std::memory_order_relaxed); }
 
 private:
     struct Node {
@@ -72,12 +86,25 @@ private:
         int slot;
     };
 
+    // The chain in four sections: before the split, the two branches, and after the merge. Without a split,
+    // everything is in `pre`.
     struct Graph {
-        std::vector<Node> nodes;
+        std::vector<Node> pre, branchA, branchB, post;
+        bool split = false;
         uint32_t latency = 0;
+        AlignmentDelay alignA, alignB;        // delays the branch with less latency so both arrive together
+        ParallelWorker* worker = nullptr; // runs branch B, if parallel processing is on
         std::array<int16_t, 16 * 128> midiMap; // channel * 128 + cc -> host parameter, -1 if unmapped
 
         Graph() { midiMap.fill(-1); }
+
+        template <typename F>
+        void forEachNode(F&& f) const
+        {
+            for (const std::vector<Node>* nodes : { &pre, &branchA, &branchB, &post })
+                for (const Node& node : *nodes)
+                    f(node);
+        }
     };
 
     // What the non-RT side last built for each slot, so unchanged blocks can be reused
@@ -97,14 +124,23 @@ private:
 
     enum class Fade { Idle, Out, In };
 
-    void processChunk(const float* const* inputs, float* const* outputs, uint32_t frames);
+    void processChunk(const float* const* inputs, float* const* outputs, uint32_t frames,
+                      const Transport* transport, uint32_t offset);
+    Metronome::Settings metronomeSettings() const;
     void processChain(uint32_t numChannels, uint32_t frames);
+    void processNodes(const std::vector<Node>& nodes, float* const* work, float* const* scratch,
+                      uint32_t numChannels, uint32_t frames);
+    void merge(uint32_t numChannels, uint32_t frames);
+    float mergeGain(int branch, int channel, bool stereo) const;
+    static void runBranchB(void* engine);
+    void updateLatency(Graph& graph);
     void swapGraph();
     void drainRetired();
     float param(uint32_t index) const { return fParams[index].load(std::memory_order_relaxed); }
 
     const BlockRegistry& fRegistry;
     std::mutex fMutex; // non-RT callers only
+    std::mutex fTunerMutex; // analyzeTuner() vs prepare()
 
     double fSampleRate = 48000.0;
     uint32_t fMaxFrames = 0;
@@ -118,6 +154,8 @@ private:
     std::atomic<Graph*> fPending { nullptr };
     SpscQueue<Graph*, 8> fRetired;
     std::atomic<uint32_t> fLatency { 0 };
+    std::atomic<bool> fParallel { true };
+    std::unique_ptr<ParallelWorker> fWorker; // started when a chain first needs it
 
     // audio thread side
     Graph* fActive = nullptr;
@@ -129,14 +167,22 @@ private:
     float fGlobalBypassMix = 0.0f;
     double fTempo = 120.0;
     uint32_t fCcCount = 0;
+    float fTunerMuteMix = 0.0f; // 1 = guitar muted by the tuner
+    bool fTunerOn = false;
     std::array<SlotState, kMaxBlocks> fSlots {};
 
     Smoother fInputGain, fOutputGain;
+    Smoother fMergeGain[2][2]; // [branch][channel]
+    uint32_t fJobChannels = 0, fJobFrames = 0; // branch B job, for the worker
     ToneStack fToneStack;
     Limiter fLimiter;
+    Tuner fTuner;
+    Metronome fMetronome;
     Meter fInMeters[2], fOutMeters[2];
 
     std::vector<float> fWork[2], fDry[2], fScratch[2];
+    std::vector<float> fBranch[2], fBranchScratch[2]; // branch B of a split
+    std::vector<float> fClick;
 };
 
 } // namespace namsayin

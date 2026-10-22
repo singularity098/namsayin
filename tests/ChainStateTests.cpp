@@ -101,3 +101,112 @@ TEST_CASE("MIDI mappings and the preset name round-trip and validate")
     chain.midi.push_back({ 0, 1, kParamOutPeakL });
     CHECK_FALSE(chain.validate(testing::testRegistry()));
 }
+
+namespace {
+
+ChainState chainOf(int count)
+{
+    ChainState chain;
+    for (int i = 0; i < count; ++i)
+        chain.blocks.push_back({ "test.gain", i });
+    return chain;
+}
+
+std::vector<int> slots(const ChainState& chain, Section section)
+{
+    std::vector<int> result;
+    for (int index : chain.sectionIndices(section))
+        result.push_back(chain.blocks[index].slot);
+    return result;
+}
+
+} // namespace
+
+TEST_CASE("a split round-trips through JSON, and version 1 chains still load")
+{
+    ChainState chain = chainOf(4);
+    chain.addSplit(1, 3);
+    chain.blocks[2].branch = kBranchB;
+    const std::optional<ChainState> parsed = ChainState::fromJson(chain.toJson());
+    REQUIRE(parsed);
+    CHECK(*parsed == chain);
+    CHECK(parsed->validate(testing::testRegistry()));
+
+    const std::optional<ChainState> v1 =
+        ChainState::fromJson(R"({"version": 1, "blocks": [{"type": "test.gain", "slot": 0}]})");
+    REQUIRE(v1);
+    CHECK(v1->blocks.size() == 1);
+    CHECK_FALSE(v1->split);
+}
+
+TEST_CASE("split validation")
+{
+    const BlockRegistry& registry = testing::testRegistry();
+    ChainState chain = chainOf(3);
+    chain.split = SplitState { 1, 4 };
+    CHECK_FALSE(chain.validate(registry));
+    chain.split = SplitState { 2, 1 };
+    CHECK_FALSE(chain.validate(registry));
+    chain.split = SplitState { 1, 2 };
+    CHECK(chain.validate(registry));
+    chain.blocks[0].branch = kBranchB; // outside the split
+    CHECK_FALSE(chain.validate(registry));
+    chain.blocks[0].branch = kBranchA;
+    chain.blocks[1].branch = 2;
+    CHECK_FALSE(chain.validate(registry));
+}
+
+TEST_CASE("sections of a chain with and without a split")
+{
+    ChainState chain = chainOf(5);
+    CHECK(slots(chain, Section::Pre) == std::vector<int> { 0, 1, 2, 3, 4 });
+    CHECK(slots(chain, Section::A).empty());
+
+    chain.addSplit(1, 4);
+    chain.blocks[2].branch = kBranchB;
+    CHECK(slots(chain, Section::Pre) == std::vector<int> { 0 });
+    CHECK(slots(chain, Section::A) == std::vector<int> { 1, 3 });
+    CHECK(slots(chain, Section::B) == std::vector<int> { 2 });
+    CHECK(slots(chain, Section::Post) == std::vector<int> { 4 });
+}
+
+TEST_CASE("inserting, removing and moving blocks keeps the split consistent")
+{
+    ChainState chain = chainOf(2);
+    chain.addSplit(1, 1); // empty branches between slot 0 and slot 1
+
+    chain.insert(Section::B, 0, { "test.gain", 10 });
+    chain.insert(Section::A, 0, { "test.gain", 11 });
+    chain.insert(Section::A, 99, { "test.gain", 12 });
+    chain.insert(Section::Pre, 0, { "test.gain", 13 });
+    chain.insert(Section::Post, 99, { "test.gain", 14 });
+    CHECK(chain.validate(testing::testRegistry()));
+    CHECK(slots(chain, Section::Pre) == std::vector<int> { 13, 0 });
+    CHECK(slots(chain, Section::A) == std::vector<int> { 11, 12 });
+    CHECK(slots(chain, Section::B) == std::vector<int> { 10 });
+    CHECK(slots(chain, Section::Post) == std::vector<int> { 1, 14 });
+
+    // move the Pre block 0 to the end of branch B, then branch A's first block to after the merge
+    chain.move(1, Section::B, 1);
+    CHECK(slots(chain, Section::Pre) == std::vector<int> { 13 });
+    CHECK(slots(chain, Section::B) == std::vector<int> { 10, 0 });
+    chain.move(chain.sectionIndices(Section::A)[0], Section::Post, 0);
+    CHECK(slots(chain, Section::A) == std::vector<int> { 12 });
+    CHECK(slots(chain, Section::Post) == std::vector<int> { 11, 1, 14 });
+
+    // moving within a section, to a later position
+    chain.move(chain.sectionIndices(Section::Post)[0], Section::Post, 3);
+    CHECK(slots(chain, Section::Post) == std::vector<int> { 1, 14, 11 });
+
+    const BlockState removed = chain.remove(chain.sectionIndices(Section::B)[0]);
+    CHECK(removed.slot == 10);
+    CHECK(removed.branch == kBranchA);
+    CHECK(slots(chain, Section::B) == std::vector<int> { 0 });
+    CHECK(chain.validate(testing::testRegistry()));
+
+    // removing the split makes the branches serial: A then B
+    chain.removeSplit();
+    CHECK_FALSE(chain.split);
+    CHECK(slots(chain, Section::Pre) == std::vector<int> { 13, 12, 0, 1, 14, 11 });
+    CHECK(chain.validate(testing::testRegistry()));
+}
