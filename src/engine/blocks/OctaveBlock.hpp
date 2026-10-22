@@ -8,7 +8,8 @@
 namespace namsayin {
 
 // Analog-style octaver (like an OC-2): flip-flops divide the played note by two and four, switching the signal's
-// polarity at its zero crossings, so the octaves down keep the guitar's dynamics with zero latency. Octave up is a
+// polarity at its zero crossings, so the octaves down keep the guitar's dynamics with zero latency. The detector's
+// low-pass follows the played note (dsp/PitchTracker.hpp), which keeps harmonics from upsetting the division. Octave up is a
 // full-wave rectifier. Single notes only; chords confuse it, as they do the original. No config.
 extern const BlockDescriptor kOctaveBlockDescriptor;
 
@@ -18,7 +19,7 @@ enum OctaveParam {
     kOctParamUp,       // %, one octave up
     kOctParamDry,      // %
     kOctParamTone,     // Hz, low-pass on the octaves
-    kOctParamTracking, // Hz, the low-pass before the detector: lower tracks low notes more reliably
+    kOctParamTracking, // Hz, the detector's low-pass until the note is known (then it follows the note)
     kOctParamCount
 };
 

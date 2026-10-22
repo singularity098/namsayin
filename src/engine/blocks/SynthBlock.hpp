@@ -8,9 +8,9 @@
 namespace namsayin {
 
 // Guitar synth: a monophonic oscillator that follows the played note, through a resonant low-pass whose cutoff
-// rises with the playing (Env), with the guitar's own dynamics on the amplitude. The pitch comes from the time
-// between zero crossings of the filtered guitar, so it follows within about one cycle and adds no latency; play
-// single notes (chords confuse it, as with any analog guitar synth). Waves: square, saw, pulse, and sub (saw plus a
+// rises with the playing (Env), with the guitar's own dynamics on the amplitude. The pitch comes from
+// dsp/PitchTracker.hpp (YIN): a new note is found within about 4-24 ms and no latency is added; play single notes
+// (chords confuse it, as with any guitar synth). Waves: square, saw, pulse, and sub (saw plus a
 // square an octave down). No config.
 extern const BlockDescriptor kSynthBlockDescriptor;
 

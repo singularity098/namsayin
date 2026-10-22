@@ -27,8 +27,10 @@
 #include "engine/blocks/TremoloBlock.hpp"
 #include "engine/blocks/VolumeBlocks.hpp"
 #include "engine/blocks/WahBlocks.hpp"
+#include "engine/dsp/PitchTracker.hpp"
 
 #include <cmath>
+#include <random>
 #include <vector>
 
 using namespace namsayin;
@@ -860,4 +862,79 @@ TEST_CASE("poly octave shifts chords cleanly too")
         }
     }
     CHECK(near / (total * total) > 0.9);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Pitch tracking on plucked strings
+
+namespace {
+
+// A Karplus-Strong pluck (picked at a fifth of the string). Its true pitch is rate / (length + 0.5).
+std::vector<float> pluck(double nominalHz, size_t length, uint32_t seed, double* trueHz)
+{
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<float> noise(-1.0f, 1.0f);
+    const auto period = static_cast<size_t>(std::lround(kRate / nominalHz));
+    *trueHz = kRate / (static_cast<double>(period) + 0.5);
+    std::vector<float> string(period);
+    for (float& v : string)
+        v = noise(rng);
+    const size_t pick = period / 5;
+    std::vector<float> picked(period);
+    for (size_t i = 0; i < period; ++i)
+        picked[i] = string[i] - string[(i + period - pick) % period];
+    std::vector<float> out(length);
+    size_t p = 0;
+    float previous = 0.0f;
+    for (size_t i = 0; i < length; ++i)
+    {
+        const float v = picked[p];
+        picked[p] = 0.996f * 0.5f * (v + previous);
+        previous = v;
+        p = (p + 1) % period;
+        out[i] = 0.3f * v;
+    }
+    return out;
+}
+
+} // namespace
+
+TEST_CASE("pitch tracker follows plucked strings to a fraction of a cent")
+{
+    for (const double nominal : { 82.41, 110.0, 146.83, 196.0, 246.94, 329.63, 659.26 })
+    {
+        double hz = 0.0;
+        const auto x = pluck(nominal, 48000, static_cast<uint32_t>(nominal), &hz);
+        CAPTURE(hz);
+        PitchTracker tracker;
+        tracker.prepare(kRate);
+        int found = -1;
+        double worst = 0.0;
+        for (size_t i = 0; i < x.size(); ++i)
+        {
+            tracker.process(x[i]);
+            const double cents = tracker.hz() > 0.0 ? 1200.0 * std::log2(tracker.hz() / hz) : 1e9;
+            if (found < 0 && std::fabs(cents) < 10.0)
+                found = static_cast<int>(i);
+            if (i > 4800 && tracker.sounding())
+                worst = std::max(worst, std::fabs(cents));
+        }
+        CHECK(found >= 0);
+        CHECK(found < 1500); // within about 30 ms
+        CHECK(worst < 1.0);
+    }
+}
+
+TEST_CASE("synth plays the plucked note")
+{
+    double hz = 0.0;
+    auto x = std::vector<std::vector<float>>(1, pluck(110.0, 24000, 3, &hz));
+    auto block = make(kSynthBlockDescriptor);
+    block->setParam(kSynthParamWave, static_cast<float>(SynthWave::Square));
+    block->setParam(kSynthParamCutoff, 8000.0f);
+    block->setParam(kSynthParamResonance, 0.7f);
+    testing::runBlock(*block, x);
+    const double fundamental = toneAt(x[0], hz, 4800, 14400);
+    CHECK(fundamental > 3.0 * toneAt(x[0], 2.0 * hz, 4800, 14400));
+    CHECK(toneAt(x[0], 3.0 * hz, 4800, 14400) > 0.2 * fundamental); // a square's third harmonic
 }

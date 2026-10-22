@@ -4,6 +4,7 @@
 #include "engine/blocks/OctaveBlock.hpp"
 
 #include "engine/dsp/Biquad.hpp"
+#include "engine/dsp/PitchTracker.hpp"
 #include "engine/dsp/Smoother.hpp"
 #include "engine/dsp/Svf.hpp"
 
@@ -33,6 +34,7 @@ public:
         for (Smoother* s : { &fSub1, &fSub2, &fUp, &fDry })
             s->prepare(sampleRate);
         fGate.prepare(sampleRate, 0.01);
+        fTracker.prepare(sampleRate);
         updateFilters();
         reset();
     }
@@ -71,7 +73,11 @@ public:
             float in = io[0][i];
             if (numChannels > 1)
                 in = 0.5f * (in + io[1][i]);
-            const float tracked = fTrack[1].process(fTrack[0].process(in));
+            // once the note is known, the detector's low-pass sits just above it, so harmonics (often stronger than
+            // the fundamental on a plucked string) can't add zero crossings
+            if (fTracker.process(in))
+                setTrackLowPass(1.3 * fTracker.hz());
+            const float tracked = fTrack[2].process(fTrack[1].process(fTrack[0].process(in)));
             const float env = fEnvelope.process(tracked);
 
             // arm on a swing past +hysteresis, toggle at the next downward zero crossing: the polarity switches
@@ -104,11 +110,12 @@ public:
 
     void reset() override
     {
-        for (int k = 0; k < 2; ++k)
-        {
-            fTrack[k].reset();
-            fToneFilter[k].reset();
-        }
+        for (Biquad& filter : fTrack)
+            filter.reset();
+        for (Biquad& filter : fToneFilter)
+            filter.reset();
+        fTracker.reset();
+        setTrackLowPass(fTracking);
         fUpHighPass.reset();
         fEnvelope.reset();
         fArmed = false;
@@ -123,7 +130,7 @@ private:
     {
         const double nyquistSafe = 0.45 * fSampleRate;
         fTrack[0].setHighPass(fSampleRate, 50.0);
-        fTrack[1].setLowPass(fSampleRate, std::min<double>(fTracking, nyquistSafe));
+        setTrackLowPass(fTracking);
         fToneFilter[0].setLowPass(fSampleRate, std::min<double>(fTone, nyquistSafe));
         fToneFilter[1].setLowPass(fSampleRate, std::min<double>(fTone, nyquistSafe));
         fUpHighPass.setLowPass(fSampleRate, 40.0);
@@ -131,10 +138,19 @@ private:
         fEnvelope.prepare(fSampleRate, 1.0, 60.0);
     }
 
+    // the detector's low-pass: two sections (fourth order)
+    void setTrackLowPass(double hz)
+    {
+        const double f = std::clamp(hz, 60.0, 0.45 * fSampleRate);
+        fTrack[1].setLowPass(fSampleRate, f);
+        fTrack[2].setLowPass(fSampleRate, f);
+    }
+
     double fSampleRate = 48000.0;
     float fTone = 1500.0f;
     float fTracking = 700.0f;
-    Biquad fTrack[2], fToneFilter[2];
+    Biquad fTrack[3], fToneFilter[2];
+    PitchTracker fTracker;
     OnePole fUpHighPass;
     EnvelopeFollower fEnvelope;
     Smoother fSub1, fSub2, fUp, fDry, fGate;
