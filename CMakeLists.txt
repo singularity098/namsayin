@@ -153,6 +153,7 @@ dpf_add_plugin(namsayin
   FILES_DSP
     src/plugin/NAMsayinPlugin.cpp
   FILES_UI
+    src/ui/BackgroundImage.cpp
     src/ui/BlockImages.cpp
     src/ui/FolderPicker.cpp
     src/ui/FontData.cpp

@@ -3,7 +3,7 @@
 - The plugin is ultra-light, fast, and snappy
 - Zero latency by default: latency (plugin delay compensation, PDC) is only introduced by blocks that require it, and is reported to the host
 - Natively runs on Linux and Windows, x86-64 only, and requires a CPU with AVX2/FMA (macOS and ARM are not supported for now)
-- Beautiful interface with a very dark theme, drawn with NanoVG: the window background is pure black, and boxes (bars, panels, tiles, buttons, dialogs) are black inside with an ultra-thin gray outline (no gradient). Font: Jost Light. Knobs: a black body with a hairline edge, a scale of ticks lit up to the value, and a dot marking the position (owner's choice from drafted options, 2026-10-22)
+- Beautiful interface with a very dark theme, drawn with NanoVG: the window background is the owner's dark wood image (shown only behind the panels; 2026-10-22), and boxes (bars, panels, tiles, buttons, dialogs) are black inside with an ultra-thin gray outline (no gradient). Font: Jost Light. Knobs: a black body with a hairline edge, a scale of ticks lit up to the value, and a dot marking the position (owner's choice from drafted options, 2026-10-22)
     - The highlight colour is configurable in Settings; blue by default (owner's choice, 2026-10-22; was purple)
 - The interface can be resized and scales for high DPI displays
 - Free, open source software under the MIT license

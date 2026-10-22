@@ -4,6 +4,7 @@
 #include "DistrhoUI.hpp"
 #include "src/nanovg/nanovg.h" // DPF's NanoVG class has no fallback-font call
 
+#include "BackgroundImage.hpp"
 #include "BlockImages.hpp"
 #include "FontData.hpp"
 #include "FolderPicker.hpp"
@@ -616,7 +617,7 @@ protected:
         this->scale(scale, scale);
         fontSize(14.0f);
 
-        fillRect(0, 0, fWidth, fHeight, theme::background);
+        drawBackground();
         drawTopBar();
         if (fMetroPanel)
         {
@@ -2119,6 +2120,27 @@ private:
                 return img;
         }
         return builtinImage(block.typeId);
+    }
+
+    // The window background behind the panels: the owner's image, scaled to cover the window and centred
+    void drawBackground()
+    {
+        fillRect(0, 0, fWidth, fHeight, theme::background);
+        if (!fBackgroundTried)
+        {
+            fBackgroundTried = true;
+            fBackground = createImageFromMemory(kBackgroundImage, kBackgroundImageSize, IMAGE_GENERATE_MIPMAPS);
+        }
+        const Size<uint> size = fBackground.getSize();
+        if (!fBackground.isValid() || size.getWidth() == 0 || size.getHeight() == 0)
+            return;
+        const float scale = std::max(fWidth / size.getWidth(), fHeight / size.getHeight());
+        const float w = size.getWidth() * scale, h = size.getHeight() * scale;
+        const float x = (fWidth - w) / 2, y = (fHeight - h) / 2;
+        beginPath();
+        rect(0, 0, fWidth, fHeight);
+        fillPaint(imagePattern(x, y, w, h, 0.0f, fBackground, 1.0f));
+        fill();
     }
 
     // A block type's built-in image (resources/blocks/), if it has one
@@ -4589,6 +4611,8 @@ private:
     float fLearnCcCount = 0.0f;
     std::string fToast;
     std::chrono::steady_clock::time_point fToastAt;
+    NanoImage fBackground;
+    bool fBackgroundTried = false;
     FontId fUiFont = -1;      // Jost Light
     FontId fUiFontSmall = -1; // Jost Regular, for small text
     FontId fUiFontBold = -1;  // Jost Bold, for the logo
