@@ -26,15 +26,24 @@ constexpr int kLastNote = 88;  // E6, the top of a 24-fret guitar
 constexpr int kBands = kLastNote - kFirstNote + 1;
 constexpr int kMaxVoices = 6;
 // Each band is two band-passes in series. Q 8 each: a note a semitone away comes through about 5 dB down, which the
-// peak picking sorts out, while the low E still speaks within about 20 ms.
+// peak picking sorts out. Lower bands ring up slowly (the time scales with Q over the frequency), so the octave
+// below C3 widens to Q 5 at C2: notes a semitone apart aren't played down there anyway.
 constexpr double kStageQ = 8.0;
+constexpr double kLowStageQ = 5.0;
+constexpr int kWideBands = 12;
 constexpr float kFloor = 0.002f;    // band level a note needs (about -54 dBFS)
-constexpr float kRelative = 0.06f;  // ... and against the loudest band (-24 dB)
+constexpr float kRelative = 0.12f;  // ... and against the loudest band (-18 dB)
 constexpr float kHold = 1.4f;       // a playing note counts this much louder, so voices don't flicker
 constexpr float kGain = 5.0f;       // band level to voice amplitude
 constexpr float kVoiceLevel = 0.25f;
+// A new note that falls below this share of its peak while the Pick Filter holds it was the ring of the pick
+// attack, not a note: it starts waiting again
+constexpr float kPickDecay = 0.6f;
+constexpr double kFreqSmoothMs = 10.0; // the measured pitch (Quantize off)
 // Semitones from a note up to its 2nd..8th harmonics (the 7th, 33.7, rounds to 34)
 constexpr int kHarmonics[] = { 12, 19, 24, 28, 31, 34, 36 };
+const double kSemitoneUp = std::exp2(1.0 / 12.0);
+const double kSemitoneDown = 1.0 / kSemitoneUp;
 
 class PolyChipBlock : public Block {
 public:
@@ -45,15 +54,18 @@ public:
         fSampleRate = sampleRate;
         fMix.prepare(sampleRate);
         fHop = std::max(1, static_cast<int>(std::lround(sampleRate / 1500.0)));
+        fHopMs = 1000.0f * static_cast<float>(fHop / sampleRate);
         fAttackCoef = 1.0f - EnvelopeFollower::coef(sampleRate, 1.0);
+        fFreqCoef = 1.0 - EnvelopeFollower::coef(sampleRate, kFreqSmoothMs);
         updateRelease();
         for (int b = 0; b < kBands; ++b)
         {
             Band& band = fBands[b];
             const double hz = 440.0 * std::exp2((kFirstNote + b - 69) / 12.0);
             band.dt = hz / sampleRate;
+            const double wide = std::max(0.0, 1.0 - static_cast<double>(b) / kWideBands);
             for (Svf& stage : band.stages)
-                stage.set(sampleRate, hz, kStageQ);
+                stage.set(sampleRate, hz, kStageQ + (kLowStageQ - kStageQ) * wide);
         }
         reset();
     }
@@ -64,9 +76,10 @@ public:
         {
         case kPolyChipParamWave:    fWave = std::clamp(static_cast<int>(value), 0, 3); break;
         case kPolyChipParamVoices:  fVoices = std::clamp(static_cast<int>(value), 1, kMaxVoices); break;
-        // a lower peak at a harmonic's distance drops this one when it's louder than 1/ratio of it: from 1/16
-        // (only much louder notes) at 0% to 4 (harmonics 12 dB over their note) at 100%
-        case kPolyChipParamFocus:   fFocusRatio = std::exp2(6.0f * value / 100.0f - 4.0f); break;
+        // a lower peak at a harmonic's distance drops this one when it's louder than 1/ratio of it: from 1/8
+        // (only much louder notes) at 0% to 8 (harmonics 18 dB over their note) at 100%; a guitar's 2nd harmonic
+        // is often twice its note, more while the note's own band rings up
+        case kPolyChipParamFocus:   fFocusRatio = std::exp2(6.0f * value / 100.0f - 3.0f); break;
         case kPolyChipParamArp:     fArp = static_cast<PolyChipArp>(std::clamp(static_cast<int>(value), 0, 2)); break;
         case kPolyChipParamArpRate: fArpHz = value; break;
         case kPolyChipParamRelease:
@@ -76,6 +89,8 @@ public:
         case kPolyChipParamCrush:   fCrush = value / 100.0f; break;
         case kPolyChipParamOctave:  fOctaveRatio = std::exp2(std::clamp(static_cast<int>(value), 0, 3) - 2); break;
         case kPolyChipParamMix:     fMix.setTarget(value / 100.0f); break;
+        case kPolyChipParamQuantize: fQuantize = value >= 0.5f; break;
+        case kPolyChipParamPickFilter: fPickMs = value; break;
         }
     }
 
@@ -93,6 +108,8 @@ public:
             {
                 const float first = band.stages[0].process(mono).band * band.stages[0].k();
                 const Svf::Out out = band.stages[1].process(first);
+                if (band.sounding || band.amp > 0.0f)
+                    measurePitch(band, out);
                 band.bp = out.band;
                 band.lp = out.low;
             }
@@ -117,9 +134,11 @@ public:
         {
             for (Svf& stage : band.stages)
                 stage.reset();
-            band.bp = band.lp = band.level = band.amp = band.target = 0.0f;
+            band.bp = band.lp = band.level = band.amp = band.target = band.pending = 0.0f;
             band.phase = 0.0;
-            band.on = false;
+            band.measured = band.dt;
+            band.on = band.sounding = false;
+            band.waited = 0;
         }
         fSinceHop = 0;
         fPlaying = 0;
@@ -136,8 +155,26 @@ private:
         float level = 0.0f; // the band's amplitude, measured each hop
         float target = 0.0f, amp = 0.0f;
         double phase = 0.0;
-        bool on = false;   // one of the notes being played
+        double measured = 0.0; // the pitch in the band, as a phase step per sample (for Quantize off)
+        bool on = false;       // one of the notes found
+        bool sounding = false; // ... and past the Pick Filter
+        int waited = 0;        // hops it has been found while the Pick Filter holds it
+        float pending = 0.0f;  // its peak level meanwhile
     };
+
+    // The band's pitch from how fast its quarter-cycle pair turns. Away from the band's note the pair's sizes differ
+    // a little, so the turn rate ripples within each cycle; the smoothing evens that out.
+    void measurePitch(Band& band, const Svf::Out& out) const
+    {
+        const double cross = static_cast<double>(band.lp) * out.band - static_cast<double>(band.bp) * out.low;
+        const double dot = static_cast<double>(band.lp) * out.low + static_cast<double>(band.bp) * out.band;
+        if (cross == 0.0 && dot == 0.0)
+            return;
+        const double step = std::fabs(std::atan2(cross, dot)) / (2.0 * M_PI);
+        band.measured += (step - band.measured) * fFreqCoef;
+        // within a semitone of the band's own note (a stronger neighbour can pull it further)
+        band.measured = std::clamp(band.measured, band.dt * kSemitoneDown, band.dt * kSemitoneUp);
+    }
 
     // Every hop: measure the bands, find the notes and set each voice's target level
     void pickNotes()
@@ -194,15 +231,68 @@ private:
             band.on = false;
         for (int v = 0; v < count; ++v)
             fBands[chosen[v]].on = true;
-        for (Band& band : fBands)
-            band.target = band.on ? std::min(1.0f, band.level * kGain) : 0.0f;
-        if (count == 0 && fPlaying > 0)
+
+        // the Pick Filter: a new note sounds once it has lasted that long without dying away, so the brief ring of
+        // the pick attack in the higher bands (they speak faster than the note's own band) never sounds
+        int playing = 0;
+        for (int b = 0; b < kBands; ++b)
+        {
+            Band& band = fBands[b];
+            if (!band.on)
+            {
+                band.sounding = false;
+                band.waited = 0;
+                band.pending = 0.0f;
+            }
+            else if (!band.sounding)
+            {
+                band.pending = std::max(band.pending, band.level);
+                if (band.level < kPickDecay * band.pending)
+                {
+                    band.waited = 0;
+                    band.pending = band.level;
+                }
+                else if (static_cast<float>(++band.waited) * fHopMs >= fPickMs)
+                {
+                    band.sounding = true;
+                    takeOverVoice(b);
+                }
+            }
+            band.target = band.sounding ? std::min(1.0f, band.level * kGain) : 0.0f;
+            playing += band.sounding ? 1 : 0;
+        }
+        if (playing == 0 && fPlaying > 0)
         {
             // the next chord starts its arpeggio from the start
             fArpPhase = 0.0;
             fArpStep = 0;
         }
-        fPlaying = count;
+        fPlaying = playing;
+    }
+
+    // A note that starts next to one that is fading (a bend or slide into the next semitone) carries on that voice,
+    // its phase and level, instead of starting a second voice against it
+    void takeOverVoice(int b)
+    {
+        int from = -1;
+        for (int d = -2; d <= 2; ++d)
+        {
+            const int n = b + d;
+            if (d == 0 || n < 0 || n >= kBands || fBands[n].sounding || fBands[n].amp <= 0.0f)
+                continue;
+            if (from < 0 || fBands[n].amp > fBands[from].amp)
+                from = n;
+        }
+        if (from < 0)
+            return;
+        Band& band = fBands[b];
+        Band& old = fBands[from];
+        band.phase = old.phase;
+        band.amp = old.amp;
+        band.measured = std::clamp(old.measured, band.dt * kSemitoneDown, band.dt * kSemitoneUp);
+        old.amp = 0.0f;
+        old.phase = 0.0;
+        old.measured = old.dt;
     }
 
     // The band the arpeggio is on, or -1 when every playing note sounds
@@ -214,7 +304,7 @@ private:
         if (fArp == PolyChipArp::Down)
             index = fPlaying - 1 - index;
         for (int b = 0; b < kBands; ++b)
-            if (fBands[b].on && index-- == 0)
+            if (fBands[b].sounding && index-- == 0)
                 return b;
         return -1;
     }
@@ -230,15 +320,16 @@ private:
             if (target == 0.0f && band.amp == 0.0f)
                 continue;
             // notes the arpeggio has moved off stop at once, like the console switching notes
-            const bool fast = target > band.amp || (arp >= 0 && band.on);
+            const bool fast = target > band.amp || (arp >= 0 && band.sounding);
             band.amp += (target - band.amp) * (fast ? fAttackCoef : fReleaseCoef);
             if (target == 0.0f && band.amp < 1e-5f)
             {
                 band.amp = 0.0f;
                 band.phase = 0.0;
+                band.measured = band.dt;
                 continue;
             }
-            const double dt = band.dt * fOctaveRatio;
+            const double dt = (fQuantize ? band.dt : band.measured) * fOctaveRatio;
             if (dt >= 0.45)
                 continue;
             advancePhase(band.phase, dt);
@@ -277,10 +368,14 @@ private:
     float fReleaseMs = 40.0f;
     float fCrush = 0.3f;
     double fOctaveRatio = 1.0;
+    bool fQuantize = true;
+    float fPickMs = 15.0f;
 
     std::array<Band, kBands> fBands;
     Smoother fMix;
     int fHop = 32, fSinceHop = 0;
+    float fHopMs = 0.67f;
+    double fFreqCoef = 1.0;
     int fPlaying = 0;
     double fArpPhase = 0.0;
     int fArpStep = 0;
@@ -305,6 +400,8 @@ const BlockDescriptor kPolyChipBlockDescriptor = {
         ParamSpec { "Crush", "%", 0.0f, 100.0f, 30.0f, ParamScale::Linear },
         ParamSpec { "Octave", "", 0.0f, 3.0f, 2.0f, ParamScale::Choice, kOctaveNames },
         ParamSpec { "Mix", "%", 0.0f, 100.0f, 100.0f, ParamScale::Linear },
+        ParamSpec { "Quantize", "", 0.0f, 1.0f, 1.0f, ParamScale::Toggle },
+        ParamSpec { "Pick Filter", "ms", 0.0f, 60.0f, 15.0f, ParamScale::Linear },
     },
     [] { return std::unique_ptr<Block>(new PolyChipBlock()); },
 };

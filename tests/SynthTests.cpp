@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -381,4 +382,131 @@ TEST_CASE("poly chip falls silent after the chord")
     testing::runBlock(*block, x);
     CHECK(testing::rms(x[0], 12000, 24000) > 0.05);
     CHECK(testing::rms(x[0], 24000 + ms(400), 48000) < 1e-4);
+}
+
+namespace {
+
+// A plucked string as a magnetic pickup hears it (Karplus-Strong from a pick-shaped start, read as velocity), with
+// a 2 ms noise click for the pick itself
+std::vector<std::vector<float>> pickedString(double hz, size_t length)
+{
+    std::mt19937 rng(static_cast<uint32_t>(hz));
+    std::uniform_real_distribution<float> noise(-1.0f, 1.0f);
+    const auto period = static_cast<size_t>(std::lround(kRate / hz));
+    std::vector<float> string(period);
+    const double pick = 0.2 * static_cast<double>(period);
+    double mean = 0.0;
+    for (size_t i = 0; i < period; ++i)
+    {
+        const double p = static_cast<double>(i);
+        string[i] = static_cast<float>(p < pick ? p / pick : (static_cast<double>(period) - p) / (static_cast<double>(period) - pick));
+        mean += string[i];
+    }
+    for (float& v : string)
+        v -= static_cast<float>(mean / static_cast<double>(period));
+    std::vector<std::vector<float>> x(1, std::vector<float>(length));
+    size_t q = 0;
+    float previous = 0.0f, last = 0.0f;
+    for (size_t i = 0; i < length; ++i)
+    {
+        const float v = string[q];
+        string[q] = 0.997f * 0.5f * (v + previous);
+        previous = v;
+        q = (q + 1) % period;
+        const float velocity = (v - last) * static_cast<float>(period) / 8.0f;
+        last = v;
+        x[0][i] = 0.3f * velocity + (i < 96 ? 0.2f * noise(rng) * (1.0f - static_cast<float>(i) / 96.0f) : 0.0f);
+    }
+    return x;
+}
+
+// The loudest tone at a semitone above `midi` that a square on it doesn't have (its odd harmonics), leaving out
+// frequencies the window can't tell from the note's own
+double strayNotes(const std::vector<float>& x, int midi, size_t from, size_t to)
+{
+    const double resolution = 3.0 * kRate / static_cast<double>(to - from);
+    double stray = 0.0;
+    for (int m = midi + 1; m <= 88; ++m)
+    {
+        const double hz = semitone(m);
+        bool own = false;
+        for (int h = 1; h <= 25; h += 2)
+            own |= std::fabs(hz - h * semitone(midi)) < resolution;
+        if (!own)
+            stray = std::max(stray, toneAt(x, hz, from, to));
+    }
+    return stray;
+}
+
+} // namespace
+
+TEST_CASE("poly chip pick filter keeps the pick attack from sounding as high notes")
+{
+    for (const int midi : { 40, 50, 55, 64 })
+    {
+        CAPTURE(midi);
+        const double hz = semitone(midi);
+        // the attack: the first 150 ms
+        auto raw = polyChip();
+        raw->setParam(kPolyChipParamPickFilter, 0.0f);
+        auto x = pickedString(hz, 48000);
+        testing::runBlock(*raw, x);
+        const double unfiltered = strayNotes(x[0], midi, 0, ms(150));
+
+        auto filtered = polyChip(); // the default Pick Filter
+        auto y = pickedString(hz, 48000);
+        testing::runBlock(*filtered, y);
+        const double clean = strayNotes(y[0], midi, 0, ms(150));
+        CAPTURE(unfiltered);
+        CAPTURE(clean);
+        CHECK(clean < 0.01); // the analysis window's own floor around the note
+        CHECK(unfiltered > 3.0 * clean);
+        // and the note itself still plays
+        CHECK(toneAt(y[0], hz, ms(200), ms(700)) > 0.05);
+    }
+}
+
+TEST_CASE("poly chip with quantize off plays the pitch you play")
+{
+    const double sharp = 440.0 * std::exp2(0.4 / 12.0); // 40 cents sharp
+    for (const bool quantize : { true, false })
+    {
+        CAPTURE(quantize);
+        auto block = polyChip();
+        block->setParam(kPolyChipParamQuantize, quantize ? 1.0f : 0.0f);
+        auto x = note(sharp, 48000);
+        testing::runBlock(*block, x);
+        const double atNote = toneAt(x[0], 440.0, 24000, 48000);
+        const double atPlayed = toneAt(x[0], sharp, 24000, 48000);
+        if (quantize)
+            CHECK(atNote > 4.0 * atPlayed);
+        else
+            CHECK(atPlayed > 4.0 * atNote);
+    }
+}
+
+TEST_CASE("poly chip bends smoothly across semitones with quantize off")
+{
+    // a sine bending up two semitones over a second: the voice moves from band to band without dropping out
+    auto block = polyChip();
+    block->setParam(kPolyChipParamQuantize, 0.0f);
+    std::vector<std::vector<float>> x(1, std::vector<float>(ms(1500)));
+    double phase = 0.0;
+    for (size_t i = 0; i < x[0].size(); ++i)
+    {
+        const double t = static_cast<double>(i) / kRate;
+        const double bend = std::clamp(t - 0.25, 0.0, 1.0) * 2.0;
+        phase += 220.0 * std::exp2(bend / 12.0) / kRate;
+        x[0][i] = static_cast<float>(0.2 * std::sin(2.0 * M_PI * phase));
+    }
+    testing::runBlock(*block, x);
+    const double held = testing::rms(x[0], ms(100), ms(250));
+    double lowest = held;
+    for (size_t from = ms(250); from + ms(20) <= ms(1250); from += ms(10))
+        lowest = std::min(lowest, testing::rms(x[0], from, from + ms(20)));
+    CHECK(held > 0.05);
+    CHECK(lowest > 0.6 * held);
+    // and it ends on the bent note
+    const double target = 220.0 * std::exp2(2.0 / 12.0);
+    CHECK(toneAt(x[0], target, ms(1300), ms(1500)) > 4.0 * toneAt(x[0], 220.0 * std::exp2(1.0 / 12.0), ms(1300), ms(1500)));
 }

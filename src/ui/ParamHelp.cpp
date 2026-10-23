@@ -1266,6 +1266,13 @@ constexpr BlockHelp kBlockHelp[] = {
       "clean." },
     { "polychip", "Octave", SYNTH_OCTAVE_HELP },
     { "polychip", "Mix", SYNTH_MIX_HELP },
+    { "polychip", "Quantize",
+      "Snaps every note to the nearest semitone, as a game console plays them, so bends jump in steps. Turn it off "
+      "to follow your bends, slides and vibrato smoothly at the pitch you play." },
+    { "polychip", "Pick Filter",
+      "Keeps the click of your pick from turning into short, squeaky high notes. A new note has to last this long "
+      "before it sounds. Raise it if you hear chirps at the start of notes; lower it for a faster response. Around "
+      "10-20 ms suits most playing; 0 is off." },
 };
 
 #undef MIX_HELP
