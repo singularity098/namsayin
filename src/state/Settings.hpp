@@ -22,6 +22,9 @@ struct Settings {
     bool normalize = true;       // default normalization for new NAM and IR blocks
     bool parallel = true;        // run split branch B on a second core
     int accent = 1;              // index into the UI's accent colours (1: blue)
+    static constexpr int kBlockArtPanel = 0; // dark enclosures with a coloured glyph panel
+    static constexpr int kBlockArtNeon = 1;  // black enclosures outlined in glowing lines
+    int blockArt = kBlockArtPanel; // look of the drawn art for blocks without an image
     std::set<std::string> favorites; // content hashes (XXH3-128, hex)
     bool embedFiles = true;      // exported presets carry the files they use (saved ones never do)
     std::string defaultPreset;   // loaded into new plugin instances; empty for none

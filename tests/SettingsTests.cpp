@@ -20,6 +20,7 @@ TEST_CASE("settings round-trip through JSON and a file")
     settings.normalize = false;
     settings.parallel = false;
     settings.accent = 3;
+    settings.blockArt = Settings::kBlockArtNeon;
     settings.favorites = { "00112233445566778899aabbccddeeff", "ffeeddccbbaa99887766554433221100" };
     settings.embedFiles = false;
     settings.recentPresets = { "/a.namsayin", "/b.namsayin" };
@@ -44,6 +45,7 @@ TEST_CASE("settings fall back to defaults for missing or broken values")
     CHECK(partial.namDir == "/nam");
     CHECK(partial.a2Lite);
     CHECK(partial.accent == 1); // wrong type: default (blue)
+    CHECK(partial.blockArt == Settings::kBlockArtPanel);
     CHECK(partial.normalize);
 }
 
