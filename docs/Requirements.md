@@ -45,7 +45,7 @@
     - The merge has controls for A/B balance, level, pan and phase invert per branch
     - The two branches are time-aligned at the merge if their latencies differ
 - The blocks in the signal chain are square shaped, and we will use provided images (later possibly as small thumbnails on the tiles)
-- The panel below the chain shows the selected block: a large, high-quality image of the pedal/amp/cab on the left of the panel, and the block's generic knobs right-justified next to it. Until real images exist, a drawn placeholder (pedal, amp head or cab) is shown, in the "Neon" style (black enclosure outlined in glowing lines of the category colour, with a glyph of the effect; owner's pick from six mockups; the second style, "Panel", was removed at the owner's request, 2026-10-23) Later the generic knobs may be removed so knobs are turned on the image itself (needs images prepared by the owner first)
+- The panel below the chain shows the selected block: a large, high-quality image of the pedal/amp/cab on the left of the panel, and the block's generic knobs right-justified next to it. Until real images exist, a drawn placeholder (pedal, amp head or cab) is shown, in the "Neon" style (black enclosure outlined in glowing lines of the category colour, with a symbol on its face that is unique to each pedal and drawn from its name and purpose (owner's request, 2026-10-23; the Doubler's photo was removed so every block has the same neon look); owner's pick from six mockups; the second style, "Panel", was removed at the owner's request, 2026-10-23) Later the generic knobs may be removed so knobs are turned on the image itself (needs images prepared by the owner first)
 - A local NAM file or IR uses an image sidecar file with the same name (e.g. `My Amp.nam` → `My Amp.png`). When there is no sidecar image, we will use a generic image. In the beginning, we can use a very crude mockup and I will provide higher quality images later
     - Sidecar images can be 8-bit PNG or JPEG (16-bit PNG isn't supported by the UI's image decoder)
 - Blocks can be easily reordered by dragging and dropping. They can also be temporarily disabled/bypassed, or removed
@@ -54,13 +54,10 @@
 - MIDI control and DAW automation:
     - Each block occupies a fixed slot with a fixed set of host parameters, so every block parameter can be automated by the DAW and controlled by MIDI (MIDI learn)
     - A block keeps its slot when it is reordered, so automation and MIDI mappings follow the block, not its position
-- Has completely optional Tone3000.com integration for NAM, following closely all of Tone3000's API guidelines
+- ~~Has completely optional Tone3000.com integration for NAM~~ Dropped, with its three Add Block categories (owner's decision, 2026-10-23)
 - To add a new block, the user will click on a "+" box in the signal chain and it will bring up an Add Block dialog which has categories which can be selected on the left-hand side, and then the user selects:
-    - Tone3000 Amp Head
-    - Tone3000 Amp + Cab
-    - Tone3000 Cab
-    - Local NAM
-    - Local IR
+    - NAM (was "Local NAM"; renamed by the owner, 2026-10-23)
+    - IR (was "Local IR")
     - Distortion
     - Dynamics
     - EQ
@@ -71,7 +68,6 @@
     - Filter
     - Wah
     - A search box at the top of the dialog searches every category at once (built-in blocks, NAM models and IRs); search boxes have an × to clear them (owner's request, 2026-10-22)
-- There is also a button to load a Tone3000 NAM from the clipboard when adding a block
 - A menu is present at the top of the application to save and load presets
     - Saving keeps presets in the plugin's own preset folder (subfolders allowed), named in an in-app dialog rather than the system save dialog, and without embedded files (owner's decision, 2026-10-22)
     - Export writes a copy anywhere with the system save dialog; exported presets can embed everything they use (NAM files, IRs, images), so they can be shared
@@ -94,7 +90,7 @@
 - Doppelganger Delay block (the owner's idea): echoes alternate between a thick flanger (odd echoes) and a thick chorus (even echoes), each echo with only its own effect; all parameters configurable. Blocks have up to 16 parameters.
 - Reverb block (room, hall and plate types)
 - Compressor block (studio style: threshold, ratio, attack, release, knee, makeup, mix, with a gain-reduction meter), added to M3 at the owner's request
-- Everything else in this document (Tone3000 integration, IR loader, other effect categories, etc.) follows in later versions, but the architecture must allow for it
+- Everything else in this document (IR loader, other effect categories, etc.) follows in later versions, but the architecture must allow for it
 
 ### Pedals (owner's decision, 2026-10-22)
 v1 is not rushed: before the v1 release, build a wide set of built-in pedals, from scratch, with several varieties each (a Type choice per block where it makes sense). The easy ones come first; the hard ones (polyphonic pitch, synth) only if time allows.
@@ -105,6 +101,7 @@ v1 is not rushed: before the v1 release, build a wide set of built-in pedals, fr
 - Second set (owner's choice from Claude's suggestions, 2026-10-22): reverse delay, envelope-controlled drive, warble (Mood / Warped Vinyl style), gated fuzz (Fuzz Factory style), bloom reverb, pitch-shifting delay, arpeggiator, slicer (step volume pattern), barber-pole phaser, talk box; plus kill switch / stutter, infinite sustain (sustainer), glitch / beat repeat, gated reverb, detune (micro-pitch), capo / drop tuner, guitar-to-organ, sample-and-hold "robot" filter. Status: all built (Architecture 4.11)
 - More synths (owner's request, 2026-10-22: "other similar synth pedals which have unique sounds", after liking the Synth): Super Saw, FM Synth, Fold Synth (west coast), Acid Synth (303 style), String Machine, Chip Synth (8-bit). Status: all built (Architecture 4.11)
 - Poly Chip (owner's request, 2026-10-23: a polyphonic chip synth): a new block next to the Chip Synth, not a mode of it, so the mono synth keeps its fast tracking. A semitone filter bank finds the notes (chords work); Voices, Focus (drops the strings' harmonics) and an Arp over the held chord. Status: built (Architecture 4.11). Then (owner, 2026-10-23): a Quantize on/off switch, and a Pick Filter knob against squeaks from the pick attack. Status: built
+- Pick Filter on every synth (owner's request, 2026-10-23, after liking the Poly Chip's): Synth, Super Saw, FM Synth, Fold Synth, Acid Synth, String Machine and Chip Synth get a Pick Filter knob as their last control (0-60 ms, off by default so they sound as before). Status: built (Architecture 4.11)
 - Chain editing (owner, 2026-10-23): a small horizontal scroll bar for the signal path, middle-drag anywhere on it to scroll, Replace Block in a block's right-click menu, and an insert button in the gaps between blocks next to the split button. Status: built (Architecture 7, "Middle")
 - Modulation Sweeper (the owner's idea, 2026-10-23): the user picks two or three of chorus, flanger, phaser and vibrato, and the block sweeps back and forth between them at a set interval (free or tempo-synced), with a glide control for how smoothly it morphs. Status: built (Architecture 4.11)
 

@@ -5,6 +5,7 @@
 #include "src/nanovg/nanovg.h" // DPF's NanoVG class has no fallback-font call
 
 #include "BackgroundImage.hpp"
+#include "BlockGlyphs.hpp"
 #include "BlockImages.hpp"
 #include "FontData.hpp"
 #include "FolderPicker.hpp"
@@ -459,7 +460,7 @@ struct AddRow {
     const LibraryEntry* entry = nullptr;
 };
 
-// One built-in block type in the Add Block dialog. (Local NAM and Local IR show the library instead.)
+// One built-in block type in the Add Block dialog. (NAM and IR show the library instead.)
 struct AddItem {
     std::string label;
     const BlockDescriptor* type;
@@ -467,7 +468,7 @@ struct AddItem {
 
 bool isLibraryCategory(Category category)
 {
-    return category == Category::LocalNam || category == Category::LocalIr;
+    return category == Category::Nam || category == Category::Ir;
 }
 
 std::vector<AddItem> addItems(Category category)
@@ -885,7 +886,7 @@ protected:
             return true;
 
         case Hit::LibraryBrowse: {
-            const bool ir = fDialogCategory == Category::LocalIr;
+            const bool ir = fDialogCategory == Category::Ir;
             closeDialog();
             browse(BrowseTarget::AddBlock, ir ? "Add a cab IR (.wav)" : "Add a NAM model (.nam)",
                    ir ? fSettings.irDir : fSettings.namDir);
@@ -2986,106 +2987,12 @@ private:
         label(cx, cy + kKnobRadius + 38.0f, text, theme::text, 12.0f, ALIGN_CENTER | ALIGN_MIDDLE);
     }
 
-    // The category's glyph, in a 124x200 pedal frame (the glyph sits around x 28..96, y 80..116); `at` maps a point
-    // of that frame to the screen, the path is stroked by the caller
-    template <class At>
-    void blockGlyphPath(Category category, At at)
-    {
-        const auto move = [&](float gx, float gy) { const auto [px, py] = at(gx, gy); moveTo(px, py); };
-        const auto line = [&](float gx, float gy) { const auto [px, py] = at(gx, gy); lineTo(px, py); };
-        const auto curve = [&](float x1, float y1, float x2, float y2, float x3, float y3) {
-            const auto [ax, ay] = at(x1, y1);
-            const auto [bx, by] = at(x2, y2);
-            const auto [ex, ey] = at(x3, y3);
-            bezierTo(ax, ay, bx, by, ex, ey);
-        };
-        switch (category)
-        {
-        case Category::Delay: // repeats dying away
-        {
-            static constexpr std::pair<float, float> repeats[] = { { 34, 18 }, { 50, 12 }, { 64, 7 }, { 76, 4 },
-                                                                   { 86, 2 } };
-            for (const auto [gx, half] : repeats)
-            {
-                move(gx, 98.0f - half);
-                line(gx, 98.0f + half);
-            }
-            break;
-        }
-        case Category::Reverb: // spreading arcs
-            for (const float r : { 8.0f, 18.0f, 28.0f })
-            {
-                const int steps = 12;
-                for (int k = 0; k <= steps; ++k)
-                {
-                    const float a = static_cast<float>(M_PI) * (1.0f + static_cast<float>(k) / steps);
-                    if (k == 0)
-                        move(62.0f + r * std::cos(a), 112.0f + r * std::sin(a));
-                    else
-                        line(62.0f + r * std::cos(a), 112.0f + r * std::sin(a));
-                }
-            }
-            break;
-        case Category::Dynamics: // a compressor's knee
-            move(30, 114);
-            line(52, 88);
-            line(94, 84);
-            break;
-        case Category::Distortion: // a clipped wave
-            move(28, 108);
-            line(38, 84);
-            line(50, 84);
-            line(68, 112);
-            line(80, 112);
-            line(94, 88);
-            break;
-        case Category::Modulation: // a sine
-            move(28, 98);
-            curve(37, 78, 50, 78, 62, 98);
-            curve(74, 118, 86, 118, 96, 98);
-            break;
-        case Category::Eq: // a bump and a dip
-            move(28, 100);
-            curve(38, 100, 42, 82, 52, 82);
-            curve(62, 82, 64, 112, 74, 112);
-            curve(84, 112, 86, 100, 96, 100);
-            break;
-        case Category::PitchSynth: // up an octave
-            move(62, 116);
-            line(62, 82);
-            move(48, 96);
-            line(62, 82);
-            line(76, 96);
-            break;
-        case Category::Filter:
-        case Category::Wah: // a resonant low-pass
-            move(28, 96);
-            line(54, 96);
-            curve(62, 96, 66, 84, 72, 90);
-            curve(76, 94, 82, 108, 94, 116);
-            break;
-        default: // a plain ring
-        {
-            const int steps = 24;
-            for (int k = 0; k <= steps; ++k)
-            {
-                const float a = 2.0f * static_cast<float>(M_PI) * k / steps;
-                if (k == 0)
-                    move(62.0f + 14.0f * std::cos(a), 98.0f + 14.0f * std::sin(a));
-                else
-                    line(62.0f + 14.0f * std::cos(a), 98.0f + 14.0f * std::sin(a));
-            }
-            break;
-        }
-        }
-    }
-
     static Color artColor(Category category)
     {
         switch (category)
         {
-        case Category::LocalNam:   return theme::amp;
-        case Category::LocalIr:    return theme::cab;
+        case Category::Nam:   return theme::amp;
+        case Category::Ir:    return theme::cab;
         case Category::Delay:      return theme::pedalDelay;
         case Category::Reverb:     return theme::pedalReverb;
         case Category::Dynamics:   return theme::pedalDynamics;
@@ -3136,7 +3043,7 @@ private:
         color.interpolate(Color(1.0f, 1.0f, 1.0f), 0.25f); // lit: a little brighter
         const float line = detailed ? 1.0f : 2.5f; // thumbnails get bolder lines
 
-        if (type->category == Category::LocalIr)
+        if (type->category == Category::Ir)
         {
             // cab: a 2x2 of speaker rings
             const float size = std::min(w, h);
@@ -3161,7 +3068,7 @@ private:
             return;
         }
 
-        if (type->category == Category::LocalNam)
+        if (type->category == Category::Nam)
         {
             // amp head, landscape: knobs along the top, a grille of glowing slats
             float aw = w, ah = w / 1.7f;
@@ -3210,7 +3117,7 @@ private:
             return;
         }
 
-        // pedal, portrait: outline, knobs, the category's glyph, the name and a footswitch, in the same 124x200
+        // pedal, portrait: outline, knobs, the pedal's symbol, the name and a footswitch, in the same 124x200
         // frame as the panel style
         const float s = std::min(w / 116.0f, h / 196.0f);
         const float px = cx - 58.0f * s, py = cy - 98.0f * s;
@@ -3240,9 +3147,31 @@ private:
             glowStroke(color, 1.4f * s);
         }
 
+        // the pedal's own symbol (blockGlyph()); thumbnails draw it a little higher, as they have no knobs
+        const Glyph* glyph = blockGlyph(type->typeId);
+        if (glyph == nullptr)
+            glyph = &categoryGlyph(type->category);
+        const float lift = detailed ? 0.0f : 6.0f;
         beginPath();
-        blockGlyphPath(type->category, [&](float gx, float gy) { return at(gx, gy - (detailed ? 0.0f : 6.0f)); });
+        for (const auto& points : glyph->strokes)
+        {
+            for (size_t k = 0; k < points.size(); ++k)
+            {
+                const auto [gx, gy] = at(points[k].first, points[k].second - lift);
+                if (k == 0)
+                    moveTo(gx, gy);
+                else
+                    lineTo(gx, gy);
+            }
+        }
         glowStroke(color, (detailed ? 2.6f : 6.0f) * s);
+        for (const Glyph::Dot& dot : glyph->dots)
+        {
+            beginPath();
+            circleAt(dot.x, dot.y - lift, dot.r * (detailed ? 1.0f : 1.4f));
+            fillColor(color);
+            fill();
+        }
 
         beginPath();
         circleAt(62, 164, 14);
@@ -4310,12 +4239,8 @@ private:
         const std::vector<AddItem> items = addItems(fDialogCategory);
         if (items.empty())
         {
-            const bool tone3000 = fDialogCategory == Category::Tone3000AmpHead
-                               || fDialogCategory == Category::Tone3000AmpCab
-                               || fDialogCategory == Category::Tone3000Cab;
-            label(itemsX + 8.0f, listTop + 16.0f, tone3000 ? "Tone3000 integration comes in a later version."
-                                                           : "No blocks in this category yet.",
-                  theme::textDim, 13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+            label(itemsX + 8.0f, listTop + 16.0f, "No blocks in this category yet.", theme::textDim, 13.0f,
+                  ALIGN_LEFT | ALIGN_MIDDLE);
             return;
         }
         // one column of tall rows while they fit; then two columns, and shorter rows if needed
@@ -4392,10 +4317,10 @@ private:
         }
     }
 
-    // The library list for Local NAM / Local IR: favorites filter, browse, and the scanned files
+    // The library list for NAM / IR: favorites filter, browse, and the scanned files
     void drawLibraryList(float x, float y, float w, float h)
     {
-        const bool ir = fDialogCategory == Category::LocalIr;
+        const bool ir = fDialogCategory == Category::Ir;
         const std::vector<LibraryEntry>& library = ir ? fIrLibrary : fNamLibrary;
         const std::string& folder = ir ? fSettings.irDir : fSettings.namDir;
         const BlockDescriptor* type = ir ? &kIrBlockDescriptor : &kNamBlockDescriptor;
@@ -4465,7 +4390,7 @@ private:
             fRows.push_back({ categoryName(category), nullptr, nullptr });
             if (isLibraryCategory(category))
             {
-                const bool ir = category == Category::LocalIr;
+                const bool ir = category == Category::Ir;
                 for (const LibraryEntry& entry : ir ? fIrLibrary : fNamLibrary)
                 {
                     if (matchesSearch(entry, query))
@@ -5027,7 +4952,7 @@ private:
     bool fBackgroundTried = false;
     FontId fUiFont = -1;      // Jost Light
     FontId fUiFontSmall = -1; // Jost Regular, for small text
-    Category fDialogCategory = Category::LocalNam;
+    Category fDialogCategory = Category::Nam;
     FolderPicker fFolderPicker;
     Field fFolderField = kFieldNamDir;
     float fListScroll = 0.0f;

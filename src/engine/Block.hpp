@@ -16,11 +16,8 @@ namespace namsayin {
 
 // Add Block dialog categories, in display order
 enum class Category {
-    Tone3000AmpHead,
-    Tone3000AmpCab,
-    Tone3000Cab,
-    LocalNam,
-    LocalIr,
+    Nam,
+    Ir,
     Distortion,
     Dynamics,
     Eq,

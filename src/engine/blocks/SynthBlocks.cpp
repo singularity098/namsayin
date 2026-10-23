@@ -8,6 +8,7 @@
 #include "engine/dsp/OnsetDetector.hpp"
 #include "engine/dsp/Oscillator.hpp"
 #include "engine/dsp/Oversampler.hpp"
+#include "engine/dsp/PickFilter.hpp"
 #include "engine/dsp/PitchTracker.hpp"
 #include "engine/dsp/Smoother.hpp"
 #include "engine/dsp/Svf.hpp"
@@ -22,14 +23,15 @@ namespace {
 constexpr const char* kOctaveNames[] = { "-2", "-1", "0", "+1" };
 constexpr float kTwoPi = 6.2831853f;
 
-// What the synths share: the pitch tracker (with glide and the octave), a pick detector, and an amplitude that
-// follows your playing with Attack and Release. A synth renders one stereo sample per call from the current note.
+// What the synths share: the pitch tracker (with glide, the octave and the Pick Filter), a pick detector, and an
+// amplitude that follows your playing with Attack and Release. A synth renders one stereo sample per call from the current note.
 class TrackedSynth : public Block {
 public:
     void prepare(double sampleRate, uint32_t /*maxFrames*/) override
     {
         fSampleRate = sampleRate;
         fTracker.prepare(sampleRate);
+        fPick.prepare(sampleRate);
         fOnset.prepare(sampleRate);
         fMix.prepare(sampleRate);
         updateAmp();
@@ -50,13 +52,22 @@ public:
             const float mono = numChannels > 1 ? 0.5f * (io[0][i] + io[1][i]) : io[0][i];
             Note note;
             note.onset = fOnset.process(std::fabs(mono));
-            if (fTracker.process(mono))
-                fTargetHz = targetHz(fTracker.hz());
+            const bool estimated = fTracker.process(mono);
+            if (fPick.process(fTracker.sounding(), estimated ? fTracker.hz() : 0.0))
+                fTargetHz = targetHz(fPick.hz());
             fHz += (fTargetHz - fHz) * fGlideCoef;
             note.hz = std::min(fHz * fOctaveRatio, 0.45 * fSampleRate);
             note.dt = note.hz / fSampleRate;
             note.envelope = fTracker.envelope();
-            note.on = fTracker.sounding();
+            note.on = fTracker.sounding() && fPick.open();
+            if (fPick.active())
+            {
+                // a pick waits with its note, so plucked envelopes start when the note does
+                fOnsetPending = (fOnsetPending || note.onset) && fTracker.sounding();
+                note.onset = fOnsetPending && note.on;
+                if (note.onset)
+                    fOnsetPending = false;
+            }
             // the guitar's envelope, with Attack as a swell at the start of each note and Release as its tail
             const float level = std::min(1.0f, note.envelope * 4.0f);
             const float target = note.on ? level : 0.0f;
@@ -81,7 +92,9 @@ public:
     void reset() override
     {
         fTracker.reset();
+        fPick.reset();
         fOnset.reset();
+        fOnsetPending = false;
         fTargetHz = fHz = 110.0;
         fAmp = 0.0f;
         resetVoice();
@@ -125,6 +138,8 @@ protected:
         updateGlide();
     }
 
+    void setPickFilter(float ms) { fPick.setMs(ms); }
+
     double fSampleRate = 48000.0;
 
 private:
@@ -137,7 +152,9 @@ private:
     void updateGlide() { fGlideCoef = 1.0 - EnvelopeFollower::coef(fSampleRate, std::max(0.1f, fGlideMs)); }
 
     PitchTracker fTracker;
+    PickFilter fPick;
     OnsetDetector fOnset;
+    bool fOnsetPending = false;
     Smoother fMix;
     double fOctaveRatio = 1.0;
     float fAttackMs = 5.0f, fReleaseMs = 30.0f, fGlideMs = 10.0f;
@@ -183,6 +200,7 @@ public:
         case kSuperSawParamOctave:    setOctave(value); break;
         case kSuperSawParamGlide:     setGlide(value); break;
         case kSuperSawParamMix:       setMix(value); break;
+        case kSuperSawParamPickFilter: setPickFilter(value); break;
         }
     }
 
@@ -261,6 +279,7 @@ public:
         case kFmParamOctave:   setOctave(value); break;
         case kFmParamGlide:    setGlide(value); break;
         case kFmParamMix:      setMix(value); break;
+        case kFmParamPickFilter: setPickFilter(value); break;
         }
     }
 
@@ -336,6 +355,7 @@ public:
         case kFoldParamOctave: setOctave(value); break;
         case kFoldParamGlide:  setGlide(value); break;
         case kFoldParamMix:    setMix(value); break;
+        case kFoldParamPickFilter: setPickFilter(value); break;
         }
     }
 
@@ -441,6 +461,7 @@ public:
         case kAcidParamOctave: setOctave(value); break;
         case kAcidParamGlide:  setGlide(value); break;
         case kAcidParamMix:    setMix(value); break;
+        case kAcidParamPickFilter: setPickFilter(value); break;
         }
     }
 
@@ -526,6 +547,7 @@ public:
         case kStringParamRelease: setRelease(value); break;
         case kStringParamOctave:  setOctave(value); break;
         case kStringParamMix:     setMix(value); break;
+        case kStringParamPickFilter: setPickFilter(value); break;
         }
     }
 
@@ -640,6 +662,7 @@ public:
         case kChipParamCrush:    fCrush = value / 100.0f; break;
         case kChipParamOctave:   setOctave(value); break;
         case kChipParamMix:      setMix(value); break;
+        case kChipParamPickFilter: setPickFilter(value); break;
         }
     }
 
@@ -748,6 +771,7 @@ const BlockDescriptor kSuperSawBlockDescriptor = {
         ParamSpec { "Octave", "", 0.0f, 3.0f, 2.0f, ParamScale::Choice, kOctaveNames },
         ParamSpec { "Glide", "ms", 0.1f, 500.0f, 10.0f, ParamScale::Log },
         ParamSpec { "Mix", "%", 0.0f, 100.0f, 100.0f, ParamScale::Linear },
+        ParamSpec { "Pick Filter", "ms", 0.0f, 60.0f, 0.0f, ParamScale::Linear },
     },
     [] { return std::unique_ptr<Block>(new SuperSawBlock()); },
 };
@@ -768,6 +792,7 @@ const BlockDescriptor kFmSynthBlockDescriptor = {
         ParamSpec { "Octave", "", 0.0f, 3.0f, 2.0f, ParamScale::Choice, kOctaveNames },
         ParamSpec { "Glide", "ms", 0.1f, 500.0f, 10.0f, ParamScale::Log },
         ParamSpec { "Mix", "%", 0.0f, 100.0f, 100.0f, ParamScale::Linear },
+        ParamSpec { "Pick Filter", "ms", 0.0f, 60.0f, 0.0f, ParamScale::Linear },
     },
     [] { return std::unique_ptr<Block>(new FmSynthBlock()); },
 };
@@ -787,6 +812,7 @@ const BlockDescriptor kFoldSynthBlockDescriptor = {
         ParamSpec { "Octave", "", 0.0f, 3.0f, 2.0f, ParamScale::Choice, kOctaveNames },
         ParamSpec { "Glide", "ms", 0.1f, 500.0f, 10.0f, ParamScale::Log },
         ParamSpec { "Mix", "%", 0.0f, 100.0f, 100.0f, ParamScale::Linear },
+        ParamSpec { "Pick Filter", "ms", 0.0f, 60.0f, 0.0f, ParamScale::Linear },
     },
     [] { return std::unique_ptr<Block>(new FoldSynthBlock()); },
 };
@@ -807,6 +833,7 @@ const BlockDescriptor kAcidSynthBlockDescriptor = {
         ParamSpec { "Octave", "", 0.0f, 3.0f, 1.0f, ParamScale::Choice, kOctaveNames },
         ParamSpec { "Glide", "ms", 0.1f, 500.0f, 60.0f, ParamScale::Log },
         ParamSpec { "Mix", "%", 0.0f, 100.0f, 100.0f, ParamScale::Linear },
+        ParamSpec { "Pick Filter", "ms", 0.0f, 60.0f, 0.0f, ParamScale::Linear },
     },
     [] { return std::unique_ptr<Block>(new AcidSynthBlock()); },
 };
@@ -826,6 +853,7 @@ const BlockDescriptor kStringSynthBlockDescriptor = {
         ParamSpec { "Release", "ms", 10.0f, 5000.0f, 1200.0f, ParamScale::Log },
         ParamSpec { "Octave", "", 0.0f, 3.0f, 2.0f, ParamScale::Choice, kOctaveNames },
         ParamSpec { "Mix", "%", 0.0f, 100.0f, 100.0f, ParamScale::Linear },
+        ParamSpec { "Pick Filter", "ms", 0.0f, 60.0f, 0.0f, ParamScale::Linear },
     },
     [] { return std::unique_ptr<Block>(new StringSynthBlock()); },
 };
@@ -844,6 +872,7 @@ const BlockDescriptor kChipSynthBlockDescriptor = {
         ParamSpec { "Crush", "%", 0.0f, 100.0f, 30.0f, ParamScale::Linear },
         ParamSpec { "Octave", "", 0.0f, 3.0f, 2.0f, ParamScale::Choice, kOctaveNames },
         ParamSpec { "Mix", "%", 0.0f, 100.0f, 100.0f, ParamScale::Linear },
+        ParamSpec { "Pick Filter", "ms", 0.0f, 60.0f, 0.0f, ParamScale::Linear },
     },
     [] { return std::unique_ptr<Block>(new ChipSynthBlock()); },
 };

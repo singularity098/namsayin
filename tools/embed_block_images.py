@@ -35,7 +35,7 @@ lines = [
     "",
 ]
 entries = []
-for path in sorted(p for p in SOURCE.iterdir() if p.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp")):
+for path in sorted(p for p in (SOURCE.iterdir() if SOURCE.is_dir() else []) if p.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp")):
     img = Image.open(path).convert("RGBA")
     if img.height > HEIGHT:
         img = img.resize((round(img.width * HEIGHT / img.height), HEIGHT), Image.LANCZOS)
@@ -53,7 +53,7 @@ for path in sorted(p for p in SOURCE.iterdir() if p.suffix.lower() in (".png", "
 lines += [
     "} // namespace",
     "",
-    "BuiltinImage builtinBlockImage(const char* typeId)",
+    "BuiltinImage builtinBlockImage(const char* %s)" % ("typeId" if entries else "/*typeId*/"),
     "{",
 ]
 for stem, name in entries:

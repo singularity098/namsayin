@@ -9,7 +9,7 @@ namespace namsayin {
 
 // More guitar synths. Like the Synth block, each follows the played note (dsp/PitchTracker.hpp: single notes, found
 // within about 4-24 ms, no added latency) and takes its loudness from your playing, with its own Attack and Release.
-// Each has its own sound engine. No config.
+// Each has its own sound engine, and a Pick Filter (dsp/PickFilter.hpp) as its last control. No config.
 
 // Super Saw: seven detuned saws spread across the stereo field (the trance lead and big pad sound), through a
 // low-pass that opens with your playing.
@@ -26,6 +26,7 @@ enum SuperSawParam {
     kSuperSawParamOctave,    // choice: -2, -1, 0, +1
     kSuperSawParamGlide,     // ms
     kSuperSawParamMix,       // %
+    kSuperSawParamPickFilter, // ms a new note must hold steady before it sounds (0 = off)
     kSuperSawParamCount
 };
 
@@ -44,6 +45,7 @@ enum FmSynthParam {
     kFmParamOctave,   // choice: -2, -1, 0, +1
     kFmParamGlide,    // ms
     kFmParamMix,      // %
+    kFmParamPickFilter, // ms a new note must hold steady before it sounds (0 = off)
     kFmParamCount
 };
 
@@ -63,6 +65,7 @@ enum FoldSynthParam {
     kFoldParamOctave,   // choice: -2, -1, 0, +1
     kFoldParamGlide,    // ms
     kFoldParamMix,      // %
+    kFoldParamPickFilter, // ms a new note must hold steady before it sounds (0 = off)
     kFoldParamCount
 };
 
@@ -81,6 +84,7 @@ enum AcidSynthParam {
     kAcidParamOctave,    // choice: -2, -1, 0, +1
     kAcidParamGlide,     // ms
     kAcidParamMix,       // %
+    kAcidParamPickFilter, // ms a new note must hold steady before it sounds (0 = off)
     kAcidParamCount
 };
 
@@ -98,6 +102,7 @@ enum StringSynthParam {
     kStringParamRelease,  // ms
     kStringParamOctave,   // choice: -2, -1, 0, +1
     kStringParamMix,      // %
+    kStringParamPickFilter, // ms a new note must hold steady before it sounds (0 = off)
     kStringParamCount
 };
 
@@ -114,6 +119,7 @@ enum ChipSynthParam {
     kChipParamCrush,    // %
     kChipParamOctave,   // choice: -2, -1, 0, +1
     kChipParamMix,      // %
+    kChipParamPickFilter, // ms a new note must hold steady before it sounds (0 = off)
     kChipParamCount
 };
 

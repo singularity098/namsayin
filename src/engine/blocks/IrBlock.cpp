@@ -232,8 +232,8 @@ private:
 
 const BlockDescriptor kIrBlockDescriptor = {
     "ir",
-    "Local IR",
-    Category::LocalIr,
+    "IR",
+    Category::Ir,
     kIrParamCount,
     {
         ParamSpec { "Level", "dB", -24.0f, 12.0f, 0.0f, ParamScale::Linear },

@@ -4,6 +4,7 @@
 #include "engine/blocks/SynthBlock.hpp"
 
 #include "engine/dsp/Oscillator.hpp"
+#include "engine/dsp/PickFilter.hpp"
 #include "engine/dsp/PitchTracker.hpp"
 #include "engine/dsp/Smoother.hpp"
 #include "engine/dsp/Svf.hpp"
@@ -29,6 +30,7 @@ public:
         fSampleRate = sampleRate;
         fMix.prepare(sampleRate);
         fTracker.prepare(sampleRate);
+        fPick.prepare(sampleRate);
         updateAmp();
         updateGlide();
         reset();
@@ -58,6 +60,9 @@ public:
         case kSynthParamMix:
             fMix.setTarget(value / 100.0f);
             break;
+        case kSynthParamPickFilter:
+            fPick.setMs(value);
+            break;
         }
     }
 
@@ -73,8 +78,9 @@ public:
             float in = io[0][i];
             if (numChannels > 1)
                 in = 0.5f * (in + io[1][i]);
-            if (fTracker.process(in))
-                fTargetHz = fTracker.hz();
+            const bool estimated = fTracker.process(in);
+            if (fPick.process(fTracker.sounding(), estimated ? fTracker.hz() : 0.0))
+                fTargetHz = fPick.hz();
 
             // the oscillator glides to the tracked pitch
             fHz += (fTargetHz - fHz) * fGlideCoef;
@@ -90,7 +96,7 @@ public:
 
             // amplitude: the guitar's envelope, with Attack as a swell at the start of each note
             const float env = fTracker.envelope();
-            const bool on = fTracker.sounding();
+            const bool on = fTracker.sounding() && fPick.open();
             const float level = std::min(1.0f, env * 4.0f);
             fAmp += ((on ? level : 0.0f) - fAmp) * (on && level > fAmp ? fAmpAttack : fAmpRelease);
 
@@ -107,6 +113,7 @@ public:
     void reset() override
     {
         fTracker.reset();
+        fPick.reset();
         fFilter.reset();
         fTargetHz = fHz = 110.0;
         fPhase = fSubPhase = 0.0;
@@ -148,6 +155,7 @@ private:
     float fGlideMs = 10.0f;
 
     PitchTracker fTracker;
+    PickFilter fPick;
     Svf fFilter;
     Smoother fMix;
     double fTargetHz = 110.0, fHz = 110.0;
@@ -174,6 +182,7 @@ const BlockDescriptor kSynthBlockDescriptor = {
         ParamSpec { "Attack", "ms", 1.0f, 2000.0f, 5.0f, ParamScale::Log },
         ParamSpec { "Glide", "ms", 0.1f, 500.0f, 10.0f, ParamScale::Log },
         ParamSpec { "Mix", "%", 0.0f, 100.0f, 100.0f, ParamScale::Linear },
+        ParamSpec { "Pick Filter", "ms", 0.0f, 60.0f, 0.0f, ParamScale::Linear },
     },
     [] { return std::unique_ptr<Block>(new SynthBlock()); },
 };

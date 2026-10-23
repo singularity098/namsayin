@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 singularity098
 
-// Behaviour tests for the synths in SynthBlocks (the original Synth block is tested in PedalTests.cpp)
+// Behaviour tests for the synths in SynthBlocks and the Pick Filter (the original Synth block is otherwise tested in
+// PedalTests.cpp)
 
 #include <doctest/doctest.h>
 
 #include "TestSupport.hpp"
 #include "engine/blocks/PolyChipBlock.hpp"
+#include "engine/blocks/SynthBlock.hpp"
 #include "engine/blocks/SynthBlocks.hpp"
 #include "engine/dsp/Biquad.hpp"
+#include "engine/dsp/PickFilter.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -509,4 +512,88 @@ TEST_CASE("poly chip bends smoothly across semitones with quantize off")
     // and it ends on the bent note
     const double target = 220.0 * std::exp2(2.0 / 12.0);
     CHECK(toneAt(x[0], target, ms(1300), ms(1500)) > 4.0 * toneAt(x[0], 220.0 * std::exp2(1.0 / 12.0), ms(1300), ms(1500)));
+}
+
+TEST_CASE("pick filter holds a new note until its pitch is steady")
+{
+    PickFilter pick;
+    pick.prepare(kRate);
+    pick.setMs(10.0f); // 480 samples
+    // an unsteady attack: estimates jumping about every 4 ms are never accepted
+    for (int i = 0; i < 2000; ++i)
+    {
+        const double estimate = i % 192 == 0 ? (i % 384 == 0 ? 880.0 : 330.0) : 0.0;
+        CHECK_FALSE(pick.process(true, estimate));
+    }
+    CHECK_FALSE(pick.open());
+    // a steady note is accepted once it has held for 10 ms
+    int accepted = -1;
+    for (int i = 0; i < 1000 && accepted < 0; ++i)
+    {
+        if (pick.process(true, i % 192 == 0 ? 220.0 * (1.0 + 0.001 * i / 192) : 0.0))
+            accepted = i;
+    }
+    CHECK(accepted >= 480);
+    CHECK(accepted <= 481);
+    CHECK(pick.open());
+    // a bend follows at once
+    CHECK(pick.process(true, 225.0));
+    CHECK(pick.hz() == 225.0);
+    // a jump to another note waits, the old one playing on
+    CHECK_FALSE(pick.process(true, 330.0));
+    CHECK(pick.hz() == 225.0);
+    // silence closes it
+    pick.process(false, 0.0);
+    CHECK_FALSE(pick.open());
+
+    // 0 ms passes every estimate straight through
+    PickFilter off;
+    off.prepare(kRate);
+    CHECK(off.open());
+    CHECK(off.process(true, 440.0));
+    CHECK(off.hz() == 440.0);
+    CHECK(off.process(true, 880.0));
+    CHECK(off.hz() == 880.0);
+}
+
+TEST_CASE("every mono synth has a pick filter that holds the note back, then plays it")
+{
+    for (const BlockDescriptor* type : { &kSynthBlockDescriptor, &kSuperSawBlockDescriptor, &kFmSynthBlockDescriptor,
+                                         &kFoldSynthBlockDescriptor, &kAcidSynthBlockDescriptor,
+                                         &kStringSynthBlockDescriptor, &kChipSynthBlockDescriptor })
+    {
+        CAPTURE(std::string(type->typeId));
+        const int last = type->numParams - 1;
+        REQUIRE(std::string(type->params[static_cast<size_t>(last)].name) == "Pick Filter");
+        CHECK(type->params[static_cast<size_t>(last)].def == 0.0f); // off by default: synths sound as they did
+
+        // when the synth starts sounding, and how loud it plays once the note has settled
+        const auto run = [&](float pickMs, size_t& start, double& level) {
+            auto block = make(*type);
+            block->setParam(last, pickMs);
+            auto x = note(220.0, 48000);
+            int allocations = 0;
+            testing::runBlock(*block, x, 128, &allocations);
+            CHECK(allocations == 0);
+            float peak = 0.0f;
+            for (const float v : x[0])
+                peak = std::max(peak, std::fabs(v));
+            start = 0;
+            while (start < x[0].size() && std::fabs(x[0][start]) < 0.05f * peak)
+                ++start;
+            double sum = 0.0;
+            for (size_t i = ms(400); i < ms(900); ++i)
+                sum += static_cast<double>(x[0][i]) * x[0][i];
+            level = std::sqrt(sum / static_cast<double>(ms(500)));
+        };
+        size_t startOff = 0, startOn = 0;
+        double levelOff = 0.0, levelOn = 0.0;
+        run(0.0f, startOff, levelOff);
+        run(40.0f, startOn, levelOn);
+        CAPTURE(startOff);
+        CAPTURE(startOn);
+        CHECK(startOn >= startOff + ms(25));
+        CHECK(levelOn > 0.7 * levelOff);
+        CHECK(levelOn < 1.4 * levelOff);
+    }
 }

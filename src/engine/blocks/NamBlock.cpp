@@ -170,8 +170,8 @@ private:
 
 const BlockDescriptor kNamBlockDescriptor = {
     "nam",
-    "Local NAM",
-    Category::LocalNam,
+    "NAM",
+    Category::Nam,
     kNamParamCount,
     {
         ParamSpec { "Input", "dB", -24.0f, 24.0f, 0.0f, ParamScale::Linear },

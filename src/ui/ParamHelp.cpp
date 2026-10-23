@@ -25,11 +25,11 @@ struct BlockHelp {
     "Locks the " knob " to your DAW's tempo. When it's on, the " knob " knob picks a note value (like 1/4 or a "      \
     "dotted 1/8) instead of a free value, and follows tempo changes. Without a DAW tempo it assumes 120 BPM."
 #define WINDOW_HELP                                                                                                   \
-    "The length of the slices the pitch shifter works with. Shorter windows react faster and trail your playing "    \
-    "less, but can sound grainy on low notes. Longer windows sound smoother on low notes and chords, but the "      \
+    "The length of the slices the pitch shifter works with. Shorter windows react faster and trail your playing "     \
+    "less, but can sound grainy on low notes. Longer windows sound smoother on low notes and chords, but the "        \
     "shifted sound lags a little behind. Start around 40-50 ms."
 #define WIDTH_HELP(what)                                                                                              \
-    "How wide the " what " spreads across the stereo field. 0% keeps both sides the same (centred); 100% makes "    \
+    "How wide the " what " spreads across the stereo field. 0% keeps both sides the same (centred); 100% makes "      \
     "left and right move differently for a wide, swirling sound. Only works when the plugin is in Stereo mode."
 
 // Shared by the synths
@@ -45,11 +45,17 @@ struct BlockHelp {
 #define SYNTH_GLIDE_HELP                                                                                              \
     "How long the synth slides from one note to the next, in milliseconds. Short times jump straight to each note; "  \
     "long ones give a smooth, portamento-like slide."
+#define SYNTH_PICK_FILTER_HELP                                                                                        \
+    "Keeps the click of your pick from sounding as a short, wrong note. A new note has to hold steady this long "     \
+    "before the synth plays it; until then it stays silent, or keeps playing the last note. Raise it if you hear "    \
+    "chirps or jumps at the start of notes; lower it for a faster response. Around 10-20 ms suits most playing; 0 "   \
+    "is off."
+
 #define SYNTH_MIX_HELP                                                                                                \
     "Blends the synth with your guitar. 100% is the synth only; lower values layer it with your dry playing."
 
 constexpr BlockHelp kBlockHelp[] = {
-    // Local NAM
+    // NAM
     { "nam", "Input",
       "How hard you hit the amp model. Turning it up drives the model harder, so you get more gain, compression and "
       "distortion, just like turning up the guitar's volume into a real amp; turning it down cleans it up. Set it so "
@@ -62,7 +68,7 @@ constexpr BlockHelp kBlockHelp[] = {
       "so switching between models doesn't make big jumps in volume. Models without a stored loudness are left as "
       "they are." },
 
-    // Local IR
+    // IR
     { "ir", "Level",
       "The volume of the cab after the impulse response, without changing its tone. Use it to balance this cab "
       "against the rest of the chain. 0 dB leaves the level as it is." },
@@ -720,6 +726,7 @@ constexpr BlockHelp kBlockHelp[] = {
       "How long the synth slides from one note to the next. Short glide follows your playing tightly; longer "
       "glide gives a smooth portamento, like a vintage mono synth lead." },
     { "synth", "Mix", MIX_HELP("synth") },
+    { "synth", "Pick Filter", SYNTH_PICK_FILTER_HELP },
 
     // Filter
     { "filter", "Type",
@@ -1136,6 +1143,7 @@ constexpr BlockHelp kBlockHelp[] = {
     { "supersaw", "Octave", SYNTH_OCTAVE_HELP },
     { "supersaw", "Glide", SYNTH_GLIDE_HELP },
     { "supersaw", "Mix", SYNTH_MIX_HELP },
+    { "supersaw", "Pick Filter", SYNTH_PICK_FILTER_HELP },
 
     // FM Synth
     { "fmsynth", "Ratio",
@@ -1157,6 +1165,7 @@ constexpr BlockHelp kBlockHelp[] = {
     { "fmsynth", "Octave", SYNTH_OCTAVE_HELP },
     { "fmsynth", "Glide", SYNTH_GLIDE_HELP },
     { "fmsynth", "Mix", SYNTH_MIX_HELP },
+    { "fmsynth", "Pick Filter", SYNTH_PICK_FILTER_HELP },
 
     // Fold Synth
     { "foldsynth", "Fold",
@@ -1179,6 +1188,7 @@ constexpr BlockHelp kBlockHelp[] = {
     { "foldsynth", "Octave", SYNTH_OCTAVE_HELP },
     { "foldsynth", "Glide", SYNTH_GLIDE_HELP },
     { "foldsynth", "Mix", SYNTH_MIX_HELP },
+    { "foldsynth", "Pick Filter", SYNTH_PICK_FILTER_HELP },
 
     // Acid Synth
     { "acidsynth", "Wave",
@@ -1204,6 +1214,7 @@ constexpr BlockHelp kBlockHelp[] = {
       "The slide between notes. Acid lines live on slides: around 50-100 ms gives the classic slurred bass "
       "line; short times jump between notes." },
     { "acidsynth", "Mix", SYNTH_MIX_HELP },
+    { "acidsynth", "Pick Filter", SYNTH_PICK_FILTER_HELP },
 
     // String Machine
     { "stringsynth", "Low",
@@ -1221,6 +1232,7 @@ constexpr BlockHelp kBlockHelp[] = {
     { "stringsynth", "Release", SYNTH_RELEASE_HELP },
     { "stringsynth", "Octave", SYNTH_OCTAVE_HELP },
     { "stringsynth", "Mix", SYNTH_MIX_HELP },
+    { "stringsynth", "Pick Filter", SYNTH_PICK_FILTER_HELP },
 
     // Chip Synth
     { "chipsynth", "Wave",
@@ -1242,6 +1254,7 @@ constexpr BlockHelp kBlockHelp[] = {
       "clean." },
     { "chipsynth", "Octave", SYNTH_OCTAVE_HELP },
     { "chipsynth", "Mix", SYNTH_MIX_HELP },
+    { "chipsynth", "Pick Filter", SYNTH_PICK_FILTER_HELP },
 
     // Poly Chip
     { "polychip", "Wave",

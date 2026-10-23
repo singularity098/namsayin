@@ -161,6 +161,7 @@ dpf_add_plugin(namsayin
     src/plugin/NAMsayinPlugin.cpp
   FILES_UI
     src/ui/BackgroundImage.cpp
+    src/ui/BlockGlyphs.cpp
     src/ui/BlockImages.cpp
     src/ui/FolderPicker.cpp
     src/ui/FontData.cpp
@@ -188,6 +189,7 @@ if(NAMSAYIN_BUILD_TESTS)
   enable_testing()
   add_executable(namsayin-tests
     tests/TestMain.cpp
+    tests/BlockGlyphTests.cpp
     tests/BlockSanityTests.cpp
     tests/ChainStateTests.cpp
     tests/CompressorBlockTests.cpp
@@ -209,6 +211,7 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/SynthTests.cpp
     tests/TunerTests.cpp
     tests/UndoStackTests.cpp
+    src/ui/BlockGlyphs.cpp
     src/ui/ParamHelp.cpp)
   target_include_directories(namsayin-tests PRIVATE tests deps/doctest src)
   target_link_libraries(namsayin-tests PRIVATE namsayin-engine)

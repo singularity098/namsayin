@@ -45,11 +45,8 @@ const char* categoryName(Category category)
 {
     switch (category)
     {
-    case Category::Tone3000AmpHead: return "Tone3000 Amp Head";
-    case Category::Tone3000AmpCab:  return "Tone3000 Amp + Cab";
-    case Category::Tone3000Cab:     return "Tone3000 Cab";
-    case Category::LocalNam:        return "Local NAM";
-    case Category::LocalIr:         return "Local IR";
+    case Category::Nam:             return "NAM";
+    case Category::Ir:              return "IR";
     case Category::Distortion:      return "Distortion";
     case Category::Dynamics:        return "Dynamics";
     case Category::Eq:              return "EQ";
