@@ -131,6 +131,8 @@ enum class Hit {
     TileRemove,
     AddBlock,     // index = Section
     Split,        // add an empty split; index = position in the chain
+    Insert,       // add a block at a gap; index = drop point in the layout
+    ChainScroll,  // the chain's scroll bar
     Merge,        // select the merge
     MergeRemove,  // remove the split
     SetValue,     // index = host parameter, set to `value` (real units)
@@ -185,6 +187,7 @@ enum class MenuAction {
     ResetParam,
     ToggleBypass,
     RemoveBlock,
+    ReplaceBlock,
     PresetNew,
     PresetBrowse, // the preset folder's list
     PresetOpen,   // a preset file anywhere (system dialog)
@@ -242,7 +245,6 @@ struct ChainLayout {
     float height = kTileSize;
     std::vector<Rect> tiles;          // per block index
     Rect add[4];                      // "+" per Section; w == 0 if there's none
-    std::vector<float> splitGaps;     // no split yet: centre of the gap before each block and before the "+"
     Rect merge;                       // merge tile (split)
     float forkX = 0.0f;               // where the chain splits
     std::vector<Rect> wires[2];       // items on each row in order, joined by signal-flow lines
@@ -532,10 +534,12 @@ protected:
         // automation and MIDI change values in the host; presets and undo need them too
         if (isSlotParam(index))
             syncChainValue(index, value);
-        if (index == kParamInstanceId && value >= 1.0f)
+        if (index == kParamInstanceId && value >= 1.0f && static_cast<uint32_t>(value) != fInstanceId)
         {
             fInstanceId = static_cast<uint32_t>(value);
-            // The host may not have sent us the chain (Reaper's LV2 doesn't): read the DSP's copy
+            // The host may not have sent us the chain (Reaper's LV2 doesn't): read the DSP's copy. Only when the
+            // instance becomes known: some hosts (jalv) report output parameters over and over, and reloading would
+            // throw away the undo history each time.
             if (!fGotChainState)
                 loadExchangeChain();
         }
@@ -673,10 +677,27 @@ protected:
         {
             if (ev.button == kMouseButtonLeft)
                 return onRelease(x, y);
+            if (ev.button == kMouseButtonMiddle && fPanning)
+            {
+                fPanning = false;
+                return true;
+            }
             return false;
         }
         if (ev.button == kMouseButtonRight)
             return onRightClick(x, y);
+        if (ev.button == kMouseButtonMiddle)
+        {
+            // middle-drag anywhere over the chain scrolls it
+            const bool chainShown = !fMetroPanel && fParams[kParamTuner] < 0.5f;
+            if (!chainShown || fDialog != Dialog::None || y < kChainTop - 12.0f
+                || y > kChainTop + fLayout.height + 20.0f)
+                return false;
+            fPanning = true;
+            fScrollGrabX = x;
+            fScrollGrabValue = fScrollX;
+            return true;
+        }
         if (ev.button != kMouseButtonLeft)
             return false;
 
@@ -759,6 +780,28 @@ protected:
             return true;
         }
 
+        case Hit::Insert: {
+            if (hit->index >= static_cast<int>(fLayout.drops.size()))
+                return true;
+            const DropPoint& drop = fLayout.drops[hit->index];
+            fAddSection = drop.section;
+            fAddPosition = drop.position;
+            fReplaceSlot = -1;
+            openDialog(Dialog::AddBlock);
+            return true;
+        }
+
+        case Hit::ChainScroll: {
+            // a click beside the thumb moves it there; then it follows the mouse
+            const float thumbX = scrollThumbX();
+            if (x < thumbX || x > thumbX + fScrollThumbW)
+                setScrollX((x - fScrollThumbW / 2 - fScrollTrack.x) / (fScrollTrack.w - fScrollThumbW) * fMaxScrollX);
+            fScrollDragging = true;
+            fScrollGrabX = x;
+            fScrollGrabValue = fScrollX;
+            return true;
+        }
+
         case Hit::Merge:
             fMergeSelected = true;
             repaint();
@@ -773,6 +816,8 @@ protected:
 
         case Hit::AddBlock:
             fAddSection = static_cast<Section>(hit->index);
+            fAddPosition = kMaxBlocks;
+            fReplaceSlot = -1;
             openDialog(Dialog::AddBlock);
             return true;
 
@@ -1033,6 +1078,18 @@ protected:
         fMouseY = y;
         ++fMotionCount;
 
+        if (fPanning)
+        {
+            setScrollX(fScrollGrabValue - (x - fScrollGrabX));
+            return true;
+        }
+        if (fScrollDragging)
+        {
+            if (fScrollTrack.w > fScrollThumbW)
+                setScrollX(fScrollGrabValue + (x - fScrollGrabX) * fMaxScrollX / (fScrollTrack.w - fScrollThumbW));
+            return true;
+        }
+
         if (fDragParam >= 0 && fSliderRect.w > 0.0f)
         {
             setNormalized(static_cast<uint32_t>(fDragParam), std::clamp((x - fSliderRect.x) / fSliderRect.w, 0.0f, 1.0f),
@@ -1144,8 +1201,7 @@ protected:
         if (y < kChainTop || y > kChainTop + fLayout.height)
             return false;
         const float delta = static_cast<float>(ev.delta.getY() != 0.0 ? ev.delta.getY() : ev.delta.getX());
-        fScrollX = std::max(0.0f, fScrollX - delta * 40.0f);
-        repaint();
+        setScrollX(fScrollX - delta * 40.0f);
         return true;
     }
 
@@ -1562,15 +1618,20 @@ private:
     void removeBlock(int index)
     {
         beginEdit();
-        const int slot = fChain.blocks[index].slot;
-        fChain.remove(index);
-        // MIDI mappings follow the block, so they go with it
-        fChain.clearMidiMappings(slotBypassParam(slot));
-        for (int p = 0; p < kParamsPerSlot; ++p)
-            fChain.clearMidiMappings(slotParam(slot, p));
+        takeOutBlock(index);
         if (fSelected >= static_cast<int>(fChain.blocks.size()))
             fSelected = static_cast<int>(fChain.blocks.size()) - 1;
         sendChain();
+    }
+
+    // Takes a block out of the chain with its MIDI mappings (they follow the block); no undo step or send
+    void takeOutBlock(int index)
+    {
+        const int slot = fChain.blocks[index].slot;
+        fChain.remove(index);
+        fChain.clearMidiMappings(slotBypassParam(slot));
+        for (int p = 0; p < kParamsPerSlot; ++p)
+            fChain.clearMidiMappings(slotParam(slot, p));
     }
 
     void showToast(std::string message)
@@ -1853,6 +1914,7 @@ private:
             };
             if (const MidiMapping* mapping = fChain.midiMappingFor(fMenuParam))
                 entries.push_back({ "Clear MIDI " + ccText(*mapping), MenuAction::MidiClear });
+            entries.push_back({ "Replace Block…", MenuAction::ReplaceBlock });
             entries.push_back({ "Remove", MenuAction::RemoveBlock });
             openMenu(x, y, std::move(entries));
             return true;
@@ -1945,6 +2007,14 @@ private:
         case MenuAction::RemoveBlock:
             if (fMenuTile >= 0 && fMenuTile < static_cast<int>(fChain.blocks.size()))
                 removeBlock(fMenuTile);
+            break;
+        case MenuAction::ReplaceBlock:
+            if (fMenuTile >= 0 && fMenuTile < static_cast<int>(fChain.blocks.size()))
+            {
+                // the block picked in Add Block takes this one's place
+                fReplaceSlot = fChain.blocks[fMenuTile].slot;
+                openDialog(Dialog::AddBlock);
+            }
             break;
         case MenuAction::PresetNew:
             newPreset();
@@ -2225,13 +2295,24 @@ private:
         return std::filesystem::exists(pathFromUtf8(archive ? archive->archive : path), ec);
     }
 
-    // Adds a block at the end of the chain, starting from its defaults (parameter values live in the host)
+    // Adds a block where Add Block was opened for (the end of a section, a gap, or in place of a block being
+    // replaced), starting from its defaults (parameter values live in the host)
     void addBlock(const BlockDescriptor* type, nlohmann::json config)
     {
-        const int slot = fChain.freeSlot();
-        if (slot < 0)
+        Section section = fAddSection;
+        int position = std::exchange(fAddPosition, kMaxBlocks);
+        const int replace = indexOfSlot(std::exchange(fReplaceSlot, -1));
+        if (replace < 0 && fChain.freeSlot() < 0)
             return;
         beginEdit();
+        if (replace >= 0)
+        {
+            section = fChain.sectionOf(replace);
+            const std::vector<int> indices = fChain.sectionIndices(section);
+            position = static_cast<int>(std::find(indices.begin(), indices.end(), replace) - indices.begin());
+            takeOutBlock(replace);
+        }
+        const int slot = fChain.freeSlot();
 
         BlockState block;
         block.typeId = type->typeId;
@@ -2257,7 +2338,7 @@ private:
         for (int p = 0; p < type->numParams; ++p)
             setHostParameter(slotParam(slot, p), block.params[p]);
 
-        fChain.insert(fAddSection, kMaxBlocks, std::move(block));
+        fChain.insert(section, position, std::move(block));
         fSelected = indexOfSlot(slot);
         fMergeSelected = false;
         sendChain();
@@ -2322,6 +2403,12 @@ private:
 
     bool onRelease(float x, float y)
     {
+        if (fScrollDragging)
+        {
+            fScrollDragging = false;
+            repaint();
+            return true;
+        }
         if (fMomentaryParam >= 0)
         {
             // a quick click is held a moment longer (uiIdle releases it), so the DSP sees the press even if the
@@ -2673,6 +2760,8 @@ private:
             const char* name = type->params[static_cast<size_t>(param)].name;
             return { name, blockParamHelp(type->typeId, name) };
         }
+        case Hit::Insert:
+            return { "Insert Block", "Adds a new block here, between the blocks on either side." };
         case Hit::Split:
             return { "Split",
                      "Splits the chain here into two parallel paths, A and B, which both start empty. Add blocks to "
@@ -3869,8 +3958,6 @@ private:
         if (!split)
         {
             addTile(Section::Pre, 0, x);
-            for (const DropPoint& drop : l.drops)
-                l.splitGaps.push_back(drop.x - kTileGap / 2);
             return;
         }
 
@@ -3910,6 +3997,13 @@ private:
     void drawChain()
     {
         layoutChain();
+        // how far the chain can scroll: its right end (16 px margin) to the window's edge
+        fMaxScrollX = std::max(0.0f, chainRight() + fScrollX + 16.0f - fWidth);
+        if (fScrollX > fMaxScrollX)
+        {
+            fScrollX = fMaxScrollX;
+            layoutChain();
+        }
         const ChainLayout& l = fLayout;
         const int count = static_cast<int>(fChain.blocks.size());
 
@@ -3948,8 +4042,8 @@ private:
             if (l.add[s].w > 0.0f)
                 drawAddTile(l.add[s], static_cast<Section>(s));
         }
-        if (!fChain.split && !fDraggingTile)
-            drawSplitGaps();
+        if (!fDraggingTile)
+            drawGaps();
 
         if (fDraggingTile && fPressTile >= 0 && fPressTile < count)
         {
@@ -3961,6 +4055,7 @@ private:
             drawTile(fPressTile, fMouseX - l.tile / 2, fMouseY - l.tile / 2, l.tile);
         }
         resetScissor();
+        drawChainScrollBar();
 
         if (count == 0 && !fChain.split)
             label(l.add[0].x + l.add[0].w + 24.0f, l.rowY[0] + kTileSize / 2, "Click + to add a block",
@@ -3988,41 +4083,120 @@ private:
             fHits.push_back({ r, Hit::AddBlock, static_cast<int>(section) });
     }
 
-    // A small split icon on the signal line between two blocks, shown while the mouse is over the gap
-    void drawSplitGaps()
+    // Small buttons on the signal line between blocks, shown while the mouse is over the gap: insert a block there
+    // and, while there's no split, split the chain there (the upper half of the gap inserts, the lower half splits)
+    void drawGaps()
     {
         const ChainLayout& l = fLayout;
-        const float cy = l.rowY[0] + l.tile / 2;
-        for (size_t k = 0; k < l.splitGaps.size(); ++k)
+        const bool canInsert = fChain.blocks.size() < static_cast<size_t>(kMaxBlocks);
+        const bool canSplit = !fChain.split;
+        for (size_t k = 0; k < l.drops.size(); ++k)
         {
-            const float cx = l.splitGaps[k];
+            const DropPoint& drop = l.drops[k];
+            const float cx = drop.x - kTileGap / 2;
+            const float top = l.rowY[drop.row];
+            const float cy = top + l.tile / 2;
             // just the gap, so a click near the edge of a tile still selects the tile
-            const Rect zone { cx - kTileGap / 2, l.rowY[0], kTileGap, l.tile };
-            fHits.push_back({ zone, Hit::Split, static_cast<int>(k) });
+            const Rect zone { cx - kTileGap / 2, top, kTileGap, l.tile };
+            const Rect insertZone = canSplit ? Rect { zone.x, zone.y, zone.w, zone.h / 2 } : zone;
+            const Rect splitZone { zone.x, cy, zone.w, zone.h / 2 };
+            if (canInsert)
+                fHits.push_back({ insertZone, Hit::Insert, static_cast<int>(k) });
+            if (canSplit)
+                fHits.push_back({ splitZone, Hit::Split, drop.position });
             if (!zone.contains(fMouseX, fMouseY) || fDialog != Dialog::None)
                 continue;
-            beginPath();
-            circle(cx, cy, 10.0f);
-            fillColor(theme::background);
-            fill();
-            strokeColor(theme::accent);
-            strokeWidth(1.0f);
-            stroke();
-            // fork: one line in, two out
-            beginPath();
-            moveTo(cx - 5.0f, cy);
-            lineTo(cx - 1.0f, cy);
-            lineTo(cx + 4.5f, cy - 4.0f);
-            moveTo(cx - 1.0f, cy);
-            lineTo(cx + 4.5f, cy + 4.0f);
-            strokeColor(theme::accent);
-            strokeWidth(1.2f);
-            lineCap(ROUND);
-            lineJoin(ROUND);
-            stroke();
-            lineCap(BUTT);
-            lineJoin(MITER);
+            if (canInsert)
+            {
+                const float y = canSplit ? cy - 13.0f : cy;
+                gapButton(cx, y, insertZone.contains(fMouseX, fMouseY));
+                beginPath();
+                moveTo(cx - 4.5f, y);
+                lineTo(cx + 4.5f, y);
+                moveTo(cx, y - 4.5f);
+                lineTo(cx, y + 4.5f);
+                strokeColor(theme::accent);
+                strokeWidth(1.2f);
+                lineCap(ROUND);
+                stroke();
+                lineCap(BUTT);
+            }
+            if (canSplit)
+            {
+                const float y = canInsert ? cy + 13.0f : cy;
+                gapButton(cx, y, splitZone.contains(fMouseX, fMouseY));
+                // fork: one line in, two out
+                beginPath();
+                moveTo(cx - 5.0f, y);
+                lineTo(cx - 1.0f, y);
+                lineTo(cx + 4.5f, y - 4.0f);
+                moveTo(cx - 1.0f, y);
+                lineTo(cx + 4.5f, y + 4.0f);
+                strokeColor(theme::accent);
+                strokeWidth(1.2f);
+                lineCap(ROUND);
+                lineJoin(ROUND);
+                stroke();
+                lineCap(BUTT);
+                lineJoin(MITER);
+            }
         }
+    }
+
+    // The round button behind a gap icon; the one under the mouse gets a heavier ring
+    void gapButton(float cx, float cy, bool hover)
+    {
+        beginPath();
+        circle(cx, cy, 10.0f);
+        fillColor(theme::background);
+        fill();
+        strokeColor(theme::accent);
+        strokeWidth(hover ? 2.0f : 1.0f);
+        stroke();
+    }
+
+    // The right end of the chain's last tile, + box or merge, as laid out (scrolled)
+    float chainRight() const
+    {
+        const ChainLayout& l = fLayout;
+        float right = 0.0f;
+        for (const Rect& r : l.tiles)
+            right = std::max(right, r.x + r.w);
+        for (const Rect& r : l.add)
+            if (r.w > 0.0f)
+                right = std::max(right, r.x + r.w);
+        if (fChain.split)
+            right = std::max(right, l.merge.x + l.merge.w);
+        return right;
+    }
+
+    void setScrollX(float x)
+    {
+        fScrollX = std::clamp(x, 0.0f, fMaxScrollX);
+        repaint();
+    }
+
+    float scrollThumbX() const
+    {
+        return fScrollTrack.x + (fScrollTrack.w - fScrollThumbW) * (fMaxScrollX > 0.0f ? fScrollX / fMaxScrollX : 0.0f);
+    }
+
+    // A thin scroll bar under the chain, when it's wider than the window
+    void drawChainScrollBar()
+    {
+        if (fMaxScrollX <= 0.0f)
+        {
+            fScrollTrack = Rect {};
+            return;
+        }
+        fScrollTrack = { 16.0f, kChainTop + fLayout.height + 9.0f, fWidth - 32.0f, 5.0f };
+        fScrollThumbW = std::max(40.0f, fScrollTrack.w * fWidth / (fWidth + fMaxScrollX));
+        const Rect grab { fScrollTrack.x, fScrollTrack.y - 5.0f, fScrollTrack.w, fScrollTrack.h + 10.0f };
+        const bool hot = fScrollDragging || fPanning || grab.contains(fMouseX, fMouseY);
+        fillRect(fScrollTrack.x, fScrollTrack.y, fScrollTrack.w, fScrollTrack.h, theme::inset, 2.5f);
+        fillRect(scrollThumbX(), fScrollTrack.y, fScrollThumbW, fScrollTrack.h, hot ? theme::accent : theme::border,
+                 2.5f);
+        fHits.push_back({ grab, Hit::ChainScroll, 0 });
     }
 
     void drawMergeTile()
@@ -4267,7 +4441,8 @@ private:
         surface(x, y, w, h, 12.0f, Surface::Dialog);
         fHits.push_back({ { x, y, w, h }, Hit::DialogPanel, 0 });
 
-        label(x + 20.0f, y + 26.0f, "Add Block", theme::text, 16.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        label(x + 20.0f, y + 26.0f, fReplaceSlot >= 0 ? "Replace Block" : "Add Block", theme::text, 16.0f,
+              ALIGN_LEFT | ALIGN_MIDDLE);
         const Rect close { x + w - 40.0f, y + 10.0f, 30.0f, 30.0f };
         label(close.x + 15.0f, close.y + 15.0f, "×", theme::textDim, 22.0f, ALIGN_CENTER | ALIGN_MIDDLE);
         fHits.push_back({ close, Hit::DialogClose, 0 });
@@ -4983,7 +5158,9 @@ private:
     ChainState fChain;
     int fSelected = -1;
     bool fMergeSelected = false;
-    Section fAddSection = Section::Pre; // where the block picked in the file browser goes
+    Section fAddSection = Section::Pre; // where the block picked in Add Block (or the file browser) goes
+    int fAddPosition = kMaxBlocks;      // ... its position in that section (kMaxBlocks: the end)
+    int fReplaceSlot = -1;              // ... or the slot of the block it replaces
     ChainLayout fLayout;
 
     std::vector<HitArea> fHits;
@@ -4991,6 +5168,12 @@ private:
     float fHeight = DISTRHO_UI_DEFAULT_HEIGHT;
     float fMouseX = -1.0f, fMouseY = -1.0f;
     float fScrollX = 0.0f;
+    float fMaxScrollX = 0.0f;   // how far the chain scrolls (0: it fits)
+    Rect fScrollTrack;          // the scroll bar, as last drawn
+    float fScrollThumbW = 0.0f;
+    bool fScrollDragging = false; // dragging the scroll bar's thumb
+    bool fPanning = false;        // middle-dragging the chain
+    float fScrollGrabX = 0.0f, fScrollGrabValue = 0.0f;
 
     int fDragParam = -1;
     int fMomentaryParam = -1; // a momentary button being held

@@ -263,7 +263,7 @@ Notes:
 - DPF UI with NanoVG drawing. Resizable, with HiDPI scaling. The default logical size is ~1200 × 720 and the minimum is ~900 × 560.
 - Layout:
   - **Top bar**: preset menu and preset name, undo/redo; on the right, icon buttons for the Fretbored link (the Fretbored app icon, drawn flat in the icon colour from its `assets/icon.svg`), the metronome (with ▾ for its panel), the tuner, settings and global bypass.
-  - **Middle**: the chain, left to right, with square block tiles and "+" boxes. A split shows as two rows that rejoin at the merge.
+  - **Middle**: the chain, left to right, with square block tiles and "+" boxes. A split shows as two rows that rejoin at the merge. Hovering the gap between two blocks shows two small buttons: insert a block there (upper half) and, with no split yet, split there (lower half). A chain wider than the window scrolls with the mouse wheel, a thin scroll bar under it, or a middle-drag anywhere over it. Right-clicking a block offers Replace Block…, which opens Add Block and puts the new block in its place and slot (one undo step).
   - **Below the chain**: the selected block's panel: a large block image on the left (placeholder art until real pedal/amp/cab images exist), the name and file above the controls, and the generic controls right-justified in one or more rows. The generic knobs may later go away in favour of turning knobs on the image itself.
   - **Bottom bar**: mono/stereo toggle, input, bass, middle, treble and output knobs, input/output meters with clip lights (click to reset), limiter on/off.
 - **Interactions**:
