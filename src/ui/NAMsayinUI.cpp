@@ -145,6 +145,7 @@ enum class Hit {
     MetroResetAccents,
     Tap,          // tap tempo
     Fretbored,    // open the Fretbored web app
+    GitHub,       // open the project's GitHub page
     A2Size,       // index = position in the chain
     Choice,       // index = host parameter; click steps to the next choice
     InClip,
@@ -253,6 +254,7 @@ struct ChainLayout {
 };
 
 constexpr const char* kFretboredUrl = "https://singularity098.github.io/fretbored/";
+constexpr const char* kGitHubUrl = "https://github.com/singularity098/namsayin";
 constexpr double kTapTimeout = 2.0; // seconds between taps before tap tempo starts over
 constexpr int kNoteValues[4] = { 2, 4, 8, 16 };
 
@@ -1084,6 +1086,10 @@ protected:
 
         case Hit::Fretbored:
             openUrl(kFretboredUrl);
+            return true;
+
+        case Hit::GitHub:
+            openUrl(kGitHubUrl);
             return true;
 
         case Hit::Step:
@@ -2733,7 +2739,7 @@ private:
         fHits.push_back({ r, kind, index });
     }
 
-    enum class Icon { Power, Gear, TuningFork, Metronome, Fretbored };
+    enum class Icon { Power, Gear, TuningFork, Metronome, Fretbored, GitHub };
 
     // A square button with an icon instead of a label
     void drawIconButton(const Rect& r, Icon icon, bool on, Hit kind, int index)
@@ -2863,6 +2869,30 @@ private:
             stroke(); // outlined notes, to match the hairline icons
             break;
         }
+
+        case Icon::GitHub:
+            // the GitHub mark in outline: a ring, and inside it the cat's head with its ears, its neck running
+            // down to the ring and its tail curling out to the left
+            beginPath();
+            circle(cx, cy, 9.5f);
+            stroke();
+            beginPath();
+            moveTo(cx - 1.8f, cy + 9.3f);
+            lineTo(cx - 1.8f, cy + 4.6f);
+            bezierTo(cx - 3.8f, cy + 4.0f, cx - 4.6f, cy + 2.4f, cx - 4.6f, cy + 0.4f);
+            bezierTo(cx - 4.6f, cy - 0.8f, cx - 4.3f, cy - 1.6f, cx - 3.8f, cy - 2.2f);
+            lineTo(cx - 3.8f, cy - 5.0f);
+            lineTo(cx - 1.8f, cy - 3.7f);
+            bezierTo(cx - 0.6f, cy - 4.0f, cx + 0.6f, cy - 4.0f, cx + 1.8f, cy - 3.7f);
+            lineTo(cx + 3.8f, cy - 5.0f);
+            lineTo(cx + 3.8f, cy - 2.2f);
+            bezierTo(cx + 4.3f, cy - 1.6f, cx + 4.6f, cy - 0.8f, cx + 4.6f, cy + 0.4f);
+            bezierTo(cx + 4.6f, cy + 2.4f, cx + 3.8f, cy + 4.0f, cx + 1.8f, cy + 4.6f);
+            lineTo(cx + 1.8f, cy + 9.3f);
+            moveTo(cx - 1.8f, cy + 6.4f);
+            bezierTo(cx - 3.4f, cy + 6.9f, cx - 4.2f, cy + 5.4f, cx - 5.4f, cy + 5.0f);
+            stroke();
+            break;
         }
         lineCap(BUTT);
         lineJoin(MITER);
@@ -2938,6 +2968,10 @@ private:
                      "Opens the settings: the folders for your NAM and IR files, the default NAM A2 size, volume "
                      "normalization for new blocks, parallel processing of a split on a second CPU core, and the "
                      "highlight colour." };
+        case Hit::GitHub:
+            return { "NAMsayin on GitHub",
+                     "Opens NAMsayin's page on GitHub in your web browser: the source code, new releases, and the "
+                     "place to report a bug or suggest a feature." };
         case Hit::Fretbored:
             return { "Fretbored",
                      "Opens Fretbored in your web browser: a free app for learning the guitar neck, with scales, "
@@ -3370,7 +3404,10 @@ private:
         // preset menu with the preset's name (• when changed since it was saved or opened)
         constexpr float by = 12.0f, bh = 36.0f;
         const std::string preset = presetName() + (presetModified() ? " •" : "");
-        const Rect presetButton { logoRight + 28.0f, by, 280.0f, bh };
+        // narrower on a small window, so the icon buttons on the right (316 px with both links) still fit
+        const float presetWidth = std::clamp(fWidth - 316.0f - 12.0f - (logoRight + 28.0f) - 8.0f - 158.0f, 160.0f,
+                                             280.0f);
+        const Rect presetButton { logoRight + 28.0f, by, presetWidth, bh };
         fPresetButtonX = presetButton.x;
         const bool presetMenuOpen = fDialog == Dialog::Menu && fMenuParam == kNoParam;
         drawButton(presetButton, preset.c_str(), presetMenuOpen, theme::accent, Hit::PresetMenu, 0);
@@ -3411,9 +3448,15 @@ private:
         drawChevron(metroPanel.x + metroPanel.w / 2, metroPanel.y + metroPanel.h / 2,
                     fMetroPanel ? theme::accent : theme::text);
 
-        // only when there's room next to the MIDI learn message
-        if (fLearnParam < 0 || fWidth >= 1200.0f)
-            drawIconButton({ metro.x - step, by, iw, bh }, Icon::Fretbored, false, Hit::Fretbored, 0);
+        // the links, Fretbored and then GitHub, as far as there's room: past the Redo button, and not at all
+        // next to the MIDI learn message unless the window is wide
+        const float room = fLearnParam >= 0 && fWidth < 1200.0f ? metro.x : redo.x + redo.w + 12.0f;
+        const Rect fretbored { metro.x - step, by, iw, bh };
+        const Rect github { fretbored.x - step, by, iw, bh };
+        if (fretbored.x >= room)
+            drawIconButton(fretbored, Icon::Fretbored, false, Hit::Fretbored, 0);
+        if (github.x >= room)
+            drawIconButton(github, Icon::GitHub, false, Hit::GitHub, 0);
     }
 
     // 1 right after a beat, fading to 0 over 150 ms

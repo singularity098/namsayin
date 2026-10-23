@@ -39,6 +39,7 @@
 - Has a linear signal chain which runs from left to right, where users can add NAM, IR, or built-in effects, up to a maximum of 32 blocks
 - Near the metronome and tuner is another button which links to my other free application Fretbored: https://singularity098.github.io/fretbored/
 - The buttons at the top right of the window (Fretbored, metronome, tuner, settings, bypass) are icons that show what they do; the Fretbored button uses the Fretbored app icon (owner's request, 2026-10-22)
+- A GitHub button (the GitHub mark, in the icons' hairline style) next to the Fretbored button opens the project's GitHub page, https://github.com/singularity098/namsayin (owner's request, 2026-10-23)
 - Every knob and control has a highly detailed but easy to understand plain-English explanation of what it does and how to use it, shown in a translucent popup when the mouse hovers over it (owner's request, 2026-10-22)
 - The signal chain may be split into 2 at any point, and then merged back into 1 at any other point, allowing for effects to run in parallel, or multiple NAM simultaneously
     - Only one split at a time
