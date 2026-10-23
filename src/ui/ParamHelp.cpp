@@ -1242,6 +1242,30 @@ constexpr BlockHelp kBlockHelp[] = {
       "clean." },
     { "chipsynth", "Octave", SYNTH_OCTAVE_HELP },
     { "chipsynth", "Mix", SYNTH_MIX_HELP },
+
+    // Poly Chip
+    { "polychip", "Wave",
+      "The console's waveforms: thin, nasal pulses at 12% and 25%, a hollow 50% square, or the stepped, "
+      "flute-like triangle used for basses." },
+    { "polychip", "Voices",
+      "How many notes can sound at once. 3 or 4 suit most chords; 1 plays only the loudest note, like the mono "
+      "Chip Synth. Old consoles had 2 or 3." },
+    { "polychip", "Focus",
+      "How hard it ignores the overtones of your notes. A guitar string also rings at an octave, an octave and a "
+      "fifth and so on above its note, and those can turn into extra synth notes. Raise Focus if you hear notes you "
+      "didn't play; lower it if chord notes an octave or a fifth above another go missing." },
+    { "polychip", "Arp",
+      "Plays the notes of your chord one after another instead of together, the way game music does it: Up from the "
+      "lowest note, Down from the highest. Off plays the whole chord." },
+    { "polychip", "Arp Rate",
+      "How fast the arpeggio steps through your chord, in notes per second. Fast rates blur into a shimmering chord; "
+      "slower ones sound like separate notes." },
+    { "polychip", "Release", SYNTH_RELEASE_HELP },
+    { "polychip", "Crush",
+      "The console's coarse volume and sample steps. Turn it up for a grittier, more lo-fi 8-bit sound; 0% is "
+      "clean." },
+    { "polychip", "Octave", SYNTH_OCTAVE_HELP },
+    { "polychip", "Mix", SYNTH_MIX_HELP },
 };
 
 #undef MIX_HELP
@@ -1508,6 +1532,10 @@ constexpr TypeHelp kTypeHelp[] = {
       "An 8-bit game console synth: thin pulse waves or a stepped triangle, notes snapped to semitones, fast "
       "arpeggios that fake chords, and a delayed vibrato, for chiptune leads and basses. Play single notes; put it "
       "first in the chain." },
+    { "polychip",
+      "A polyphonic 8-bit synth: it hears every note you play, chords included, and plays each one as a pulse or "
+      "triangle voice snapped to the semitone, or arpeggiates the chord. Low notes take a moment longer to speak "
+      "than in the mono synths. Play cleanly and put it first in the chain." },
 };
 
 struct GlobalHelp {

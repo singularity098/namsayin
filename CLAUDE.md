@@ -8,7 +8,7 @@ NAMsayin is a guitar rig plugin (VST3 + LV2) in C++20, built with DPF (plugin fr
 
 - **Requirements**: `docs/Requirements.md` — the owner's feature list plus agreed decisions. Treat it as the source of truth; record new decisions there.
 - **Architecture and milestones**: `docs/Architecture.md` — design, v1 milestones (M0–M10) and decisions log.
-- **Current milestone**: M1, M2 (minus resampling), M3 (delay, reverb, compressor), M5 (library, settings), M6 (split/merge), M7 (presets, undo/redo, MIDI learn), M8 (tuner) and M9 (metronome) are done, and M4 is done except real block images (the owner is providing them; the Doubler has one). The IR loader (local .wav cab IRs) and the Doppelganger Delay (echoes alternate flanger/chorus; `docs/Architecture.md` 4.7b) are also done, at the owner's request, and so is the pedal set, including the second set of 18, six more synths and the Modulation Sweeper (sweeps between 2-3 of chorus/flanger/phaser/vibrato; `docs/Requirements.md` "Pedals", Architecture 4.11; owner's call: no rush to v1). Next: M10 (v1.0 release: performance, DAW testing, docs).
+- **Current milestone**: M1, M2 (minus resampling), M3 (delay, reverb, compressor), M5 (library, settings), M6 (split/merge), M7 (presets, undo/redo, MIDI learn), M8 (tuner) and M9 (metronome) are done, and M4 is done except real block images (the owner is providing them; the Doubler has one). The IR loader (local .wav cab IRs) and the Doppelganger Delay (echoes alternate flanger/chorus; `docs/Architecture.md` 4.7b) are also done, at the owner's request, and so is the pedal set, including the second set of 18, six more synths, the Poly Chip (polyphonic chip synth) and the Modulation Sweeper (sweeps between 2-3 of chorus/flanger/phaser/vibrato; `docs/Requirements.md` "Pedals", Architecture 4.11; owner's call: no rush to v1). Next: M10 (v1.0 release: performance, DAW testing, docs).
 
 ## Fixed decisions (don't revisit without the owner)
 
@@ -57,7 +57,8 @@ src/engine/           Audio engine, independent of DPF (static library `namsayin
                       shimmer, freeze, tape echo, ducking delay, synth, looper, harmonizer, filter; second set: gated fuzz,
                       envelope drive, kill switch, barber pole, warble, slicer, bloom and gated reverb, reverse and pitch
                       delay, beat repeat, detune, capo, arpeggiator, organ, sustainer, robot filter, talk box;
-                      SynthBlocks: super saw, FM, fold, acid, string machine and chip synths)
+                      SynthBlocks: super saw, FM, fold, acid, string machine and chip synths;
+                      PolyChipBlock: polyphonic chip synth from a semitone filter bank)
 src/state/            Plain data shared by DSP and UI, no DPF:
   ChainState          the chain (JSON; the split is a block range + per-block branch tag)
   ChainExchange       chain file route for hosts that drop UI state messages

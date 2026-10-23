@@ -25,6 +25,7 @@
 #include "engine/blocks/OctaveBlock.hpp"
 #include "engine/blocks/PhaserBlock.hpp"
 #include "engine/blocks/PitchBlocks.hpp"
+#include "engine/blocks/PolyChipBlock.hpp"
 #include "engine/blocks/ReverbBlock.hpp"
 #include "engine/blocks/RhythmBlocks.hpp"
 #include "engine/blocks/RingModBlock.hpp"
@@ -129,6 +130,7 @@ const BlockRegistry& BlockRegistry::builtin()
         &kAcidSynthBlockDescriptor,
         &kStringSynthBlockDescriptor,
         &kChipSynthBlockDescriptor,
+        &kPolyChipBlockDescriptor,
         &kFilterBlockDescriptor,
         &kRobotFilterBlockDescriptor,
         &kWahBlockDescriptor,

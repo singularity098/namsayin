@@ -115,6 +115,7 @@ add_library(namsayin-engine STATIC
   src/engine/blocks/OctaveBlock.cpp
   src/engine/blocks/PhaserBlock.cpp
   src/engine/blocks/PitchBlocks.cpp
+  src/engine/blocks/PolyChipBlock.cpp
   src/engine/blocks/ReverbBlock.cpp
   src/engine/blocks/RhythmBlocks.cpp
   src/engine/blocks/RingModBlock.cpp

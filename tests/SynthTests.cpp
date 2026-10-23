@@ -6,9 +6,11 @@
 #include <doctest/doctest.h>
 
 #include "TestSupport.hpp"
+#include "engine/blocks/PolyChipBlock.hpp"
 #include "engine/blocks/SynthBlocks.hpp"
 #include "engine/dsp/Biquad.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -91,7 +93,7 @@ TEST_CASE("every synth plays the note you play, and an octave down when asked")
 {
     for (const BlockDescriptor* type : { &kSuperSawBlockDescriptor, &kFmSynthBlockDescriptor, &kFoldSynthBlockDescriptor,
                                          &kAcidSynthBlockDescriptor, &kStringSynthBlockDescriptor,
-                                         &kChipSynthBlockDescriptor })
+                                         &kChipSynthBlockDescriptor, &kPolyChipBlockDescriptor })
     {
         const std::string typeId = type->typeId;
         CAPTURE(typeId);
@@ -247,4 +249,136 @@ TEST_CASE("chip synth snaps to semitones and arpeggiates")
     auto y = note(445.0, 48000);
     testing::runBlock(*block, y);
     CHECK(toneAt(y[0], 880.0, 24000, 48000) > 0.3 * toneAt(y[0], 440.0, 24000, 48000));
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Poly Chip
+
+namespace {
+
+// Several guitar-like notes at once (with the note() helper's harmonics), or pure sines
+std::vector<std::vector<float>> chord(const std::vector<double>& notes, size_t length, bool harmonics = true)
+{
+    std::vector<std::vector<float>> x(1, std::vector<float>(length, 0.0f));
+    for (const double hz : notes)
+    {
+        const auto one = note(hz, length);
+        for (size_t i = 0; i < length; ++i)
+        {
+            const double t = static_cast<double>(i) / kRate;
+            x[0][i] += harmonics ? one[0][i] : static_cast<float>(0.2 * std::sin(2 * M_PI * hz * t));
+        }
+    }
+    return x;
+}
+
+std::unique_ptr<Block> polyChip()
+{
+    auto block = make(kPolyChipBlockDescriptor);
+    block->setParam(kPolyChipParamWave, 2.0f); // a square: no even harmonics of its own
+    block->setParam(kPolyChipParamCrush, 0.0f);
+    return block;
+}
+
+double semitone(int midi)
+{
+    return 440.0 * std::exp2((midi - 69) / 12.0);
+}
+
+} // namespace
+
+TEST_CASE("poly chip plays one note, without the string's harmonics")
+{
+    for (const int midi : { 40, 55, 69, 81 }) // E2, G3, A4, A5
+    {
+        CAPTURE(midi);
+        const double hz = semitone(midi);
+        auto block = polyChip();
+        auto x = note(hz * std::exp2(0.2 / 12.0), 48000); // 20 cents sharp: snapped to the semitone
+        testing::runBlock(*block, x);
+        const double played = toneAt(x[0], hz, 24000, 48000);
+        CHECK(played > 0.05);
+        if (midi >= 69) // a 0.5 s window can't tell 20 cents apart on low notes
+            CHECK(played > 4.0 * toneAt(x[0], hz * std::exp2(0.2 / 12.0), 24000, 48000));
+        CHECK(toneAt(x[0], 2.0 * hz, 24000, 48000) < 0.1 * played); // no octave voice from the 2nd harmonic
+        CHECK(played > 5.0 * toneAt(x[0], hz * std::exp2(-1.0 / 12.0), 24000, 48000));
+        CHECK(played > 5.0 * toneAt(x[0], hz * std::exp2(1.0 / 12.0), 24000, 48000));
+    }
+}
+
+TEST_CASE("poly chip plays every note of a chord")
+{
+    // an open E major chord, low strings: E2 B2 E3 G#3 B3 (the upper E and B are octaves of lower notes, so they're
+    // heard as harmonics); and a C major triad higher up
+    for (const auto& notes : { std::vector<int> { 40, 47, 56 }, std::vector<int> { 60, 64, 67 } })
+    {
+        auto block = polyChip();
+        std::vector<double> hz;
+        for (const int midi : notes)
+            hz.push_back(semitone(midi));
+        auto x = chord(hz, 48000);
+        testing::runBlock(*block, x);
+        double weakest = 1.0;
+        for (const int midi : notes)
+        {
+            CAPTURE(midi);
+            const double level = toneAt(x[0], semitone(midi), 24000, 48000);
+            CHECK(level > 0.04);
+            weakest = std::min(weakest, level);
+        }
+        // not a note of the chord, nor a semitone off one
+        for (const int off : { -1, 1, 2 })
+            CHECK(toneAt(x[0], semitone(notes[1] + off), 24000, 48000) < 0.2 * weakest);
+    }
+}
+
+TEST_CASE("poly chip voices: 1 plays only the loudest note")
+{
+    auto block = polyChip();
+    block->setParam(kPolyChipParamVoices, 1.0f);
+    std::vector<std::vector<float>> x(1, std::vector<float>(48000, 0.0f));
+    for (size_t i = 0; i < x[0].size(); ++i)
+    {
+        const double t = static_cast<double>(i) / kRate;
+        x[0][i] = static_cast<float>(0.1 * std::sin(2 * M_PI * semitone(48) * t) + 0.3 * std::sin(2 * M_PI * semitone(55) * t));
+    }
+    testing::runBlock(*block, x);
+    const double loud = toneAt(x[0], semitone(55), 24000, 48000);
+    CHECK(loud > 0.05);
+    CHECK(toneAt(x[0], semitone(48), 24000, 48000) < 0.05 * loud);
+}
+
+TEST_CASE("poly chip arpeggiates the chord, one note at a time")
+{
+    const std::vector<int> notes { 48, 55, 64 }; // C3 G3 E4: far enough apart to tell in short windows
+    auto block = polyChip();
+    block->setParam(kPolyChipParamArp, static_cast<float>(PolyChipArp::Up));
+    block->setParam(kPolyChipParamArpRate, 10.0f);
+    auto x = chord({ semitone(48), semitone(55), semitone(64) }, 96000, false);
+    testing::runBlock(*block, x);
+    // each note gets its turn
+    for (const int midi : notes)
+        CHECK(toneAt(x[0], semitone(midi), 24000, 96000) > 0.02);
+    // and in most short windows one note dominates
+    int clear = 0, windows = 0;
+    for (size_t from = 24000; from + 2400 <= 96000; from += 2400, ++windows)
+    {
+        std::vector<double> levels;
+        for (const int midi : notes)
+            levels.push_back(toneAt(x[0], semitone(midi), from, from + 2400));
+        std::sort(levels.begin(), levels.end());
+        if (levels[2] > 3.0 * levels[1])
+            ++clear;
+    }
+    CHECK(clear >= windows / 2);
+}
+
+TEST_CASE("poly chip falls silent after the chord")
+{
+    auto block = polyChip();
+    auto x = chord({ semitone(52), semitone(56), semitone(59) }, 48000);
+    std::fill(x[0].begin() + 24000, x[0].end(), 0.0f);
+    testing::runBlock(*block, x);
+    CHECK(testing::rms(x[0], 12000, 24000) > 0.05);
+    CHECK(testing::rms(x[0], 24000 + ms(400), 48000) < 1e-4);
 }
