@@ -17,6 +17,7 @@
 #include "engine/blocks/FlangerBlock.hpp"
 #include "engine/blocks/GateBlock.hpp"
 #include "engine/blocks/LooperBlock.hpp"
+#include "engine/blocks/ModSweeperBlock.hpp"
 #include "engine/blocks/OctaveBlock.hpp"
 #include "engine/blocks/PhaserBlock.hpp"
 #include "engine/blocks/PitchBlocks.hpp"
@@ -286,6 +287,146 @@ TEST_CASE("doubler pans a delayed take out to one side")
     CHECK(leftLate < 1e-3);
     CHECK(rightLate > 0.5);
     CHECK(x[0][0] == doctest::Approx(1.0f)); // dry stays at full level at 50% mix
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Modulation sweeper
+
+namespace {
+
+std::vector<std::vector<float>> noise(size_t length, uint32_t seed = 7)
+{
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<float> dist(-0.5f, 0.5f);
+    std::vector<std::vector<float>> x(1, std::vector<float>(length));
+    for (float& v : x[0])
+        v = dist(rng);
+    return x;
+}
+
+// The lag (0..400 samples) at which `out` best matches `in` over [from, to)
+int bestLag(const std::vector<float>& out, const std::vector<float>& in, size_t from, size_t to)
+{
+    int best = -1;
+    double bestCorr = 0.0;
+    for (int lag = 0; lag <= 400; ++lag)
+    {
+        double corr = 0.0;
+        for (size_t i = from; i < to; ++i)
+            corr += static_cast<double>(out[i]) * in[i - lag];
+        if (corr > bestCorr)
+        {
+            bestCorr = corr;
+            best = lag;
+        }
+    }
+    return best;
+}
+
+// A sweeper whose effects are plain delays, so each one can be told apart by its lag: with no depth, no feedback
+// and full mix the vibrato delays by 5 ms (239 samples), the flanger by 1.5 ms (72) and the chorus by 7 ms (335)
+std::unique_ptr<Block> sweeperOfDelays(SweeperEffect e1, SweeperEffect e2, int e3, SweeperPattern pattern)
+{
+    auto block = make(kModSweeperBlockDescriptor);
+    block->setParam(kSweeperParamEffect1, static_cast<float>(e1));
+    block->setParam(kSweeperParamEffect2, static_cast<float>(e2));
+    block->setParam(kSweeperParamEffect3, static_cast<float>(e3));
+    block->setParam(kSweeperParamPattern, static_cast<float>(pattern));
+    block->setParam(kSweeperParamSweepRate, 1.0f);
+    block->setParam(kSweeperParamGlide, 0.0f);
+    block->setParam(kSweeperParamDepth, 0.0f);
+    block->setParam(kSweeperParamMix, 100.0f);
+    block->setParam(kSweeperParamFeedback, 0.0f);
+    return block;
+}
+
+// The lag in the middle of each one-second step
+std::vector<int> stepLags(Block& block, int steps)
+{
+    auto x = noise(static_cast<size_t>(steps) * 48000);
+    const auto dry = x;
+    testing::runBlock(block, x);
+    std::vector<int> lags;
+    for (int s = 0; s < steps; ++s)
+        lags.push_back(bestLag(x[0], dry[0], s * 48000 + 12000, s * 48000 + 36000));
+    return lags;
+}
+
+} // namespace
+
+TEST_CASE("modulation sweeper at zero mix is dry all through its sweep, and doesn't allocate")
+{
+    auto block = make(kModSweeperBlockDescriptor);
+    block->setParam(kSweeperParamEffect3, 3.0f); // phaser
+    block->setParam(kSweeperParamSweepRate, 4.0f);
+    block->setParam(kSweeperParamMix, 0.0f);
+    auto x = sine(440.0, 0.5f, 48000);
+    const auto dry = x;
+    int allocations = 0;
+    testing::runBlock(*block, x, 128, &allocations);
+    CHECK(allocations == 0);
+    for (size_t i = 0; i < x[0].size(); ++i)
+        REQUIRE(x[0][i] == doctest::Approx(dry[0][i]).epsilon(1e-4));
+}
+
+TEST_CASE("modulation sweeper steps between two effects")
+{
+    auto block = sweeperOfDelays(SweeperEffect::Vibrato, SweeperEffect::Flanger, 0, SweeperPattern::BackAndForth);
+    CHECK(stepLags(*block, 4) == std::vector<int> { 239, 72, 239, 72 });
+}
+
+TEST_CASE("modulation sweeper patterns with three effects")
+{
+    const int chorus = static_cast<int>(SweeperEffect::Chorus) + 1;
+    auto backAndForth =
+        sweeperOfDelays(SweeperEffect::Vibrato, SweeperEffect::Flanger, chorus, SweeperPattern::BackAndForth);
+    CHECK(stepLags(*backAndForth, 6) == std::vector<int> { 239, 72, 335, 72, 239, 72 });
+    auto cycle = sweeperOfDelays(SweeperEffect::Vibrato, SweeperEffect::Flanger, chorus, SweeperPattern::Cycle);
+    CHECK(stepLags(*cycle, 6) == std::vector<int> { 239, 72, 335, 239, 72, 335 });
+}
+
+TEST_CASE("modulation sweeper glides between effects")
+{
+    // at 100% glide, halfway through a step the two effects are mixed equally
+    auto block = sweeperOfDelays(SweeperEffect::Vibrato, SweeperEffect::Flanger, 0, SweeperPattern::BackAndForth);
+    block->setParam(kSweeperParamGlide, 100.0f);
+    auto x = noise(48000);
+    const auto dry = x;
+    testing::runBlock(*block, x);
+    double a = 0.0, b = 0.0, energy = 0.0;
+    for (size_t i = 23000; i < 25000; ++i)
+    {
+        a += static_cast<double>(x[0][i]) * dry[0][i - 239];
+        b += static_cast<double>(x[0][i]) * dry[0][i - 72];
+        energy += static_cast<double>(dry[0][i]) * dry[0][i];
+    }
+    CHECK(a / energy == doctest::Approx(0.5).epsilon(0.1));
+    CHECK(b / energy == doctest::Approx(0.5).epsilon(0.1));
+}
+
+TEST_CASE("synced modulation sweeper moves on the beat")
+{
+    auto block = sweeperOfDelays(SweeperEffect::Vibrato, SweeperEffect::Flanger, 0, SweeperPattern::BackAndForth);
+    const ParamSpec& rate = kModSweeperBlockDescriptor.params[kSweeperParamSweepRate];
+    float n = 0.0f;
+    while (std::string(rateNoteName(rateNoteIndex(n))) != "1/4")
+        n += 0.01f;
+    block->setParam(kSweeperParamSweepRate, rate.toValue(n));
+    block->setParam(kSweeperParamSync, 1.0f);
+    block->setTempo(120.0);
+    // the song starts 0.3 beats in: beat 1 (the flanger's step) is at 0.7 beats = 0.35 s = sample 16800
+    auto x = noise(48000);
+    const auto dry = x;
+    const double beatsPerSample = 120.0 / 60.0 / kRate;
+    for (size_t t = 0; t < x[0].size(); t += 128)
+    {
+        block->setSongPosition(0.3 + static_cast<double>(t) * beatsPerSample);
+        float* io[1] = { x[0].data() + t };
+        block->process(io, 1, 128);
+    }
+    CHECK(bestLag(x[0], dry[0], 12000, 16000) == 239);
+    CHECK(bestLag(x[0], dry[0], 17600, 28000) == 72);
+    CHECK(bestLag(x[0], dry[0], 41600, 48000) == 239); // beat 2
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

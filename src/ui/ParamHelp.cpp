@@ -306,6 +306,45 @@ constexpr BlockHelp kBlockHelp[] = {
       "notches. Vibe imitates a Uni-Vibe: a throbbing, liquid sound." },
     { "phaser", "Width", WIDTH_HELP("phaser") },
 
+    // Modulation Sweeper
+    { "modsweeper", "Effect 1",
+      "The first effect of the sweep. The sweeper starts here, then moves on to Effect 2 (and Effect 3, if one is "
+      "picked). Choose from chorus, flanger, phaser and vibrato." },
+    { "modsweeper", "Effect 2", "The second effect of the sweep: the one it moves to after Effect 1. Picking two that contrast, like chorus "
+      "and flanger, makes the sweep easy to hear." },
+    { "modsweeper", "Effect 3",
+      "An optional third effect. None sweeps between Effects 1 and 2 only; pick an effect to sweep through all "
+      "three." },
+    { "modsweeper", "Pattern",
+      "The order it moves through three effects. Back & Forth goes 1, 2, 3, 2, 1, 2... like a pendulum. Cycle goes "
+      "1, 2, 3, 1, 2, 3... With two effects both simply alternate." },
+    { "modsweeper", "Sweep Rate",
+      "How often it moves on to the next effect. 0.25 Hz is a new effect every 4 seconds; 1 Hz every second. Slow "
+      "it right down for a sound that changes over a whole song section." },
+    { "modsweeper", "Sync",
+      SYNC_HELP("sweep rate") " Each note value is one step, so at 1 bar it moves to the next effect every bar, "
+      "right on the downbeat while the DAW plays." },
+    { "modsweeper", "Glide",
+      "How smoothly it moves between effects. At 0% it holds each effect and switches quickly (without a click). "
+      "Around 50% it holds for half the step and morphs over the other half. At 100% it's always morphing from "
+      "one effect into the next." },
+    { "modsweeper", "Depth",
+      "How strong the modulation is, for every effect: how far the chorus and vibrato waver in pitch and how far "
+      "the flanger and phaser sweep." },
+    { "modsweeper", "Mix", MIX_HELP("chorus, flanger and phaser") " The vibrato is always 100% effect." },
+    { "modsweeper", "Feedback",
+      "How intense and resonant the flanger and phaser are. Positive values give the classic jet and whistle; "
+      "negative values a hollow sound. It doesn't change the chorus or vibrato." },
+    { "modsweeper", "Width", WIDTH_HELP("modulation") },
+    { "modsweeper", "Chorus Rate",
+      "How fast the chorus wavers while it's playing. 0.5-1 Hz is lush and gentle; faster rates get wobbly." },
+    { "modsweeper", "Flanger Rate",
+      "How fast the flanger sweeps up and down while it's playing. Slow rates give the classic jet-plane whoosh." },
+    { "modsweeper", "Phaser Rate",
+      "How fast the phaser swirls while it's playing. Slow rates are a gentle swoosh; fast rates bubbly." },
+    { "modsweeper", "Vibrato Rate",
+      "How fast the vibrato wobbles the pitch while it's playing. 4-7 Hz is a typical singer-like vibrato." },
+
     // Tremolo
     { "tremolo", "Rate",
       "How fast the volume pulses. Slow rates give a gentle wave; fast rates a choppy, helicopter-like stutter." },
@@ -1386,6 +1425,11 @@ constexpr TypeHelp kTypeHelp[] = {
       "A phaser whose sweep seems to rise (or fall) forever, like the stripes on a barber's pole, for an endless, "
       "hypnotic swirl that never turns round. Slow rates sound like constant tension building. Put it after drive, "
       "like other modulation." },
+    { "modsweeper",
+      "Several modulation pedals in one that it moves between over time: pick two or three of chorus, flanger, "
+      "phaser and vibrato, and it sweeps from one to the next (back and forth, or round in a cycle) every Sweep "
+      "Rate step, or every bar or beat with Sync. Glide sets how smoothly it morphs. Put it after drive, like other "
+      "modulation." },
     { "warble",
       "The sound of worn tape or a warped record: a slow, uneven pitch wobble with a faster flutter, a darker tone "
       "and a bit of saturation. Use it subtly for lo-fi, nostalgic textures, or deep for a seasick wobble. Put it "

@@ -110,6 +110,7 @@ add_library(namsayin-engine STATIC
   src/engine/blocks/GateBlock.cpp
   src/engine/blocks/IrBlock.cpp
   src/engine/blocks/LooperBlock.cpp
+  src/engine/blocks/ModSweeperBlock.cpp
   src/engine/blocks/NamBlock.cpp
   src/engine/blocks/OctaveBlock.cpp
   src/engine/blocks/PhaserBlock.cpp

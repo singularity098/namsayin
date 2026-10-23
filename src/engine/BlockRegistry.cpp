@@ -20,6 +20,7 @@
 #include "engine/blocks/GateBlock.hpp"
 #include "engine/blocks/IrBlock.hpp"
 #include "engine/blocks/LooperBlock.hpp"
+#include "engine/blocks/ModSweeperBlock.hpp"
 #include "engine/blocks/NamBlock.hpp"
 #include "engine/blocks/OctaveBlock.hpp"
 #include "engine/blocks/PhaserBlock.hpp"
@@ -90,6 +91,7 @@ const BlockRegistry& BlockRegistry::builtin()
         &kFlangerBlockDescriptor,
         &kPhaserBlockDescriptor,
         &kBarberPoleBlockDescriptor,
+        &kModSweeperBlockDescriptor,
         &kTremoloBlockDescriptor,
         &kRotaryBlockDescriptor,
         &kDoublerBlockDescriptor,
