@@ -692,11 +692,16 @@ protected:
             return onRightClick(x, y);
         if (ev.button == kMouseButtonMiddle)
         {
-            // middle-drag anywhere over the chain scrolls it
+            // a middle click on a block enables or bypasses it; middle-drag anywhere else over the chain scrolls it
             const bool chainShown = !fMetroPanel && fParams[kParamTuner] < 0.5f;
             if (!chainShown || fDialog != Dialog::None || y < kChainTop - 12.0f
                 || y > kChainTop + fLayout.height + 20.0f)
                 return false;
+            if (const HitArea* hit = hitAt(x, y); hit && (hit->kind == Hit::Tile || hit->kind == Hit::TileBypass))
+            {
+                toggleBlockBypass(hit->index);
+                return true;
+            }
             fPanning = true;
             fScrollGrabX = x;
             fScrollGrabValue = fScrollX;
@@ -752,6 +757,13 @@ protected:
             return true;
 
         case Hit::Tile:
+            if (doubleClick && fSelected == hit->index)
+            {
+                // double-click a block to replace it
+                fPressTile = -1;
+                openReplaceDialog(hit->index);
+                return true;
+            }
             fSelected = hit->index;
             fMergeSelected = false;
             fPressTile = hit->index;
@@ -761,13 +773,9 @@ protected:
             repaint();
             return true;
 
-        case Hit::TileBypass: {
-            beginEdit();
-            const uint32_t index = slotBypassParam(fChain.blocks[hit->index].slot);
-            setNormalized(index, normalized(index) >= 0.5f ? 0.0f : 1.0f, true);
-            syncBypassToChain(index);
+        case Hit::TileBypass:
+            toggleBlockBypass(hit->index);
             return true;
-        }
 
         case Hit::TileRemove:
             removeBlock(hit->index);
@@ -1257,12 +1265,30 @@ protected:
             repaint();
             return true;
         }
+        const float x = static_cast<float>(ev.pos.getX() / getScaleFactor());
         const float y = static_cast<float>(ev.pos.getY() / getScaleFactor());
+        if (const HitArea* hit = hitAt(x, y); hit && hit->kind == Hit::Knob && ev.delta.getY() != 0.0)
+        {
+            scrollKnob(static_cast<uint32_t>(hit->index), static_cast<float>(ev.delta.getY()), ev.mod & kModifierShift);
+            return true;
+        }
         if (y < kChainTop || y > kChainTop + fLayout.height)
             return false;
         const float delta = static_cast<float>(ev.delta.getY() != 0.0 ? ev.delta.getY() : ev.delta.getX());
         setScrollX(fScrollX - delta * 40.0f);
         return true;
+    }
+
+    // The wheel over a knob turns it: 2% a notch, Shift for fine control. A burst of notches on one knob is one undo step
+    void scrollKnob(uint32_t index, float notches, bool fine)
+    {
+        const auto now = std::chrono::steady_clock::now();
+        if (isSlot(index) && (static_cast<int>(index) != fScrollKnob || now - fScrollKnobAt > std::chrono::seconds(1)))
+            beginEdit();
+        fScrollKnob = static_cast<int>(index);
+        fScrollKnobAt = now;
+        const float step = fine ? 0.002f : 0.02f;
+        setNormalized(index, std::clamp(normalized(index) + notches * step, 0.0f, 1.0f), true);
     }
 
     // Metronome shortcuts, while its panel is open (and so only while this window has the keyboard focus):
@@ -1646,6 +1672,23 @@ private:
     // Call before changing fChain, so the change can be undone
     void beginEdit() { fUndo.push(fChain); }
 
+    void toggleBlockBypass(int block)
+    {
+        beginEdit();
+        const uint32_t index = slotBypassParam(fChain.blocks[block].slot);
+        setNormalized(index, normalized(index) >= 0.5f ? 0.0f : 1.0f, true);
+        syncBypassToChain(index);
+    }
+
+    // Add Block, opened on the block's own category: the block picked there takes this one's place
+    void openReplaceDialog(int block)
+    {
+        fReplaceSlot = fChain.blocks[block].slot;
+        if (const BlockDescriptor* type = BlockRegistry::builtin().find(fChain.blocks[block].typeId))
+            fDialogCategory = type->category;
+        openDialog(Dialog::AddBlock);
+    }
+
     // Replaces the chain (undo, redo, presets): the host gets every block's values back
     void applyChain(ChainState chain)
     {
@@ -1970,12 +2013,12 @@ private:
             fMenuParam = slotBypassParam(fChain.blocks[hit->index].slot);
             std::vector<MenuEntry> entries {
                 { bypassed ? "Enable" : "Bypass", MenuAction::ToggleBypass },
-                { "MIDI Learn bypass", MenuAction::MidiLearn },
             };
+            entries.push_back({ "Replace", MenuAction::ReplaceBlock });
+            entries.push_back({ "Remove", MenuAction::RemoveBlock });
+            entries.push_back({ "MIDI Learn bypass", MenuAction::MidiLearn });
             if (const MidiMapping* mapping = fChain.midiMappingFor(fMenuParam))
                 entries.push_back({ "Clear MIDI " + ccText(*mapping), MenuAction::MidiClear });
-            entries.push_back({ "Replace Block…", MenuAction::ReplaceBlock });
-            entries.push_back({ "Remove", MenuAction::RemoveBlock });
             openMenu(x, y, std::move(entries));
             return true;
         }
@@ -2070,11 +2113,7 @@ private:
             break;
         case MenuAction::ReplaceBlock:
             if (fMenuTile >= 0 && fMenuTile < static_cast<int>(fChain.blocks.size()))
-            {
-                // the block picked in Add Block takes this one's place
-                fReplaceSlot = fChain.blocks[fMenuTile].slot;
-                openDialog(Dialog::AddBlock);
-            }
+                openReplaceDialog(fMenuTile);
             break;
         case MenuAction::PresetNew:
             newPreset();
@@ -5209,6 +5248,8 @@ private:
     float fDragStartY = 0.0f;
     float fDragStartValue = 0.0f;
     uint fLastClickTime = 0;
+    int fScrollKnob = -1; // the knob last turned with the wheel, and when
+    std::chrono::steady_clock::time_point fScrollKnobAt;
 
     int fPressTile = -1;
     float fPressX = 0.0f, fPressY = 0.0f;
