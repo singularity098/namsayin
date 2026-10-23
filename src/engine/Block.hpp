@@ -24,7 +24,8 @@ enum class Category {
     Modulation,
     Reverb,
     Delay,
-    PitchSynth,
+    Pitch,
+    Synth,
     Filter,
     Wah,
 };

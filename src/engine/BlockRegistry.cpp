@@ -53,7 +53,8 @@ const char* categoryName(Category category)
     case Category::Modulation:      return "Modulation";
     case Category::Reverb:          return "Reverb";
     case Category::Delay:           return "Delay";
-    case Category::PitchSynth:      return "Pitch/Synth";
+    case Category::Pitch:           return "Pitch";
+    case Category::Synth:           return "Synth";
     case Category::Filter:          return "Filter";
     case Category::Wah:             return "Wah";
     }
@@ -117,9 +118,9 @@ const BlockRegistry& BlockRegistry::builtin()
         &kHarmonizerBlockDescriptor,
         &kDetuneBlockDescriptor,
         &kCapoBlockDescriptor,
+        &kSustainerBlockDescriptor,
         &kArpeggiatorBlockDescriptor,
         &kOrganBlockDescriptor,
-        &kSustainerBlockDescriptor,
         &kSynthBlockDescriptor,
         &kSuperSawBlockDescriptor,
         &kFmSynthBlockDescriptor,

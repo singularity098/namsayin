@@ -22,6 +22,7 @@
 - Has a built-in very high performance and high accuracy tuner, with traditional or strobe modes. The tuner can be toggled on with a button in the top-right of the window.  The guitar sound is by default muted when the tuner is engaged, but the mute also can be toggled on or off
     - The tuner reads the dry input (before the signal chain), with a gain boost so that quiet inputs are not a problem
     - Adjustable reference pitch (A4 = 415–466 Hz, default 440)
+    - Drawn in the knobs' style: a hairline tick scale lit from the centre to the pitch with a dot for the needle; the strobe's bands are tick lines (owner's request, 2026-10-23)
     - Accuracy target: ±0.1 cent, from a 5-string bass's low B (31 Hz) up to the 24th fret of a guitar's high E string
 - Also has a built-in metronome which can be toggled on and off from a button next to the tuner. It has the same features as the metronome in Fretbored (https://github.com/singularity098/fretbored):
     - Tempo 20–300 BPM, tap tempo
@@ -31,7 +32,7 @@
     - Sounds: Classic, Digital and Beep; separate volume for subdivisions. All generated in code, no samples (owner, 2026-10-23: so they are our own; Classic recreates the click the owner supplied)
     - Trainer: Step mode (+N BPM every M bars from start to end tempo) and Gradual mode (smooth ramp over N bars); works for slowing down too
     - Gap trainer: play N bars, then mute M bars
-    - Visual pulse synced to what you hear
+    - Visual pulse synced to what you hear (the swinging pendulum ball was removed: at host redraw rates it looked choppy; owner's request, 2026-10-23)
     - Sample-accurate timing
     - Tempo is independent of the DAW by default; a switch syncs tempo and transport to the DAW instead
     - Keyboard shortcuts only apply while the plugin window has focus
@@ -64,10 +65,14 @@
     - Modulation
     - Reverb
     - Delay
-    - Pitch/Synth
+    - Pitch
+    - Synth (split from "Pitch/Synth", which had grown too cluttered, with its own pedal colour, magenta; owner's request, 2026-10-23)
     - Filter
     - Wah
     - A search box at the top of the dialog searches every category at once (built-in blocks, NAM models and IRs); search boxes have an × to clear them (owner's request, 2026-10-22)
+    - Text fields edit like normal text boxes: click to place the cursor, drag or Shift to select, double-click selects a word, Ctrl+Backspace/Delete remove a word, Ctrl+Left/Right move by word, Home/End, Ctrl+A/C/X/V (owner's request, 2026-10-23)
+    - NAM and IR list the library folder as it's organised: subfolders (and zips) first, opened with a click, and an Up button to go back up; Favorites lists every favorite from all folders (owner's request, 2026-10-23)
+    - The block panel's large pedal art doesn't repeat the block's name, which the panel already shows (owner's request, 2026-10-23)
 - A menu is present at the top of the application to save and load presets
     - Saving keeps presets in the plugin's own preset folder (subfolders allowed), named in an in-app dialog rather than the system save dialog, and without embedded files (owner's decision, 2026-10-22)
     - Export writes a copy anywhere with the system save dialog; exported presets can embed everything they use (NAM files, IRs, images), so they can be shared

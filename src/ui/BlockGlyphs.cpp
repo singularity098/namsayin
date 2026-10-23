@@ -152,6 +152,11 @@ void upArrow(Builder& b)
     b.polyline({ { 48, 96 }, { 62, 82 }, { 76, 96 } });
 }
 
+void sawWave(Builder& b)
+{
+    b.polyline({ { 28, 112 }, { 50, 84 }, { 50, 112 }, { 74, 84 }, { 74, 112 }, { 96, 84 } });
+}
+
 void lowPass(Builder& b) // a resonant low-pass
 {
     b.move(28, 96);
@@ -589,7 +594,8 @@ const Glyph& categoryGlyph(Category category)
         case Category::Distortion: clippedWave(b); break;
         case Category::Modulation: sineWave(b); break;
         case Category::Eq:         bumpAndDip(b); break;
-        case Category::PitchSynth: upArrow(b); break;
+        case Category::Pitch:      upArrow(b); break;
+        case Category::Synth:      sawWave(b); break;
         case Category::Filter:
         case Category::Wah:        lowPass(b); break;
         default:                   b.circle(62, 98, 14); break; // a plain ring

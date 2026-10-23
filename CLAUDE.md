@@ -73,7 +73,8 @@ src/ui/               UI side (UI subclass, NanoVG). FolderPicker: the system fo
                       Tuner and metronome panels are overlays over the chain. OpenUrl.cpp keeps <windows.h> and Vsync.cpp keeps
                       GLX/Xlib out of the DPF code
                       BlockImages.cpp (generated) holds the built-in block images (none at the moment); BlockGlyphs.cpp the
-                      symbol on each pedal's face; ParamHelp.cpp the hover help texts
+                      symbol on each pedal's face; ParamHelp.cpp the hover help texts; TextEdit the text fields' cursor,
+                      selection and word editing (no DPF, tested)
 tests/                doctest unit tests; TestSupport.hpp has a test block and an allocation counter
 docs/                 Requirements and architecture
 resources/fonts/      Jost (variable TTF + OFL.txt); tools/embed_font.py makes the Light and Regular instances into src/ui/FontData.cpp

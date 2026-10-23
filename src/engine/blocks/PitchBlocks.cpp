@@ -1038,7 +1038,7 @@ double whammyIntervalSemitones(int index)
 const BlockDescriptor kPitchShifterBlockDescriptor = {
     "pitch",
     "Pitch Shifter",
-    Category::PitchSynth,
+    Category::Pitch,
     kPitchParamCount,
     {
         ParamSpec { "Shift 1", "st", -24.0f, 24.0f, 12.0f, ParamScale::Linear },
@@ -1056,7 +1056,7 @@ const BlockDescriptor kPitchShifterBlockDescriptor = {
 const BlockDescriptor kWhammyBlockDescriptor = {
     "whammy",
     "Whammy",
-    Category::PitchSynth,
+    Category::Pitch,
     kWhammyParamCount,
     {
         ParamSpec { "Position", "%", 0.0f, 100.0f, 0.0f, ParamScale::Linear },
@@ -1071,7 +1071,7 @@ const BlockDescriptor kWhammyBlockDescriptor = {
 const BlockDescriptor kPolyOctaveBlockDescriptor = {
     "polyoctave",
     "Poly Octave",
-    Category::PitchSynth,
+    Category::Pitch,
     kPolyOctParamCount,
     {
         ParamSpec { "Sub 2", "%", 0.0f, 100.0f, 0.0f, ParamScale::Linear },
@@ -1092,7 +1092,7 @@ namespace namsayin {
 const BlockDescriptor kHarmonizerBlockDescriptor = {
     "harmonizer",
     "Harmonizer",
-    Category::PitchSynth,
+    Category::Pitch,
     kHarmParamCount,
     {
         ParamSpec { "Key", "", 0.0f, 11.0f, 0.0f, ParamScale::Choice, kKeyNames },
@@ -1114,7 +1114,7 @@ namespace namsayin {
 const BlockDescriptor kDetuneBlockDescriptor = {
     "detune",
     "Detune",
-    Category::PitchSynth,
+    Category::Pitch,
     kDetuneParamCount,
     {
         ParamSpec { "Detune", "ct", 1.0f, 50.0f, 10.0f, ParamScale::Linear },
@@ -1129,7 +1129,7 @@ const BlockDescriptor kDetuneBlockDescriptor = {
 const BlockDescriptor kCapoBlockDescriptor = {
     "capo",
     "Capo",
-    Category::PitchSynth,
+    Category::Pitch,
     kCapoParamCount,
     {
         ParamSpec { "Shift", "st", -12.0f, 12.0f, -1.0f, ParamScale::Linear },
@@ -1143,7 +1143,7 @@ const BlockDescriptor kCapoBlockDescriptor = {
 const BlockDescriptor kOrganBlockDescriptor = {
     "organ",
     "Organ",
-    Category::PitchSynth,
+    Category::Synth,
     kOrganParamCount,
     {
         ParamSpec { "Sub", "%", 0.0f, 100.0f, 50.0f, ParamScale::Linear },
@@ -1162,7 +1162,7 @@ const BlockDescriptor kOrganBlockDescriptor = {
 const BlockDescriptor kArpeggiatorBlockDescriptor = {
     "arpeggiator",
     "Arpeggiator",
-    Category::PitchSynth,
+    Category::Synth,
     kArpParamCount,
     {
         ParamSpec { "Chord", "", 0.0f, static_cast<float>(kArpChordCount - 1), 1.0f, ParamScale::Choice, kArpChordNames },
@@ -1184,7 +1184,7 @@ const BlockDescriptor kArpeggiatorBlockDescriptor = {
 const BlockDescriptor kSustainerBlockDescriptor = {
     "sustainer",
     "Sustainer",
-    Category::PitchSynth,
+    Category::Pitch,
     kSustainParamCount,
     {
         ParamSpec { "Sustain", "%", 0.0f, 100.0f, 60.0f, ParamScale::Linear },

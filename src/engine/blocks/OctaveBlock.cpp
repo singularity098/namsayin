@@ -165,7 +165,7 @@ private:
 const BlockDescriptor kOctaveBlockDescriptor = {
     "octave",
     "Octave",
-    Category::PitchSynth,
+    Category::Pitch,
     kOctParamCount,
     {
         ParamSpec { "Sub 1", "%", 0.0f, 100.0f, 70.0f, ParamScale::Linear },

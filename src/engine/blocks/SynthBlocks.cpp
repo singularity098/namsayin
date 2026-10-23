@@ -758,7 +758,7 @@ double fmRatio(int choice)
 const BlockDescriptor kSuperSawBlockDescriptor = {
     "supersaw",
     "Super Saw",
-    Category::PitchSynth,
+    Category::Synth,
     kSuperSawParamCount,
     {
         ParamSpec { "Detune", "ct", 0.0f, 100.0f, 25.0f, ParamScale::Linear },
@@ -779,7 +779,7 @@ const BlockDescriptor kSuperSawBlockDescriptor = {
 const BlockDescriptor kFmSynthBlockDescriptor = {
     "fmsynth",
     "FM Synth",
-    Category::PitchSynth,
+    Category::Synth,
     kFmParamCount,
     {
         ParamSpec { "Ratio", "", 0.0f, static_cast<float>(kFmRatioCount - 1), 1.0f, ParamScale::Choice, kFmRatioNames },
@@ -800,7 +800,7 @@ const BlockDescriptor kFmSynthBlockDescriptor = {
 const BlockDescriptor kFoldSynthBlockDescriptor = {
     "foldsynth",
     "Fold Synth",
-    Category::PitchSynth,
+    Category::Synth,
     kFoldParamCount,
     {
         ParamSpec { "Fold", "%", 0.0f, 100.0f, 30.0f, ParamScale::Linear },
@@ -820,7 +820,7 @@ const BlockDescriptor kFoldSynthBlockDescriptor = {
 const BlockDescriptor kAcidSynthBlockDescriptor = {
     "acidsynth",
     "Acid Synth",
-    Category::PitchSynth,
+    Category::Synth,
     kAcidParamCount,
     {
         ParamSpec { "Wave", "", 0.0f, 1.0f, 0.0f, ParamScale::Choice, kAcidWaveNames },
@@ -841,7 +841,7 @@ const BlockDescriptor kAcidSynthBlockDescriptor = {
 const BlockDescriptor kStringSynthBlockDescriptor = {
     "stringsynth",
     "String Machine",
-    Category::PitchSynth,
+    Category::Synth,
     kStringParamCount,
     {
         ParamSpec { "Low", "%", 0.0f, 100.0f, 50.0f, ParamScale::Linear },
@@ -861,7 +861,7 @@ const BlockDescriptor kStringSynthBlockDescriptor = {
 const BlockDescriptor kChipSynthBlockDescriptor = {
     "chipsynth",
     "Chip Synth",
-    Category::PitchSynth,
+    Category::Synth,
     kChipParamCount,
     {
         ParamSpec { "Wave", "", 0.0f, 3.0f, 1.0f, ParamScale::Choice, kChipWaveNames },

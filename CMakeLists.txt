@@ -168,6 +168,7 @@ dpf_add_plugin(namsayin
     src/ui/ParamHelp.cpp
     src/ui/NAMsayinUI.cpp
     src/ui/OpenUrl.cpp
+    src/ui/TextEdit.cpp
     src/ui/Vsync.cpp)
 
 target_include_directories(namsayin PUBLIC src src/plugin)
@@ -209,10 +210,12 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/ReverbBlockTests.cpp
     tests/SettingsTests.cpp
     tests/SynthTests.cpp
+    tests/TextEditTests.cpp
     tests/TunerTests.cpp
     tests/UndoStackTests.cpp
     src/ui/BlockGlyphs.cpp
-    src/ui/ParamHelp.cpp)
+    src/ui/ParamHelp.cpp
+    src/ui/TextEdit.cpp)
   target_include_directories(namsayin-tests PRIVATE tests deps/doctest src)
   target_link_libraries(namsayin-tests PRIVATE namsayin-engine)
   target_compile_options(namsayin-tests PRIVATE ${NAMSAYIN_WARNINGS})

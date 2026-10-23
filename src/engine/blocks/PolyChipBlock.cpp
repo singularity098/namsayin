@@ -388,7 +388,7 @@ private:
 const BlockDescriptor kPolyChipBlockDescriptor = {
     "polychip",
     "Poly Chip",
-    Category::PitchSynth,
+    Category::Synth,
     kPolyChipParamCount,
     {
         ParamSpec { "Wave", "", 0.0f, 3.0f, 1.0f, ParamScale::Choice, kWaveNames },

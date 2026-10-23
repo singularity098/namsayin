@@ -171,7 +171,7 @@ private:
 const BlockDescriptor kSynthBlockDescriptor = {
     "synth",
     "Synth",
-    Category::PitchSynth,
+    Category::Synth,
     kSynthParamCount,
     {
         ParamSpec { "Wave", "", 0.0f, 3.0f, 1.0f, ParamScale::Choice, kWaveNames },
