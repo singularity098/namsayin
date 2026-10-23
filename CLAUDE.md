@@ -15,7 +15,7 @@ NAMsayin is a guitar rig plugin (VST3 + LV2) in C++20, built with DPF (plugin fr
 - Formats: VST3 and LV2 only. No standalone app, no CLAP, no AU.
 - Platforms: Linux and Windows, x86-64 only, AVX2/FMA required. No macOS, no ARM.
 - License: MIT. New source files start with `// SPDX-License-Identifier: MIT` and `// Copyright (c) 2026 singularity098`.
-- UI: DPF's NanoVG, very dark theme: the window background is the owner's dark wood image (`resources/background/`), only behind the panels; bars, panels, tiles, buttons and dialogs are black with hairline gray outlines (no gradient; owner's choice), blue accent by default (configurable in Settings; was purple), hairline icons. Font: Jost Light. Knobs: tick scale lit to the value, with a dot for the position. Theme tokens are at the top of `src/ui/NAMsayinUI.cpp`. Draw in logical pixels and scale by `getScaleFactor()`.
+- UI: DPF's NanoVG, very dark theme: the window background is the owner's dark wood image (`resources/background/`), only behind the panels; bars, panels, tiles, buttons and dialogs are black with hairline gray outlines (no gradient; owner's choice), blue accent by default (configurable in Settings, where blue is the first swatch; was purple), hairline icons. Font: Jost Light. Knobs: tick scale lit to the value, with a dot for the position. Theme tokens are at the top of `src/ui/NAMsayinUI.cpp`. Draw in logical pixels and scale by `getScaleFactor()`.
 - Block panel: a large block image on the left (drawn placeholder art until real images exist), generic controls right-justified. The generic knobs may later be replaced by knobs on the image itself.
 - Zero latency by default; only blocks that need latency add it, and it's reported to the host.
 - Max 32 blocks; each block keeps a fixed parameter slot for its lifetime (automation/MIDI follow the block).
@@ -49,7 +49,7 @@ src/engine/           Audio engine, independent of DPF (static library `namsayin
                       Oscillator (PolyBLEP saw and pulse for the synths)
   dsp/DelayLine.hpp   Delay line with Hermite reads, sine LFO, dry/wet mix law; AlignmentDelay (split branches)
   tuner/              PitchDetector (MPM + sub-cent refinement), Tuner (ring buffer from the audio thread, analysis off it)
-  metronome/          Metronome (sample-accurate, free and DAW sync), ClickSamples.cpp (generated)
+  metronome/          Metronome (sample-accurate, free and DAW sync; all sounds generated in code)
   blocks/             Block implementations (NAM, IR, delay, Doppelganger delay, reverb, compressor, gate, EQs, chorus, flanger, phaser,
                       modulation sweeper,
                       tremolo, doubler, wah, auto wah, boost, overdrive, distortion, fuzz, bitcrusher, volume,
@@ -75,7 +75,6 @@ src/ui/               UI side (UI subclass, NanoVG). FolderPicker: the system fo
                       BlockImages.cpp (generated) holds the built-in block images; ParamHelp.cpp the hover help texts
 tests/                doctest unit tests; TestSupport.hpp has a test block and an allocation counter
 docs/                 Requirements and architecture
-resources/sounds/     Classic metronome samples from Fretbored; tools/embed_sounds.py turns them into ClickSamples.cpp
 resources/fonts/      Jost (variable TTF + OFL.txt); tools/embed_font.py makes the Light and Regular instances into src/ui/FontData.cpp
 resources/background/ The window background image (the owner's, generated with Krea-2 in ComfyUI); tools/embed_background.py makes it src/ui/BackgroundImage.cpp (JPEG)
 resources/blocks/     Built-in block images, named <typeId>.<ext>; tools/embed_block_images.py turns them into BlockImages.cpp
@@ -147,8 +146,8 @@ The file browser opens in the host's working directory. Final checks happen in R
 - NAM tests use the models in `deps/NeuralAmpModelerCore/example_models` (`NAMSAYIN_EXAMPLE_MODELS`).
 - The engine reports running slots through two output parameters (`kParamRunningSlotsLow/High`); the UI marks blocks that haven't started 2.5 s after a chain change, and shows a banner if none have.
 - **Reaper's LV2 hosting doesn't deliver the UI's state messages to the DSP** (confirmed by the owner; VST3 works). So the chain has a second route: the UI writes it to a per-instance file and bumps the hidden Chain Revision parameter; a DSP thread reads the file (`src/state/ChainExchange.*`). The DSP also keeps the chain itself (`DISTRHO_PLUGIN_WANT_FULL_STATE`) for project save/restore and writes the file so a reopened UI can read it. Test the fallback with a build configured with `-DCMAKE_CXX_FLAGS=-DNAMSAYIN_TEST_NO_STATE_MESSAGE` (UI never sends the state message) in jalv.
-- Metronome: see `docs/Architecture.md` 4.10. All its settings are host parameters (most hidden), not state, so they reach the DSP in every host. After changing `resources/sounds/`, run `python3 tools/embed_sounds.py`; never edit `ClickSamples.cpp` by hand. Digital and Beep are generated in code. Only add samples the owner has cleared for MIT (two Digital samples carrying a third-party artist credit were removed).
-- Block images: a block's sidecar image wins; otherwise its type's built-in image from `resources/blocks/<typeId>.*` (any format Pillow reads; embedded as 8-bit PNG, max 480 px high); otherwise the drawn placeholder art (two styles, chosen in Settings: Panel, the default, and Neon; owner's pick, "E" and "C" from six mockups). After changing `resources/blocks/`, run `python3 tools/embed_block_images.py` (needs Pillow); never edit `BlockImages.cpp` by hand. First one: the "Doubler" pedal for the Doubler block, added to try the look.
+- Metronome: see `docs/Architecture.md` 4.10. All its settings are host parameters (most hidden), not state, so they reach the DSP in every host. All its sounds are generated in code (`Metronome.cpp`), no samples (owner's decision): Classic recreates Fretbored's click exactly (a 1500/1000 Hz tone with 2nd and 3rd harmonics, 50 ms decay; fitted from the owner's WAVs), Digital and Beep are synthesized too. Don't add sample files.
+- Block images: a block's sidecar image wins; otherwise its type's built-in image from `resources/blocks/<typeId>.*` (any format Pillow reads; embedded as 8-bit PNG, max 480 px high); otherwise the drawn placeholder art (the Neon style; owner's pick from six mockups; the Panel style was removed at the owner's request). After changing `resources/blocks/`, run `python3 tools/embed_block_images.py` (needs Pillow); never edit `BlockImages.cpp` by hand. First one: the "Doubler" pedal for the Doubler block, added to try the look.
 - Tuner: see `docs/Architecture.md` 4.9. The plugin runs `Engine::analyzeTuner()` on its own thread every 20 ms while the tuner is on. Accuracy tests are in `tests/TunerTests.cpp`; keep them passing (±0.1 cent from 31 to 1319 Hz) when touching the detector.
 - Split/merge: see `docs/Architecture.md` 4.4. The merge controls are host parameters (after the slots). Parallel processing is the Settings toggle; the DSP reads it when it builds a chain.
 - Not done yet in the NAM block: resampling when the host rate differs from the model's training rate.

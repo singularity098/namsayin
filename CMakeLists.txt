@@ -131,7 +131,6 @@ add_library(namsayin-engine STATIC
   src/engine/Engine.cpp
   src/engine/ParallelWorker.cpp
   src/engine/TempoSync.cpp
-  src/engine/metronome/ClickSamples.cpp
   src/engine/metronome/Metronome.cpp
   src/engine/tuner/PitchDetector.cpp
   src/engine/tuner/Tuner.cpp

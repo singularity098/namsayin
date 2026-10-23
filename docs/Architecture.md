@@ -32,7 +32,7 @@ src/
     blocks/           NamBlock, IrBlock, DelayBlock, DoppelgangerBlock, ReverbBlock, CompressorBlock
     global/           InputStage, ToneStack (Bass/Mid/Treble), Limiter, Meters
     tuner/            PitchDetector, Tuner (done, M8)
-    metronome/        Metronome, ClickSamples (done, M9)
+    metronome/        Metronome (done, M9; its sounds are generated in code)
     ParallelWorker    Second-core thread for split branch B (done, M6)
   state/              Plain data, shared by DSP and UI
     ChainState        Blocks, slots, split/merge, per-block settings (JSON)
@@ -43,7 +43,7 @@ src/
   ui/                 DPF UI subclass and NanoVG widgets
     widgets/          Knob, Toggle, Button, Meter, BlockTile, ChainView, Dialog, ...
     theme/            Colours, sizes, fonts
-resources/            Fonts, generic block images, metronome sounds (resources/sounds, done)
+resources/            Fonts, generic block images, background
 tests/
 docs/
 ```
@@ -187,7 +187,7 @@ Added to v1 at the owner's request. Studio style, feed-forward: stereo-linked pe
 - Features match Fretbored: 20–300 BPM (slider, ±1/±5, keyboard), tap tempo, 1–16 beats over 2/4/8/16 with beat grouping (cycled through every split into 2s and 3s; the default follows Fretbored, e.g. 7/8 = 2+2+3), per-beat accents (accent/normal/soft/mute, set by the grouping and by clicking a beat), the eleven subdivisions, Classic/Digital/Beep sounds with separate volume for subdivisions, step and gradual tempo trainer (also slowing down), gap trainer, and a visual pulse and pendulum sweep. Fretbored's "visual sync" offset (for Bluetooth speakers) isn't needed in a plugin.
 - **Every setting is a host parameter** (tempo, volume, on/off and sync are automatable; the rest are hidden), so it works the same in every host — including Reaper's LV2, which doesn't deliver UI state messages — and is saved with the project. The accents are 16 parameters; the grouping is a bit mask of the beats that start a group, kept only for the UI. The DSP reports the beat being heard, a beat counter (the UI pulses when it changes), the bar, the tempo being played and the gap trainer's mute as output parameters.
 - **Panel**: the top bar's Metronome button switches it on and off (and flashes on every beat); ▾ next to it opens the panel, which covers the chain while it's open. Shortcuts while the panel is open (so only while the plugin window has the keyboard focus): Space start/stop, ↑/↓ tempo (Shift: 5 BPM), T tap.
-- Sounds: the Classic samples from Fretbored (`resources/sounds/`), built into the binary as `ClickSamples.cpp` by `tools/embed_sounds.py`, resampled to the host rate and edge-faded as in Fretbored. Digital (a short band-limited square wave) and Beep are generated in code. Fretbored's Digital samples were not used: their files credit a third-party artist, so they aren't cleared for MIT.
+- Sounds: all generated in code at the host rate, no samples (owner's decision, 2026-10-23, so every sound is our own). Classic recreates Fretbored's click, which turned out to be a formula: fitting the owner's two WAVs gave exactly e^(-t/50 ms) (0.5 sin wt + 0.15 sin 2wt + 0.05 sin 3wt), 50 ms long, at 1500 Hz (accent) and 1000 Hz (beat and subdivisions), with zero residual; with the same 0.5 ms / 6 ms edge fades the generated clicks match the old samples to -56 dB (16-bit rounding). Digital (a short band-limited square wave) and Beep were already generated in code.
 - The top bar also has the Fretbored link (opens the web app in the default browser: `xdg-open` / `ShellExecute`).
 
 ### 4.11 Pedals
@@ -246,7 +246,7 @@ Notes:
 - **Plugin state** (saved by the DAW with the project): a JSON string through DPF's state API, holding the chain, slots, split, block settings, MIDI mappings and metronome settings. File references store the path and the content hash.
 - **Preset files** (`.namsayin`): a zip containing `preset.json` (the chain, its MIDI map and the global sound controls) and, when exported with "embed files" on (default on), the NAM files, IRs and sidecar images it uses, under `files/<content hash>/`. Save and Save As keep presets in the preset folder (`presets/` in the config dir, with subfolders), without files, through an in-app dialog; Export writes an embedded copy anywhere through the system dialog; Open File… opens one from anywhere. Manage Presets… loads saved presets and marks one as the default, which new plugin instances load. The top menu has New, Save, Save As, Manage Presets…, Open File…, Export…, the embed option, and every saved preset laid out as the preset folder is: top-level presets first, then each folder as an indented heading with its presets and subfolders under it (the open preset in the highlight colour, the default marked). It scrolls when it's taller than the window. The preset name shows in the top bar, with a dot when the chain has changed since it was saved or opened.
 - **Missing files**: on load, each block's file is looked for at its original path, then as an embedded copy (extracted to the cache), then in the library by content hash. If none is found, the block is created grayed out (passes audio through) with "Locate…", and "Use … from the library" when a library file with the same hash appears later.
-- **Settings and favorites**: one JSON file per user — `~/.config/namsayin/settings.json` on Linux, `%APPDATA%\NAMsayin\settings.json` on Windows. It's written atomically, and every open instance reloads it when it changes (the UI checks its modification time once a second; a change re-reads the file before saving, so instances don't overwrite each other's changes). Fields: NAM folder, IR folder, default A2 size, normalization default for new blocks, multi-core splits, accent colour, block art style (Panel or Neon), favorites.
+- **Settings and favorites**: one JSON file per user — `~/.config/namsayin/settings.json` on Linux, `%APPDATA%\NAMsayin\settings.json` on Windows. It's written atomically, and every open instance reloads it when it changes (the UI checks its modification time once a second; a change re-reads the file before saving, so instances don't overwrite each other's changes). Fields: NAM folder, IR folder, default A2 size, normalization default for new blocks, multi-core splits, accent colour (stored as an index into the colour list, which keeps its order; Settings shows blue, the default, first), favorites. A `blockArt` key from older versions is ignored.
 - **Favorites** are stored by content hash (XXH3-128 of the file bytes).
 - **Undo/redo**: a stack of `ChainState` snapshots (small, so snapshots are cheap), up to 200 steps. One knob gesture is one step. It covers blocks, block values, bypass, the MIDI map and preset loads, not the global knobs. Undo/Redo buttons in the top bar; Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y while the window has focus.
 
@@ -255,7 +255,7 @@ Notes:
 - Scans the NAM directory and the IR directory on a background thread (`LibraryScanner`), including inside `.zip` files. Files inside zips are addressed as `archive.zip!/folder/model.nam`. When a block uses one, the file is extracted to the cache directory (`cache/extracted/`) off the audio thread and loaded from there.
 - An index cache per kind (path, size, modification time, hash, metadata) keeps rescans fast. Only new or changed files are read and hashed. A rescan runs when the UI opens, when a folder changes, and from the Rescan button.
 - NAM metadata (gear make/model/type) is shown under each model in the list.
-- **Sidecar images**: for `My Amp.nam`, it looks for `My Amp.png`, then `.jpg`, then `.jpeg` next to it (inside zips too). They're shown on the tile and in the block panel; otherwise the block type's built-in image (`resources/blocks/<typeId>.*`, embedded by `tools/embed_block_images.py`), otherwise the placeholder art (`drawBlockArt()`: Panel or Neon style per Settings; each category has a glyph, `blockGlyphPath()`). 8-bit PNG or JPEG only (DPF's stb_image doesn't decode 16-bit PNG).
+- **Sidecar images**: for `My Amp.nam`, it looks for `My Amp.png`, then `.jpg`, then `.jpeg` next to it (inside zips too). They're shown on the tile and in the block panel; otherwise the block type's built-in image (`resources/blocks/<typeId>.*`, embedded by `tools/embed_block_images.py`), otherwise the placeholder art (`drawBlockArt()`: the Neon style, black enclosures outlined in glowing lines of the category colour; each category has a glyph, `blockGlyphPath()`). 8-bit PNG or JPEG only (DPF's stb_image doesn't decode 16-bit PNG).
 - **Add Block → Local NAM / Local IR** lists the library: a favorites filter, a star per file, and Browse… for a file outside the library. The search box at the top of the dialog (focused when it opens, × to clear) searches every category: built-in blocks by name and category, library files by name, folder or metadata (all words must match). Results are listed under category headings.
 
 ## 7. User interface

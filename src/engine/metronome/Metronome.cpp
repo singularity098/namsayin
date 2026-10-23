@@ -3,8 +3,6 @@
 
 #include "engine/metronome/Metronome.hpp"
 
-#include "engine/metronome/ClickSamples.hpp"
-
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -17,27 +15,22 @@ constexpr double kMinBpm = 20.0;
 constexpr double kMaxBpm = 300.0;
 constexpr int64_t kEventsPerBeat = 16; // event IDs in sync mode: beat * kEventsPerBeat + subdivision
 
-// Resamples a click to `rate` and fades its ends, as some samples start or end on a non-zero value (the Classic
-// clicks are cut off mid-decay), which pops: 0.5 ms in, 6 ms out (as Fretbored does)
-std::vector<float> renderClick(const ClickSample& click, double rate)
+// The Classic sound (Fretbored's click): a tone with its 2nd and 3rd harmonics, 0.5 : 0.15 : 0.05, starting at full
+// level and decaying with a 50 ms time constant, cut off after 50 ms; 0.5 ms and 6 ms fades soften the start and
+// keep the cut from popping
+std::vector<float> classicClick(double frequency, double rate)
 {
-    const double step = static_cast<double>(click.sampleRate) / rate;
-    const auto length = static_cast<size_t>((click.length - 1) / step);
-    std::vector<float> out(length);
-    for (size_t i = 0; i < length; ++i)
+    std::vector<float> out(static_cast<size_t>(rate * 0.05));
+    const double fadeIn = rate * 0.0005;
+    const size_t fadeOut = static_cast<size_t>(rate * 0.006);
+    for (size_t i = 0; i < out.size(); ++i)
     {
-        const double x = i * step;
-        const auto j = static_cast<size_t>(x);
-        const double frac = x - j;
-        const double a = click.data[j], b = click.data[std::min<size_t>(j + 1, click.length - 1)];
-        out[i] = static_cast<float>((a + (b - a) * frac) / 32768.0);
+        const double t = i / rate;
+        const double w = 2.0 * M_PI * frequency * t;
+        const double tone = 0.5 * std::sin(w) + 0.15 * std::sin(2.0 * w) + 0.05 * std::sin(3.0 * w);
+        const double fade = std::min({ 1.0, i / fadeIn, static_cast<double>(out.size() - i) / fadeOut });
+        out[i] = static_cast<float>(tone * std::exp(-t / 0.05) * fade);
     }
-    const auto fadeIn = static_cast<size_t>(rate * 0.0005);
-    const size_t fadeOut = std::min(static_cast<size_t>(rate * 0.006), length / 3);
-    for (size_t i = 0; i < fadeIn && i < length; ++i)
-        out[i] *= static_cast<float>(i) / fadeIn;
-    for (size_t i = 0; i < fadeOut; ++i)
-        out[length - 1 - i] *= static_cast<float>(i) / fadeOut;
     return out;
 }
 
@@ -97,8 +90,8 @@ void Metronome::prepare(double sampleRate)
     const int classic = static_cast<int>(MetroSound::Classic);
     const int digital = static_cast<int>(MetroSound::Digital);
     const int beepSound = static_cast<int>(MetroSound::Beep);
-    fSamples[classic][kAccent] = renderClick(kClassicHigh, sampleRate);
-    fSamples[classic][kBeat] = renderClick(kClassicLow, sampleRate);
+    fSamples[classic][kAccent] = classicClick(1500.0, sampleRate);
+    fSamples[classic][kBeat] = classicClick(1000.0, sampleRate);
     fSamples[classic][kSub] = fSamples[classic][kBeat];
     fSamples[digital][kAccent] = digitalClick(1975.5, sampleRate); // B6
     fSamples[digital][kBeat] = digitalClick(1318.5, sampleRate);   // E6

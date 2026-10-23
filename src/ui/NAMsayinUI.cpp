@@ -72,12 +72,10 @@ const Color accents[] = {
     Color(0xe0, 0x5c, 0xb0), // pink
 };
 constexpr int accentCount = sizeof(accents) / sizeof(accents[0]);
+// The order Settings shows them in, the default (blue) first. Settings stores the index into `accents`, so that
+// list keeps its order.
+constexpr int accentOrder[accentCount] = { 1, 0, 2, 3, 4, 5, 6 };
 Color accent = accents[1];
-// Placeholder block art: dark enclosures with a panel in the kind of block's colour
-const Color artBody(0x1e, 0x1e, 0x23);
-const Color artBodyThumb(0x2a, 0x2a, 0x30); // lighter, so thumbnails stand out on the tiles
-const Color artKnob(0x0e, 0x0e, 0x11);      // knobs, speakers, glyphs
-const Color artKnobRim(0x3a, 0x3a, 0x42);
 const Color neonBody(0x0a, 0x0a, 0x0d);
 const Color amp(0xb4, 0x78, 0x4c);
 const Color cab(0x7e, 0x86, 0x96);
@@ -166,7 +164,6 @@ enum class Hit {
     SettingsNormalize,
     SettingsParallel,
     SettingsAccent, // index = accent
-    SettingsBlockArt, // index = Settings::blockArt
     PresetMenu,
     Undo,
     Redo,
@@ -973,9 +970,6 @@ protected:
             updateSettings([accent = hit->index](Settings& settings) { settings.accent = accent; });
             return true;
 
-        case Hit::SettingsBlockArt:
-            updateSettings([style = hit->index](Settings& settings) { settings.blockArt = style; });
-            return true;
 
         case Hit::PresetMenu:
             openPresetMenu();
@@ -3086,25 +3080,6 @@ private:
         }
     }
 
-    // A dark knob with a pointer in `color`, at `turn` (0..1) of its travel
-    void drawArtKnob(float kx, float ky, float r, float turn, const Color& color)
-    {
-        beginPath();
-        circle(kx, ky, r);
-        fillColor(theme::artKnob);
-        fill();
-        strokeColor(theme::artKnobRim);
-        strokeWidth(std::max(1.0f, r * 0.1f));
-        stroke();
-        const float a = (0.75f + 1.5f * turn) * static_cast<float>(M_PI);
-        beginPath();
-        moveTo(kx + std::cos(a) * r * 0.25f, ky + std::sin(a) * r * 0.25f);
-        lineTo(kx + std::cos(a) * r * 0.85f, ky + std::sin(a) * r * 0.85f);
-        strokeColor(color);
-        strokeWidth(std::max(1.0f, r * 0.22f));
-        stroke();
-    }
-
     static Color artColor(Category category)
     {
         switch (category)
@@ -3124,166 +3099,18 @@ private:
         }
     }
 
-    // Placeholder art until real images exist: a pedal, an amp head or a speaker cab, fitted into the rect, in the
-    // style chosen in Settings. `detailed` (the block panel) adds knobs and the name; thumbnails keep the shapes bold
-    // so they read at small sizes.
+    // Placeholder art until real images exist: a pedal, an amp head or a speaker cab, fitted into the rect, as black
+    // enclosures outlined in glowing lines. `detailed` (the block panel) adds knobs and the name; thumbnails keep the
+    // shapes bold so they read at small sizes.
     void drawBlockArt(const BlockDescriptor* type, float x, float y, float w, float h, bool detailed)
     {
         if (type == nullptr)
             return;
         lineCap(ROUND);
         lineJoin(ROUND);
-        if (fSettings.blockArt == Settings::kBlockArtNeon)
-            drawBlockArtNeon(type, x, y, w, h, detailed);
-        else
-            drawBlockArtPanel(type, x, y, w, h, detailed);
+        drawBlockArtNeon(type, x, y, w, h, detailed);
         lineCap(BUTT);
         lineJoin(MITER);
-    }
-
-    // Dark enclosures with a panel in the kind of block's colour, carrying a glyph of the effect
-    void drawBlockArtPanel(const BlockDescriptor* type, float x, float y, float w, float h, bool detailed)
-    {
-        const float cx = x + w / 2, cy = y + h / 2;
-        const Color body = detailed ? theme::artBody : theme::artBodyThumb;
-
-        if (type->category == Category::LocalIr)
-        {
-            // cab: a 2x2 of dark speakers on a grille panel
-            const float size = std::min(w, h);
-            const float bx = cx - size / 2, by = cy - size / 2;
-            fillRect(bx, by, size, size, body, size * 0.08f);
-            const float inset = size * 0.08f, gs = size - 2 * inset;
-            fillRect(bx + inset, by + inset, gs, gs, theme::cab, size * 0.05f);
-            for (int r = 0; r < 2; ++r)
-            {
-                for (int c = 0; c < 2; ++c)
-                {
-                    const float sx = bx + inset + gs * (0.27f + 0.46f * c), sy = by + inset + gs * (0.27f + 0.46f * r);
-                    beginPath();
-                    circle(sx, sy, gs * 0.2f);
-                    fillColor(theme::artKnob);
-                    fill();
-                    if (detailed)
-                    {
-                        beginPath();
-                        circle(sx, sy, gs * 0.13f);
-                        strokeColor(theme::artKnobRim);
-                        strokeWidth(std::max(1.0f, gs * 0.012f));
-                        stroke();
-                    }
-                    beginPath();
-                    circle(sx, sy, gs * 0.05f);
-                    fillColor(theme::cab);
-                    fill();
-                }
-            }
-        }
-        else if (type->category == Category::LocalNam)
-        {
-            // amp head, landscape: knobs along the top, a grille panel with dark slats
-            float aw = w, ah = w / 1.7f;
-            if (ah > h)
-            {
-                ah = h;
-                aw = h * 1.7f;
-            }
-            const float ax = cx - aw / 2, ay = cy - ah / 2;
-            fillRect(ax, ay, aw, ah, body, aw * 0.05f);
-            float gy = ay + ah * 0.12f, gh = ah * 0.76f;
-            if (detailed)
-            {
-                static constexpr float turns[] = { 0.55f, 0.4f, 0.65f, 0.5f, 0.35f, 0.6f };
-                for (int k = 0; k < 6; ++k)
-                    drawArtKnob(ax + aw * (0.14f + 0.1f * k), ay + ah * 0.17f, ah * 0.07f, turns[k], theme::amp);
-                beginPath();
-                circle(ax + aw * 0.86f, ay + ah * 0.17f, ah * 0.035f);
-                fillColor(theme::amp);
-                fill();
-                gy = ay + ah * 0.32f;
-                gh = ah * 0.58f;
-            }
-            const float gx = ax + aw * 0.06f, gw = aw * 0.88f;
-            fillRect(gx, gy, gw, gh, theme::amp, aw * 0.03f);
-            const int slats = detailed ? 5 : 3;
-            for (int row = 0; row < slats; ++row)
-            {
-                const float ly = gy + gh * (row + 0.5f) / slats;
-                beginPath();
-                moveTo(gx + gw * 0.08f, ly);
-                lineTo(gx + gw * 0.92f, ly);
-                strokeColor(theme::artKnob);
-                strokeWidth(std::max(1.0f, gh * (detailed ? 0.05f : 0.09f)));
-                stroke();
-            }
-        }
-        else
-        {
-            // pedal, portrait: knobs, a colour panel with the category's glyph, the name and a footswitch. Drawn in
-            // a 124x200 frame whose enclosure spans x 4..120, y 2..198.
-            const Color color = artColor(type->category);
-            const float s = std::min(w / 116.0f, h / 196.0f);
-            const float px = cx - 58.0f * s, py = cy - 98.0f * s;
-            const auto at = [&](float fx, float fy) { return std::pair { px + (fx - 4.0f) * s, py + (fy - 2.0f) * s }; };
-            const auto rectAt = [&](float fx, float fy, float fw, float fh, const Color& c, float radius) {
-                const auto [rx, ry] = at(fx, fy);
-                fillRect(rx, ry, fw * s, fh * s, c, radius * s);
-            };
-            const auto circleAt = [&](float fx, float fy, float r) {
-                const auto [ccx, ccy] = at(fx, fy);
-                beginPath();
-                circle(ccx, ccy, r * s);
-            };
-
-            rectAt(4, 2, 116, 196, body, 12);
-            const float glyphShift = detailed ? -6.0f : -12.0f;
-            if (detailed)
-            {
-                static constexpr float turns[] = { 0.35f, 0.6f, 0.45f };
-                for (int k = 0; k < 3; ++k)
-                {
-                    const auto [kx, ky] = at(30.0f + 32.0f * k, 30.0f);
-                    drawArtKnob(kx, ky, 9.0f * s, turns[k], color);
-                }
-                rectAt(14, 58, 96, 70, color, 8);
-            }
-            else
-            {
-                rectAt(14, 40, 96, 100, color, 10);
-            }
-
-            beginPath();
-            blockGlyphPath(type->category, [&](float gx, float gy) { return at(gx, gy + glyphShift); });
-            strokeColor(theme::artKnob);
-            strokeWidth(std::max(1.0f, (detailed ? 4.0f : 8.0f) * s));
-            stroke();
-
-            if (detailed)
-            {
-                const auto [nx, ny] = at(62, 144);
-                const float size = std::clamp(11.0f * s, 9.0f, 16.0f);
-                fontSize(size);
-                const std::string name = fitText(type->displayName, 100.0f * s);
-                label(nx, ny, name.c_str(), theme::text, size, ALIGN_CENTER | ALIGN_MIDDLE);
-                circleAt(62, 172, 14);
-                fillColor(theme::artKnob);
-                fill();
-                circleAt(62, 172, 14);
-                strokeColor(color);
-                strokeWidth(std::max(1.0f, 1.6f * s));
-                stroke();
-                circleAt(62, 172, 8);
-                fillColor(theme::artKnobRim);
-                fill();
-            }
-            else
-            {
-                circleAt(62, 170, 14);
-                strokeColor(color);
-                strokeWidth(std::max(1.0f, 4.0f * s));
-                stroke();
-            }
-        }
     }
 
     // Strokes the current path as a glowing neon line: wide faint passes under a crisp one
@@ -5062,9 +4889,10 @@ private:
         row += rowH;
 
         rowLabel("Accent colour");
-        for (int i = 0; i < theme::accentCount; ++i)
+        for (int k = 0; k < theme::accentCount; ++k)
         {
-            const float cx = controlX + 14.0f + i * 34.0f, cy = row + 14.0f;
+            const int i = theme::accentOrder[k];
+            const float cx = controlX + 14.0f + k * 34.0f, cy = row + 14.0f;
             beginPath();
             circle(cx, cy, 11.0f);
             fillColor(theme::accents[i]);
@@ -5080,14 +4908,6 @@ private:
             fHits.push_back({ { cx - 15.0f, cy - 15.0f, 30.0f, 30.0f }, Hit::SettingsAccent, i });
         }
         row += rowH;
-
-        rowLabel("Block art");
-        drawButton({ controlX, row, 72.0f, 28.0f }, "Panel", fSettings.blockArt != Settings::kBlockArtNeon,
-                   theme::accent, Hit::SettingsBlockArt, Settings::kBlockArtPanel);
-        drawButton({ controlX + 78.0f, row, 72.0f, 28.0f }, "Neon", fSettings.blockArt == Settings::kBlockArtNeon,
-                   theme::accent, Hit::SettingsBlockArt, Settings::kBlockArtNeon);
-        label(controlX + 166.0f, row + 14.0f, "look of blocks without an image", theme::textDim, 11.0f,
-              ALIGN_LEFT | ALIGN_MIDDLE);
 
         label(x + 24.0f, y + h - 18.0f, pathToUtf8(Settings::defaultPath()).c_str(), theme::textDim, 10.0f,
               ALIGN_LEFT | ALIGN_MIDDLE);

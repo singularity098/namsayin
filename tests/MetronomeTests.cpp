@@ -367,3 +367,35 @@ TEST_CASE("engine: the metronome is mixed in before the limiter, stays audible w
     CHECK(engine.getParameter(kParamMetroBeat) == -1.0f);
     CHECK(peak(outL, 0, 256) == 0.0f);
 }
+
+TEST_CASE("metronome: the Classic click is generated: 1500 Hz accent, 1000 Hz beat, a 50 ms decaying tone")
+{
+    Metronome::Settings s = settings(120.0);
+    s.levels = { 3, 2, 2, 2 };
+    s.sound = MetroSound::Classic;
+    Metronome metronome;
+    metronome.prepare(kRate);
+    const std::vector<float> out = renderFree(metronome, s, 48000);
+    // the strength of one frequency over a stretch (single-bin DFT)
+    const auto tone = [&](size_t from, size_t length, double hz) {
+        double re = 0.0, im = 0.0;
+        for (size_t i = from; i < from + length; ++i)
+        {
+            re += out[i] * std::cos(2.0 * M_PI * hz * static_cast<double>(i) / kRate);
+            im += out[i] * std::sin(2.0 * M_PI * hz * static_cast<double>(i) / kRate);
+        }
+        return 2.0 * std::hypot(re, im) / static_cast<double>(length);
+    };
+    const size_t beat = 24000;
+    const size_t span = static_cast<size_t>(0.02 * kRate); // 20 ms: whole cycles of 1000, 1500 and 2000 Hz
+    CHECK(tone(0, span, 1500.0) > 5.0 * tone(0, span, 1000.0));
+    CHECK(tone(beat, span, 1000.0) > 5.0 * tone(beat, span, 1500.0));
+    // the 2nd harmonic at 0.3 of the note (-10.5 dB)
+    CHECK(tone(beat, span, 2000.0) / tone(beat, span, 1000.0) == doctest::Approx(0.3).epsilon(0.05));
+    // decays with a 50 ms time constant, and ends after 50 ms
+    const double early = tone(beat, span, 1000.0), later = tone(beat + span, span, 1000.0);
+    CHECK(later / early == doctest::Approx(std::exp(-0.02 / 0.05)).epsilon(0.05));
+    CHECK(peak(out, beat + static_cast<size_t>(0.051 * kRate), 2 * beat) == 0.0f);
+    // it starts softly: no step at the first sample
+    CHECK(std::fabs(out[beat]) < 0.01f);
+}
