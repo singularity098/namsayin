@@ -115,22 +115,19 @@ constexpr float kPanelMargin = 16.0f;
 constexpr uint kDoubleClickMs = 350;
 constexpr auto kTunerHold = std::chrono::milliseconds(1000); // the tuner keeps showing the last note this long
 
-// The Lookahead button of the pitch-following blocks steps through these (ms; 0 = off)
+// The Lookahead button of the pitch-following blocks opens a menu of these (ms; 0 = off)
 constexpr double kLookaheads[] = { 0.0, 5.0, 10.0, 15.0, 20.0, 30.0 };
 
-double nextLookahead(double ms)
+std::string lookaheadText(double ms)
 {
-    for (const double step : kLookaheads)
-        if (step > ms + 0.5)
-            return step;
-    return 0.0;
+    return ms > 0.0 ? std::to_string(static_cast<int>(std::lround(ms))) + " ms" : std::string("Off");
 }
 
 constexpr const char* kLookaheadHelp =
     "Lets the pedal hear your notes a few milliseconds before it plays them, so it can find each note's pitch "
     "before the note starts: notes start on time, without wrong notes from the pick's attack. The whole plugin's "
     "sound is delayed by that much; your DAW makes up for it on playback and recording, but you hear the delay "
-    "while you play (10 ms is like standing 3.4 m from your amp). Click to step through Off, 5, 10, 15, 20 and "
+    "while you play (10 ms is like standing 3.4 m from your amp). Click to pick Off, 5, 10, 15, 20 or "
     "30 ms. Off adds no delay.";
 constexpr float kTunerInTuneCents = 2.0f;
 
@@ -166,8 +163,8 @@ enum class Hit {
     Fretbored,    // open the Fretbored web app
     GitHub,       // open the project's GitHub page
     A2Size,       // index = position in the chain
-    Lookahead,    // index = position in the chain: step to the next lookahead
-    Choice,       // index = host parameter; click steps to the next choice
+    Lookahead,    // index = position in the chain: a menu of the lookaheads
+    Choice,       // index = host parameter; click opens a menu of the choices
     InClip,
     OutClip,
     DialogBackdrop,
@@ -218,6 +215,8 @@ enum class MenuAction {
     PresetExport, // a copy anywhere, with its files (system dialog)
     PresetEmbed,
     PresetLoad,   // arg = index in fMenuPresets (the preset folder's presets)
+    SetChoice,    // arg = the choice (steps from the spec's min) for fMenuParam
+    SetLookahead, // arg = index in kLookaheads, for the block fMenuTile
 };
 
 struct MenuEntry {
@@ -714,14 +713,15 @@ protected:
             return onRightClick(x, y);
         if (ev.button == kMouseButtonMiddle)
         {
-            // a middle click on a block enables or bypasses it; middle-drag anywhere else over the chain scrolls it
+            // a middle click on a block removes it; middle-drag anywhere else over the chain scrolls it
             const bool chainShown = !fMetroPanel && fParams[kParamTuner] < 0.5f;
             if (!chainShown || fDialog != Dialog::None || y < kChainTop - 12.0f
                 || y > kChainTop + fLayout.height + 20.0f)
                 return false;
-            if (const HitArea* hit = hitAt(x, y); hit && (hit->kind == Hit::Tile || hit->kind == Hit::TileBypass))
+            if (const HitArea* hit = hitAt(x, y);
+                hit && (hit->kind == Hit::Tile || hit->kind == Hit::TileBypass || hit->kind == Hit::TileRemove))
             {
-                toggleBlockBypass(hit->index);
+                removeBlock(hit->index);
                 return true;
             }
             fPanning = true;
@@ -859,11 +859,7 @@ protected:
             const ParamSpec* spec = slotSpec(hit->index);
             if (!spec)
                 return true;
-            const int steps = static_cast<int>(spec->max - spec->min);
-            const int current = static_cast<int>(spec->toValue(normalized(hit->index)) - spec->min);
-            const int next = (current + 1) % (steps + 1);
-            beginEdit();
-            setNormalized(hit->index, spec->toNormalized(spec->min + next), true);
+            openChoiceMenu(static_cast<uint32_t>(hit->index), *spec, hit->rect);
             return true;
         }
 
@@ -1070,10 +1066,17 @@ protected:
         }
 
         case Hit::Lookahead: {
-            beginEdit();
-            nlohmann::json& config = fChain.blocks[hit->index].config;
-            config["lookahead"] = nextLookahead(config.value("lookahead", 0.0));
-            sendChain();
+            fMenuTile = hit->index;
+            fMenuParam = kNoParam;
+            const double current = fChain.blocks[hit->index].config.value("lookahead", 0.0);
+            std::vector<MenuEntry> entries;
+            for (size_t i = 0; i < std::size(kLookaheads); ++i)
+            {
+                MenuEntry item { lookaheadText(kLookaheads[i]), MenuAction::SetLookahead, static_cast<int>(i) };
+                item.current = std::fabs(kLookaheads[i] - current) < 0.5;
+                entries.push_back(std::move(item));
+            }
+            openMenu(hit->rect.x, hit->rect.y + hit->rect.h + 4.0f, std::move(entries), 160.0f);
             return true;
         }
 
@@ -2009,11 +2012,13 @@ private:
         return "CC " + std::to_string(mapping.cc) + " (ch " + std::to_string(mapping.channel + 1) + ")";
     }
 
-    void openMenu(float x, float y, std::vector<MenuEntry> entries)
+    void openMenu(float x, float y, std::vector<MenuEntry> entries, float width = 300.0f)
     {
         fMenu = std::move(entries);
         fMenuX = x;
         fMenuY = y;
+        fMenuW = width;
+        fPresetMenu = false;
         openDialog(Dialog::Menu);
     }
 
@@ -2057,6 +2062,22 @@ private:
             return true;
         }
         return false;
+    }
+
+    // A dropdown of a choice parameter's choices, under its button
+    void openChoiceMenu(uint32_t param, const ParamSpec& spec, const Rect& button)
+    {
+        fMenuParam = param;
+        const int steps = static_cast<int>(spec.max - spec.min);
+        const int current = static_cast<int>(std::lround(spec.toValue(normalized(param)) - spec.min));
+        std::vector<MenuEntry> entries;
+        for (int i = 0; i <= steps; ++i)
+        {
+            MenuEntry item { spec.choices ? spec.choices[i] : std::to_string(i), MenuAction::SetChoice, i };
+            item.current = i == current;
+            entries.push_back(std::move(item));
+        }
+        openMenu(button.x, button.y + button.h + 4.0f, std::move(entries), 160.0f);
     }
 
     void openPresetMenu()
@@ -2111,6 +2132,7 @@ private:
             fMenuPresets.push_back(preset.path);
         }
         openMenu(fPresetButtonX, kTopBarHeight - 6.0f, std::move(entries));
+        fPresetMenu = true;
     }
 
     void runMenu(int index)
@@ -2189,6 +2211,21 @@ private:
         case MenuAction::PresetLoad:
             if (entry.arg < static_cast<int>(fMenuPresets.size()))
                 openPreset(fMenuPresets[entry.arg]);
+            break;
+        case MenuAction::SetLookahead:
+            if (fMenuTile >= 0 && fMenuTile < static_cast<int>(fChain.blocks.size()))
+            {
+                beginEdit();
+                fChain.blocks[fMenuTile].config["lookahead"] = kLookaheads[entry.arg];
+                sendChain();
+            }
+            break;
+        case MenuAction::SetChoice:
+            if (const ParamSpec* spec = slotSpec(fMenuParam))
+            {
+                beginEdit();
+                setNormalized(fMenuParam, spec->toNormalized(spec->min + static_cast<float>(entry.arg)), true);
+            }
             break;
         }
     }
@@ -3157,7 +3194,7 @@ private:
                           Hit::Knob, static_cast<int>(index) });
     }
 
-    // A choice parameter: its name, and a button showing the current choice that steps to the next one
+    // A choice parameter: its name, and a button showing the current choice that opens a menu of them
     void drawChoice(float cx, float cy, uint32_t index, const char* name)
     {
         label(cx, cy - 26.0f, name, theme::textDim, 12.0f, ALIGN_CENTER | ALIGN_MIDDLE);
@@ -3735,7 +3772,7 @@ private:
                                              280.0f);
         const Rect presetButton { logoRight + 28.0f, by, presetWidth, bh };
         fPresetButtonX = presetButton.x;
-        const bool presetMenuOpen = fDialog == Dialog::Menu && fMenuParam == kNoParam;
+        const bool presetMenuOpen = fDialog == Dialog::Menu && fPresetMenu;
         drawButton(presetButton, preset.c_str(), presetMenuOpen, theme::accent, Hit::PresetMenu, 0);
         drawChevron(presetButton.x + presetButton.w - 20.0f, presetButton.y + presetButton.h / 2,
                     presetMenuOpen ? theme::accent : theme::textDim);
@@ -4673,8 +4710,7 @@ private:
             if (control.cell == Cell::Lookahead)
             {
                 const double ms = block.config.value("lookahead", 0.0);
-                const std::string text = ms > 0.0 ? std::to_string(static_cast<int>(std::lround(ms))) + " ms"
-                                                  : std::string("Off");
+                const std::string text = lookaheadText(ms);
                 label(cx, cy - 26.0f, "Lookahead", theme::textDim, 12.0f, ALIGN_CENTER | ALIGN_MIDDLE);
                 drawButton({ cx - 42.0f, cy - 14.0f, 84.0f, 28.0f }, text.c_str(), ms > 0.0, theme::accent,
                            Hit::Lookahead, fSelected);
@@ -5203,7 +5239,8 @@ private:
     void drawMenu()
     {
         fHits.push_back({ { 0, 0, fWidth, fHeight }, Hit::DialogBackdrop, 0 });
-        constexpr float itemH = 30.0f, menuW = 300.0f, indent = 16.0f;
+        constexpr float itemH = 30.0f, indent = 16.0f;
+        const float menuW = fMenuW;
         const float contentH = fMenu.size() * itemH + 8.0f;
         const float h = std::min(contentH, fHeight - 16.0f); // a long preset list scrolls
         const float x = std::min(fMenuX, fWidth - menuW - 8.0f);
@@ -5641,7 +5678,8 @@ private:
 
     Dialog fDialog = Dialog::None;
     std::vector<MenuEntry> fMenu;
-    float fMenuX = 0.0f, fMenuY = 0.0f;
+    float fMenuX = 0.0f, fMenuY = 0.0f, fMenuW = 300.0f;
+    bool fPresetMenu = false; // the open menu is the preset menu
     uint32_t fMenuParam = kNoParam; // the parameter a context menu is for
     int fMenuTile = -1;
 
