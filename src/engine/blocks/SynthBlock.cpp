@@ -190,7 +190,7 @@ const BlockDescriptor kSynthBlockDescriptor = {
         ParamSpec { "Glide", "ms", 0.1f, 500.0f, 10.0f, ParamScale::Log },
         ParamSpec { "Mix", "%", 0.0f, 100.0f, 100.0f, ParamScale::Linear },
         ParamSpec { "Pick Filter", "ms", 0.0f, 60.0f, 0.0f, ParamScale::Linear },
-        ParamSpec { "Track", "", 0.0f, 1.0f, 0.0f, ParamScale::Choice, TrackedInput::kTrackNames },
+        ParamSpec { "Track", "", 0.0f, 1.0f, 1.0f, ParamScale::Choice, TrackedInput::kTrackNames },
     },
     [] { return std::unique_ptr<Block>(new SynthBlock()); },
     -1,

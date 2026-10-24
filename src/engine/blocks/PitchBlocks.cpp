@@ -1118,7 +1118,7 @@ const BlockDescriptor kHarmonizerBlockDescriptor = {
         ParamSpec { "Level 2", "%", 0.0f, 100.0f, 0.0f, ParamScale::Linear },
         ParamSpec { "Dry", "%", 0.0f, 100.0f, 100.0f, ParamScale::Linear },
         ParamSpec { "Window", "ms", 15.0f, 100.0f, 40.0f, ParamScale::Log },
-        ParamSpec { "Track", "", 0.0f, 1.0f, 0.0f, ParamScale::Choice, TrackedInput::kTrackNames },
+        ParamSpec { "Track", "", 0.0f, 1.0f, 1.0f, ParamScale::Choice, TrackedInput::kTrackNames },
     },
     [] { return std::unique_ptr<Block>(new HarmonizerBlock()); },
     -1,

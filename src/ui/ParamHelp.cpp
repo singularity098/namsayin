@@ -52,10 +52,10 @@ struct BlockHelp {
     "is off."
 
 #define TRACK_HELP                                                                                                    \
-    "What the pedal listens to for your notes. Block In: the signal arriving at this pedal. Rig In: your guitar as "  \
-    "it enters the plugin, before any amp or effect. Pick Rig In when this pedal comes after an amp, a drive or a "   \
-    "compressor: the clean guitar is much easier to follow, so notes come out cleaner. Pick Block In to follow "     \
-    "what an earlier pedal made, like an octave down."
+    "What the pedal listens to for your notes. Rig In (the default): your guitar as it enters the plugin, before "   \
+    "any amp or effect; the clean guitar is much easier to follow, so notes come out cleaner. Block In: the signal "  \
+    "arriving at this pedal; pick it to follow what an earlier pedal made, like an octave down. Either way the "     \
+    "pedal plays at the level of the signal arriving at it, so a volume pedal or a gate before it still works."
 
 #define PATTERN_TAP_HELP(when)                                                                                        \
     "How loud the echo " when " after your note is. 0% leaves that step silent; together the eight taps make the "   \

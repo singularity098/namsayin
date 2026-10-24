@@ -14,6 +14,8 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <functional>
 #include <string>
@@ -294,11 +296,12 @@ TEST_CASE("tracking debug" * doctest::skip(std::getenv("NAMSAYIN_TRACKING_DEBUG"
 TEST_CASE("the note tracker plays the benchmark's notes with few wrong or phantom notes")
 {
     // the scores before the note tracker (the pitch tracker and the Pick Filter, off): 165 wrong-pitch stretches,
-    // 56 phantom ones (6.7 s), 1 missed note
+    // 56 phantom ones (6.7 s), 1 missed note. Since the chirp rules (doubtful pitches need a third estimate,
+    // 2026-10-24): 25 wrong, 4 missed (one more in the ringing arpeggio, where the strings left ringing blur it).
     const std::vector<Score> clean = bench("note tracker", noteTracker(0.0f, 0.0, false), false, false, false);
     const Score& total = clean.back();
-    CHECK(total.missed <= 3);
-    CHECK(total.wrong <= 60);
+    CHECK(total.missed <= 4);
+    CHECK(total.wrong <= 30);
     CHECK(total.phantom <= 20);
     CHECK(total.phantomMs <= 200.0);
     CHECK(clean[0].medianDelayMs <= 14.0); // single notes
@@ -311,7 +314,45 @@ TEST_CASE("the note tracker plays the benchmark's notes with few wrong or phanto
     const std::vector<Score> ahead = bench("note tracker, lookahead 15 ms", noteTracker(0.0f, 15.0, false), false, false, false);
     CHECK(ahead[0].medianDelayMs <= 4.0);
     CHECK(ahead.back().wrong <= total.wrong);
-    CHECK(ahead.back().missed <= 3);
+    CHECK(ahead.back().missed <= 4);
+}
+
+TEST_CASE("the note tracker doesn't chirp when the pick stops the string")
+{
+    // As the pick meets the string to play the next note, the string stops and the tracker can find one of its
+    // harmonics for a few ms (here its 4th, two octaves up), with the level falling fast; it used to play that.
+    const double rate = guitar::kRate;
+    const auto tone = [](double hz, double t, double level) {
+        return static_cast<float>(level * (std::sin(2 * M_PI * hz * t) + 0.7 * std::sin(2 * M_PI * 2 * hz * t + 1.0)
+                                           + 0.4 * std::sin(2 * M_PI * 3 * hz * t + 2.0)));
+    };
+    std::vector<float> x;
+    for (int i = 0; i < static_cast<int>(0.25 * rate); ++i)
+        x.push_back(tone(392.0, i / rate, 0.02));
+    for (int i = 0; i < static_cast<int>(0.014 * rate); ++i)
+    {
+        const double t = i / rate;
+        x.push_back(static_cast<float>(0.02 * std::exp(-t / 0.006) * std::sin(2 * M_PI * 1568.0 * t)));
+    }
+    for (int i = 0; i < static_cast<int>(0.2 * rate); ++i)
+    {
+        const double t = i / rate;
+        x.push_back(tone(445.0, t, 0.03 * (1.0 - std::exp(-t / 0.0005))));
+    }
+    NoteTracker tracker;
+    tracker.prepare(rate);
+    double highest = 0.0, last = 0.0;
+    for (const float v : x)
+    {
+        const NoteTracker::Note& note = tracker.process(v);
+        if (note.on)
+        {
+            highest = std::max(highest, note.hz);
+            last = note.hz;
+        }
+    }
+    CHECK(highest < 460.0);
+    CHECK(last == doctest::Approx(445.0).epsilon(0.01));
 }
 
 namespace {

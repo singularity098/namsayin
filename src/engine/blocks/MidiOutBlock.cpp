@@ -247,7 +247,7 @@ private:
     PolyNoteFinder fPoly;
     MidiOutput* fOut = nullptr;
     const float* fRig[2] = { nullptr, nullptr };
-    bool fTrackRig = false;
+    bool fTrackRig = true;
     bool fPolyMode = false;
     int fChannel = 0, fSentChannel = 0, fOctave = 0, fTranspose = 0, fBendRange = 2;
     float fDynamics = 0.7f;
@@ -288,7 +288,7 @@ const BlockDescriptor kMidiOutBlockDescriptor = {
         ParamSpec { "Focus", "%", 0.0f, 100.0f, 70.0f, ParamScale::Linear },
         ParamSpec { "Audio", "", 0.0f, 1.0f, 0.0f, ParamScale::Choice, kAudioNames },
         ParamSpec { "Pick Filter", "ms", 0.0f, 60.0f, 0.0f, ParamScale::Linear },
-        ParamSpec { "Track", "", 0.0f, 1.0f, 0.0f, ParamScale::Choice, TrackedInput::kTrackNames },
+        ParamSpec { "Track", "", 0.0f, 1.0f, 1.0f, ParamScale::Choice, TrackedInput::kTrackNames },
     },
     [] { return std::unique_ptr<Block>(new MidiOutBlock()); },
     -1,

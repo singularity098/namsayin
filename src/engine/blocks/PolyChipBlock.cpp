@@ -42,6 +42,10 @@ public:
         const auto maxDelay = static_cast<size_t>(std::ceil(PolyNoteFinder::kMaxLookaheadMs / 1000.0 * sampleRate)) + 64;
         for (std::vector<float>& line : fDryLines)
             line.assign(maxDelay + 2, 0.0f);
+        fRigLine.assign(maxDelay + 2, 0.0f);
+        fOwnLevel.prepare(sampleRate);
+        fRigLevel.prepare(sampleRate);
+        fGainCoef = 1.0f - EnvelopeFollower::coef(sampleRate, 5.0);
         reset();
     }
 
@@ -97,11 +101,13 @@ public:
         const size_t delay = fFinder.latency();
         for (uint32_t i = 0; i < frames; ++i)
         {
+            const bool rig = fTrackRig && fRig[0] != nullptr;
             float mono;
-            if (fTrackRig && fRig[0] != nullptr)
+            if (rig)
                 mono = 0.5f * (fRig[0][i] + fRig[1][i]);
             else
                 mono = numChannels > 1 ? 0.5f * (io[0][i] + io[1][i]) : io[0][i];
+            float rigNow = mono;
             if (fFinder.process(mono))
                 playFrame(fFinder.playFrame());
             if (delay > 0)
@@ -114,12 +120,25 @@ public:
                     fDryLines[ch][fDryPos] = io[ch][i];
                     io[ch][i] = fDryLines[ch][read];
                 }
+                fRigLine[fDryPos] = mono;
+                rigNow = fRigLine[read];
                 fDryPos = (fDryPos + 1) % size;
+            }
+            // tracking the rig, the voices still play at the level of the block's own input: scaled by how much
+            // louder or quieter it is than the rig's
+            float gain = 1.0f;
+            if (rig)
+            {
+                const float own = fOwnLevel.process(numChannels > 1 ? 0.5f * (io[0][i] + io[1][i]) : io[0][i], 0.0);
+                const float level = fRigLevel.process(rigNow, 0.0);
+                const float target = level > 1e-5f ? std::min(own / level, 16.0f) : fGain;
+                fGain += (target - fGain) * fGainCoef;
+                gain = fGain;
             }
             if (fArp != PolyChipArp::Off && fPlaying > 0 && advancePhase(fArpPhase, fArpHz / fSampleRate))
                 ++fArpStep;
 
-            const float synth = render();
+            const float synth = render() * gain;
             const float mix = fMix.next();
             for (uint32_t ch = 0; ch < numChannels; ++ch)
                 io[ch][i] = io[ch][i] * (1.0f - mix) + synth * mix;
@@ -139,6 +158,10 @@ public:
         }
         for (std::vector<float>& line : fDryLines)
             std::fill(line.begin(), line.end(), 0.0f);
+        std::fill(fRigLine.begin(), fRigLine.end(), 0.0f);
+        fOwnLevel.reset();
+        fRigLevel.reset();
+        fGain = 1.0f;
         fDryPos = 0;
         fPlaying = 0;
         fArpPhase = 0.0;
@@ -273,8 +296,11 @@ private:
     float fCrush = 0.3f;
     double fOctaveRatio = 1.0;
     bool fQuantize = false;
-    bool fTrackRig = false;
+    bool fTrackRig = true;
     const float* fRig[2] = { nullptr, nullptr };
+    std::vector<float> fRigLine; // the rig's input, delayed with the dry signal
+    LevelFollower fOwnLevel, fRigLevel;
+    float fGain = 1.0f, fGainCoef = 1.0f;
     PolyNoteFinder fFinder;
     std::array<Voice, kBands> fVoices;
     std::vector<float> fDryLines[2];
@@ -306,7 +332,7 @@ const BlockDescriptor kPolyChipBlockDescriptor = {
         ParamSpec { "Mix", "%", 0.0f, 100.0f, 100.0f, ParamScale::Linear },
         ParamSpec { "Quantize", "", 0.0f, 1.0f, 0.0f, ParamScale::Toggle },
         ParamSpec { "Pick Filter", "ms", 0.0f, 60.0f, 15.0f, ParamScale::Linear },
-        ParamSpec { "Track", "", 0.0f, 1.0f, 0.0f, ParamScale::Choice, TrackedInput::kTrackNames },
+        ParamSpec { "Track", "", 0.0f, 1.0f, 1.0f, ParamScale::Choice, TrackedInput::kTrackNames },
     },
     [] { return std::unique_ptr<Block>(new PolyChipBlock()); },
     -1,

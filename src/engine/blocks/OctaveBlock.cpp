@@ -194,7 +194,7 @@ const BlockDescriptor kOctaveBlockDescriptor = {
         ParamSpec { "Dry", "%", 0.0f, 100.0f, 70.0f, ParamScale::Linear },
         ParamSpec { "Tone", "Hz", 200.0f, 8000.0f, 1500.0f, ParamScale::Log },
         ParamSpec { "Tracking", "Hz", 200.0f, 2000.0f, 700.0f, ParamScale::Log },
-        ParamSpec { "Track", "", 0.0f, 1.0f, 0.0f, ParamScale::Choice, TrackedInput::kTrackNames },
+        ParamSpec { "Track", "", 0.0f, 1.0f, 1.0f, ParamScale::Choice, TrackedInput::kTrackNames },
     },
     [] { return std::unique_ptr<Block>(new OctaveBlock()); },
     -1,

@@ -4,6 +4,7 @@
 #pragma once
 
 #include "engine/dsp/NoteTracker.hpp"
+#include "engine/dsp/Svf.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -14,9 +15,59 @@
 
 namespace namsayin {
 
-// What the pitch-following pedals share around the note tracker: Track From (the pedal's input, or the rig's input:
-// the clean guitar, much easier to follow than the output of an amp or drive), and Lookahead (block config
-// "lookahead", ms: the pedal's audio is delayed to match the tracker's output, and the delay is its latency).
+// The level of a signal the way the note tracker follows it: a peak follower that holds for a period of the note
+// (or 15 ms) and then falls fast
+class LevelFollower {
+public:
+    void prepare(double sampleRate)
+    {
+        fSampleRate = sampleRate;
+        fAttack = 1.0f - EnvelopeFollower::coef(sampleRate, 0.3);
+        fRelease = EnvelopeFollower::coef(sampleRate, 4.0);
+        fDefaultHold = static_cast<int>(0.015 * sampleRate);
+        reset();
+    }
+
+    void reset()
+    {
+        fLevel = 0.0f;
+        fHold = 0;
+    }
+
+    float process(float in, double hz)
+    {
+        const float a = std::fabs(in);
+        if (a > fLevel)
+        {
+            fLevel += (a - fLevel) * fAttack;
+            fHold = hz > 0.0 ? static_cast<int>(1.2 * fSampleRate / hz) : fDefaultHold;
+        }
+        else if (fHold > 0)
+        {
+            --fHold;
+        }
+        else
+        {
+            fLevel *= fRelease;
+        }
+        return fLevel;
+    }
+
+    float level() const { return fLevel; }
+
+private:
+    double fSampleRate = 48000.0;
+    float fAttack = 1.0f, fRelease = 0.99f;
+    float fLevel = 0.0f;
+    int fHold = 0, fDefaultHold = 720;
+};
+
+// What the pitch-following pedals share around the note tracker: Track From (the rig's input, the default: the clean
+// guitar, much easier to follow than the output of an amp or drive; or the pedal's input), and Lookahead (block
+// config "lookahead", ms: the pedal's audio is delayed to match the tracker's output, and the delay is its
+// latency). Whichever it tracks, the sound comes from the pedal's input: the note's level (envelope) is always the
+// pedal's input's, and so is its velocity (the rig's, scaled by how much louder or quieter the pedal's input is),
+// so a volume pedal, gate or drive before it still shapes what it plays.
 class TrackedInput {
 public:
     static constexpr const char* kTrackNames[] = { "Block In", "Rig In" };
@@ -27,6 +78,7 @@ public:
     {
         fSampleRate = sampleRate;
         fNotes.prepare(sampleRate);
+        fLevel.prepare(sampleRate);
         const auto size = static_cast<size_t>(std::ceil(NoteTracker::kMaxLookaheadMs / 1000.0 * sampleRate)) + 2;
         for (std::vector<float>& line : fLines)
             line.assign(size, 0.0f);
@@ -56,6 +108,10 @@ public:
     void reset()
     {
         fNotes.reset();
+        fLevel.reset();
+        fNote = NoteTracker::Note {};
+        fVelocityScale = 1.0f;
+        fWasOn = false;
         for (std::vector<float>& line : fLines)
             std::fill(line.begin(), line.end(), 0.0f);
         fPos = 0;
@@ -65,8 +121,9 @@ public:
     // Returns the note at the (delayed) output.
     const NoteTracker::Note& process(float* const* io, uint32_t numChannels, uint32_t i)
     {
+        const bool rig = fTrackRig && fRig[0] != nullptr;
         float in;
-        if (fTrackRig && fRig[0] != nullptr)
+        if (rig)
             in = 0.5f * (fRig[0][i] + fRig[1][i]);
         else
             in = numChannels > 1 ? 0.5f * (io[0][i] + io[1][i]) : io[0][i];
@@ -83,15 +140,32 @@ public:
             }
             fPos = (fPos + 1) % size;
         }
-        return note;
+        if (!rig)
+        {
+            fNote = note;
+            return fNote;
+        }
+        // the level from the pedal's own (delayed) input
+        const float own = fLevel.process(numChannels > 1 ? 0.5f * (io[0][i] + io[1][i]) : io[0][i], note.hz);
+        if (note.on && (!fWasOn || note.onset))
+            fVelocityScale = note.envelope > 1e-6f ? std::min(own / note.envelope, 16.0f) : 1.0f;
+        fWasOn = note.on;
+        fNote = note;
+        fNote.envelope = own;
+        fNote.velocity = note.velocity * fVelocityScale;
+        return fNote;
     }
 
-    const NoteTracker::Note& note() const { return fNotes.note(); }
+    const NoteTracker::Note& note() const { return fNote; }
 
 private:
     double fSampleRate = 48000.0;
     NoteTracker fNotes;
-    bool fTrackRig = false;
+    bool fTrackRig = true;
+    LevelFollower fLevel;
+    NoteTracker::Note fNote;
+    float fVelocityScale = 1.0f;
+    bool fWasOn = false;
     const float* fRig[2] = { nullptr, nullptr };
     std::vector<float> fLines[2];
     size_t fPos = 0;

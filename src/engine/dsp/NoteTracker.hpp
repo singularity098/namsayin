@@ -8,6 +8,7 @@
 #include "engine/dsp/PitchTracker.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <vector>
@@ -19,9 +20,13 @@ namespace namsayin {
 // - The level is a peak follower that holds for a period and then falls fast, so a muted string ends its note
 //   within a few ms (the tracker's own follower releases over 80 ms, so notes ran on past every mute).
 // - A note starts at a pitch two estimates in a row agree on (about 4 ms apart), with a clear pitch; once it plays,
-//   less clear estimates near its pitch still follow it (bends, vibrato, the decay). It ends when the level falls
-//   back to the noise floor (followed, so hum doesn't hold notes on) or well below the note's peak, or when no
-//   clear pitch has been found for 35 ms (palm mutes, scrapes).
+//   less clear estimates near its pitch still follow it (bends, vibrato, the decay). A doubtful new pitch needs a
+//   third estimate: a less clear one (without a pick), or one at a harmonic or subharmonic of the note before or
+//   over an octave from it (what the tracker finds while a pick or a finger stops the string: the chirps). A new
+//   note without a pick also needs the level not to be falling away (at least half the last 32 ms' peak: else the
+//   string is being stopped). Other pitches that never agree end the note after four estimates. A note ends when
+//   the level falls back to the noise floor (followed, so hum doesn't hold notes on) or well below the note's
+//   peak, or when no clear pitch has been found for 35 ms (palm mutes, scrapes).
 // - A new pick (OnsetDetector, confirmed by the level rising after it: a mute clicks too) ends the note before it,
 //   so the old pitch doesn't run into the new note; a pitch
 //   change without a pick (hammer-ons, slides) moves the note once its new pitch is confirmed.
@@ -54,6 +59,7 @@ public:
         fFloorFall = 1.0f - EnvelopeFollower::coef(sampleRate, 20.0);
         fFloorRise = static_cast<float>(std::pow(10.0, 6.0 / 20.0 / sampleRate)); // 6 dB/s
         fUnvoicedLimit = static_cast<int64_t>(0.035 * sampleRate);
+        fRecentNote = static_cast<int64_t>(0.15 * sampleRate);
         fPickHoldUp = static_cast<int64_t>(0.012 * sampleRate);
         fAverageCoef = 1.0f - EnvelopeFollower::coef(sampleRate, 3.0);
         fClickFilter.setHighPass(sampleRate, 2000.0);
@@ -109,6 +115,9 @@ public:
         fPickPeak = fVelocity = 0.0f;
         fPickTime = 0;
         fLastVoiced = 0;
+        fEndTime = -fRecentNote;
+        fLevels.fill(0.0f);
+        fLevelPos = 0;
         fOut = Note {};
     }
 
@@ -207,6 +216,7 @@ private:
         double hz = 0.0;
         int count = 0;
         int64_t start = 0;
+        float clarity = 0.0f; // the least clear estimate's aperiodicity
     };
 
     static constexpr float kClear = 0.3f;     // aperiodicity a new note needs
@@ -214,7 +224,12 @@ private:
     static constexpr float kFloorGate = 4.0f;  // a note starts 12 dB over the noise floor
     static constexpr float kPeakGate = 0.003f; // and ends 50 dB under its peak
     static constexpr float kMuteDrop = 0.1f;   // or 20 dB under the recent level (a mute)
-    static constexpr int kMaxMisses = 2;       // estimates in a row that don't find the note end it
+    static constexpr int kMaxMisses = 4;       // other pitches in a row that end the note without a new one
+    static constexpr float kDoubtful = 0.1f;   // a new note less clear than this needs another estimate,
+    static constexpr double kHarmonicWidth = 0.4; // and so does one this near (semitones) a harmonic or subharmonic
+    static constexpr double kFarJump = 12.5;   // of the note before, or this far from it
+    static constexpr float kLegatoLevel = 0.5f; // a new note without a pick needs the level over this share of the
+                                                // last 32 ms' (the string isn't being stopped)
     static constexpr float kPickRise = 1.25f;  // a click is a pick once the level rises this much,
     static constexpr float kPickHold = 0.3f;   // or once it has held over this share of its level for 12 ms
 
@@ -264,6 +279,9 @@ private:
     // One estimate: a pitch, or 0 for none
     void estimate(double hz, float aperiodicity)
     {
+        // the level over the last few estimates (a string being stopped falls fast)
+        fLevels[fLevelPos] = fEnvelope;
+        fLevelPos = (fLevelPos + 1) % kLevels;
         if (fOn && hz > 0.0 && semitones(hz, fHz) < 0.6)
         {
             // the playing note: follow it (bends, vibrato), even when it's less clear
@@ -280,24 +298,53 @@ private:
                 end(std::max(fTime - fLookahead, fLastVoiced), EndReason::Unclear);
             return;
         }
-        // a clear, different pitch: two in a row end the note (back to the change)
+        // a clear, different pitch: a candidate for the next note
         if (fOn && ++fMisses == 1)
             fFirstMiss = fTime;
-        if (fOn && fMisses >= kMaxMisses)
+        if (!fMuted)
+        {
+            if (fCandidate.count > 0 && semitones(hz, fCandidate.hz) < 0.5)
+            {
+                fCandidate.hz = hz;
+                ++fCandidate.count;
+                fCandidate.clarity = std::max(fCandidate.clarity, aperiodicity);
+            }
+            else
+            {
+                fCandidate = Candidate { hz, 1, fTime, aperiodicity };
+            }
+        }
+        const bool confirmed = !fMuted && fCandidate.count >= needed() && fTime - fCandidate.start >= fPickHold
+                            && fClickTime < 0 && (fPickPending || fEnvelope >= kLegatoLevel * recentLevel());
+        if (fOn && (confirmed || fMisses >= kMaxMisses))
             end(fFirstMiss - static_cast<int64_t>(0.004 * fSampleRate), EndReason::OtherPitch);
-        if (fMuted)
-            return;
-        if (fCandidate.count > 0 && semitones(hz, fCandidate.hz) < 0.5)
-        {
-            fCandidate.hz = hz;
-            ++fCandidate.count;
-        }
-        else
-        {
-            fCandidate = Candidate { hz, 1, fTime };
-        }
-        if (fCandidate.count >= 2 && fTime - fCandidate.start >= fPickHold && fClickTime < 0)
+        if (confirmed)
             start();
+    }
+
+    float recentLevel() const { return *std::max_element(fLevels.begin(), fLevels.end()); }
+
+    // How many estimates in a row a new note needs: three for a doubtful one
+    int needed() const
+    {
+        int count = 2;
+        // (less clear without a pick; after one, the strings left ringing make even the right pitch less clear)
+        if (fCandidate.clarity > kDoubtful && !fPickPending)
+            ++count;
+        const double reference = fOn || fTime - fEndTime < fRecentNote ? fHz : 0.0;
+        if (reference > 0.0)
+        {
+            const double interval = 12.0 * std::log2(fCandidate.hz / reference);
+            const double size = std::fabs(interval);
+            // a harmonic or subharmonic of the note before (2, 3 or 4 times, or a 2, 3 or 4th of it): what the
+            // tracker finds while a pick or a finger stops the string
+            bool harmonic = false;
+            for (const double h : { 12.0, 19.02, 24.0 })
+                harmonic = harmonic || std::fabs(size - h) < kHarmonicWidth;
+            if (harmonic || size > kFarJump)
+                ++count;
+        }
+        return std::min(count, 3);
     }
 
     // The candidate becomes the note
@@ -331,6 +378,7 @@ private:
     void end(int64_t from, EndReason reason)
     {
         fOn = false;
+        fEndTime = fTime;
         fEndReason = reason;
         for (int64_t t = std::max(from, fTime - fLookahead + 1); t <= fTime; ++t)
             at(t).on = false;
@@ -371,6 +419,10 @@ private:
     float fMuteLevel = 0.0f; // the average level when it was muted: a swell back over twice it unmutes
     Note fOut;
     EndReason fEndReason = EndReason::None;
+    int64_t fEndTime = 0, fRecentNote = 7200;
+    static constexpr int kLevels = 8;
+    std::array<float, kLevels> fLevels {};
+    int fLevelPos = 0;
 };
 
 } // namespace namsayin

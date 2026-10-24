@@ -570,7 +570,7 @@ TEST_CASE("every mono synth has a pick filter that holds the note back, then pla
         REQUIRE(std::string(type->params[static_cast<size_t>(last)].name) == "Pick Filter");
         CHECK(type->params[static_cast<size_t>(last)].def == 0.0f); // off by default: synths sound as they did
         REQUIRE(std::string(type->params[static_cast<size_t>(last + 1)].name) == "Track");
-        CHECK(type->params[static_cast<size_t>(last + 1)].def == 0.0f); // Block In: as they did
+        CHECK(type->params[static_cast<size_t>(last + 1)].def == 1.0f); // Rig In (owner, 2026-10-24)
         CHECK(type->lookahead);
 
         // when the synth starts sounding, and how loud it plays once the note has settled
@@ -601,5 +601,54 @@ TEST_CASE("every mono synth has a pick filter that holds the note back, then pla
         CHECK(startOn >= startOff + ms(25));
         CHECK(levelOn > 0.7 * levelOff);
         CHECK(levelOn < 1.4 * levelOff);
+    }
+}
+
+namespace {
+
+// Runs a pitch-following block on `input`, tracking `rig` (both mono); returns the output
+std::vector<float> runTrackingRig(Block& block, std::vector<float> input, const std::vector<float>& rig)
+{
+    int allocations = 0;
+    for (size_t t = 0; t < input.size(); t += 128)
+    {
+        const auto n = static_cast<uint32_t>(std::min<size_t>(128, input.size() - t));
+        float* io[1] = { input.data() + t };
+        const float* key[1] = { rig.data() + t };
+        testing::AllocationGuard guard;
+        block.setRigInput(key, 1);
+        block.process(io, 1, n);
+        allocations += guard.count();
+    }
+    CHECK(allocations == 0);
+    return input;
+}
+
+} // namespace
+
+TEST_CASE("tracking the rig, pitch-following blocks play at the level of their own input")
+{
+    // Rig In is the default; the sound still comes from the signal path: a volume pedal (or a gate) before the
+    // block turns it down (or off) even though the rig's input plays on
+    std::vector<float> rig = note(220.0, 48000)[0];
+    for (float& s : rig)
+        s *= 0.05f;
+    std::vector<float> half = rig;
+    for (float& s : half)
+        s *= 0.5f;
+    const std::vector<float> silent(rig.size(), 0.0f);
+
+    for (const BlockDescriptor* type : { &kSynthBlockDescriptor, &kSuperSawBlockDescriptor, &kPolyChipBlockDescriptor })
+    {
+        CAPTURE(std::string(type->typeId));
+        const auto run = [&](const std::vector<float>& input) {
+            auto block = make(*type);
+            const std::vector<float> out = runTrackingRig(*block, input, rig);
+            return testing::rms(out, 24000, 48000);
+        };
+        const double full = run(rig);
+        REQUIRE(full > 1e-3);
+        CHECK(run(half) / full == doctest::Approx(0.5).epsilon(0.15));
+        CHECK(run(silent) < 1e-6);
     }
 }
