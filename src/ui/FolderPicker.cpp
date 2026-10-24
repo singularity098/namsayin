@@ -450,12 +450,33 @@ void FolderPicker::run(std::string title, std::string startDir, uintptr_t window
     std::string start = startDir;
     if (!start.empty() && start.back() != '/')
         start += '/';
+#ifdef __APPLE__
+    // the system's folder dialog through AppleScript: it runs in its own process, so it needs nothing from the
+    // host's main thread (exit code 1 when cancelled)
+    (void)window;
+    const auto quoted = [](const std::string& text) {
+        std::string out = "\"";
+        for (const char c : text)
+        {
+            if (c == '"' || c == '\\')
+                out += '\\';
+            out += c;
+        }
+        return out + "\"";
+    };
+    std::string script = "POSIX path of (choose folder with prompt " + quoted(title);
+    if (!start.empty())
+        script += " default location (POSIX file " + quoted(start) + ")";
+    script += ")";
+    const std::vector<std::vector<std::string>> pickers = { { "osascript", "-e", script } };
+#else
     char parent[32];
     std::snprintf(parent, sizeof(parent), "%llu", static_cast<unsigned long long>(window));
     const std::vector<std::vector<std::string>> pickers = {
         { "zenity", "--file-selection", "--directory", "--title=" + title, "--filename=" + start },
         { "kdialog", "--attach", parent, "--title", title, "--getexistingdirectory", start.empty() ? "." : start },
     };
+#endif
     for (const std::vector<std::string>& args : pickers)
     {
         int exitCode = -1;
@@ -464,6 +485,8 @@ void FolderPicker::run(std::string title, std::string startDir, uintptr_t window
             return;
         if (exitCode == 0 && !path.empty())
         {
+            if (path.size() > 1 && path.back() == '/')
+                path.pop_back(); // (AppleScript's folders end in one)
             finish(Status::Picked, std::move(path));
             return;
         }

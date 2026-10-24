@@ -84,3 +84,62 @@ jobs:
           path: |
             build/bin/namsayin.lv2
             build/bin/namsayin.vst3
+
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      # Submodules are cached (keyed on their pinned commits) so GitLab, which hosts Eigen and is sometimes
+      # overloaded, is only contacted when a submodule changes
+      - name: Submodule cache key
+        id: submodules
+        shell: bash
+        run: echo "key=$(git ls-tree HEAD deps | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .git/modules
+            deps/DPF
+            deps/NeuralAmpModelerCore
+            deps/doctest
+            deps/FFTConvolver
+            deps/miniz
+            deps/xxHash
+          key: submodules-${{ runner.os }}-${{ steps.submodules.outputs.key }}
+      - name: Fetch submodules
+        shell: bash
+        run: .github/scripts/fetch-submodules.sh
+      - name: Install dependencies
+        run: brew list ninja >/dev/null 2>&1 || brew install ninja
+      # A universal binary (arm64 + x86_64, macOS 11+): the defaults in CMakeLists.txt
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Check architectures
+        run: |
+          lipo -info build/bin/namsayin.vst3/Contents/MacOS/namsayin
+          lipo -info build/bin/namsayin.component/Contents/MacOS/namsayin
+          lipo build/bin/namsayin.vst3/Contents/MacOS/namsayin -verify_arch arm64 x86_64
+      # No Developer ID yet: an ad-hoc signature, which Apple Silicon requires to load the code at all
+      - name: Sign (ad hoc)
+        run: |
+          codesign --force --deep --sign - build/bin/namsayin.vst3
+          codesign --force --deep --sign - build/bin/namsayin.component
+          codesign --force --sign - build/bin/namsayin.lv2/*.dylib
+      - name: Validate the Audio Unit
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R build/bin/namsayin.component ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar 2>/dev/null || true
+          auval -a | grep -i namsayin
+          auval -strict -v aumf NMsy S098
+      - uses: actions/upload-artifact@v4
+        with:
+          name: namsayin-macos-universal
+          path: |
+            build/bin/namsayin.lv2
+            build/bin/namsayin.vst3
+            build/bin/namsayin.component

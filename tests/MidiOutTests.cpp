@@ -6,6 +6,7 @@
 #include "GuitarSignals.hpp"
 #include "TestSupport.hpp"
 
+#include "engine/CpuHints.hpp"
 #include "engine/Engine.hpp"
 #include "engine/blocks/MidiOutBlock.hpp"
 
@@ -14,7 +15,6 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
-#include <xmmintrin.h>
 #include <vector>
 
 using namespace namsayin;
@@ -348,8 +348,7 @@ TEST_CASE("midi out (poly) sends the notes of a chord, and ends them")
 TEST_CASE("midi out: CPU use" * doctest::skip(std::getenv("NAMSAYIN_CPU") == nullptr))
 {
     // as hosts do on their audio threads: denormals flushed to zero
-    const unsigned csr = _mm_getcsr();
-    _mm_setcsr(csr | 0x8040);
+    const FloatState csr = flushDenormals();
     for (const float mode : { 0.0f, 1.0f })
     {
         auto block = midiOut();
@@ -361,5 +360,5 @@ TEST_CASE("midi out: CPU use" * doctest::skip(std::getenv("NAMSAYIN_CPU") == nul
         const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
         std::printf("midi out %s: %.2f%% of a core\n", mode > 0.5f ? "poly" : "mono", 100.0 * seconds / 10.0);
     }
-    _mm_setcsr(csr);
+    setFloatState(csr);
 }

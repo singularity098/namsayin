@@ -1,6 +1,6 @@
 # NAMsayin
 
-**A free, open source guitar rig plugin for Linux and Windows.** Load your [Neural Amp Modeler](https://github.com/sdatkinson/NeuralAmpModelerCore) captures and cab IRs, put them in a chain with over 60 built-in pedals, and play. VST3 and LV2.
+**A free, open source guitar rig plugin for Linux, Windows and macOS.** Load your [Neural Amp Modeler](https://github.com/sdatkinson/NeuralAmpModelerCore) captures and cab IRs, put them in a chain with over 60 built-in pedals, and play. VST3 and LV2, plus AU on macOS.
 
 ![NAMsayin](docs/images/screenshot.png)
 
@@ -56,20 +56,28 @@ Delay times and modulation rates can sync to your DAW's tempo, and synced LFOs l
 
 ## Requirements
 
-- **Linux or Windows**, 64-bit x86. macOS and ARM aren't supported.
-- **A CPU with AVX2 and FMA**: Intel Haswell (2013) or newer, AMD Excavator or Zen or newer.
-- **A DAW that hosts VST3 or LV2 plugins.** NAMsayin is mainly tested in [Reaper](https://www.reaper.fm/). In Reaper on Linux, the VST3 version redraws more smoothly than the LV2 one.
+- **Linux or Windows**, 64-bit x86, or **macOS 11** (Big Sur) or later, on Apple Silicon or Intel.
+- **On x86 (including Intel Macs), a CPU with AVX2 and FMA**: Intel Haswell (2013) or newer, AMD Excavator or Zen or newer.
+- **A DAW that hosts VST3, LV2 or (on macOS) AU plugins.** NAMsayin is mainly tested in [Reaper](https://www.reaper.fm/). In Reaper on Linux, the VST3 version redraws more smoothly than the LV2 one.
 
 ## Installing
 
 Copy the plugin bundles (built below, in `build/bin/`) to your plugin folders:
 
-| | VST3 | LV2 |
-| --- | --- | --- |
-| Linux | `~/.vst3/namsayin.vst3` | `~/.lv2/namsayin.lv2` |
-| Windows | `C:\Program Files\Common Files\VST3\namsayin.vst3` | `%APPDATA%\LV2\namsayin.lv2` |
+| | VST3 | LV2 | AU |
+| --- | --- | --- | --- |
+| Linux | `~/.vst3/namsayin.vst3` | `~/.lv2/namsayin.lv2` | |
+| Windows | `C:\Program Files\Common Files\VST3\namsayin.vst3` | `%APPDATA%\LV2\namsayin.lv2` | |
+| macOS | `~/Library/Audio/Plug-Ins/VST3/namsayin.vst3` | `~/Library/Audio/Plug-Ins/LV2/namsayin.lv2` | `~/Library/Audio/Plug-Ins/Components/namsayin.component` |
 
 Then rescan plugins in your DAW and add **NAMsayin** to a track.
+
+On macOS the plugins aren't signed with an Apple Developer ID yet, so after downloading them, clear the quarantine
+flag or macOS will refuse to load them:
+
+```sh
+xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/*/namsayin.*
+```
 
 ## Getting started
 
@@ -96,6 +104,17 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
+**macOS** (Xcode or its Command Line Tools, and [Homebrew](https://brew.sh) for CMake and Ninja); builds a
+universal binary:
+
+```sh
+brew install cmake ninja
+git clone --recursive https://github.com/singularity098/namsayin
+cd namsayin
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+```
+
 **Windows** (Visual Studio 2022):
 
 ```sh
@@ -105,7 +124,7 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
 ```
 
-The plugins are written to `build/bin/` (`namsayin.vst3` and `namsayin.lv2`). If you cloned without `--recursive`, run `git submodule update --init --recursive` first.
+The plugins are written to `build/bin/` (`namsayin.vst3` and `namsayin.lv2`, and `namsayin.component` on macOS). If you cloned without `--recursive`, run `git submodule update --init --recursive` first.
 
 To run the tests: `ctest --test-dir build --output-on-failure`.
 

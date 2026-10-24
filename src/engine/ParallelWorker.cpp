@@ -3,7 +3,7 @@
 
 #include "engine/ParallelWorker.hpp"
 
-#include <immintrin.h>
+#include "engine/CpuHints.hpp"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -48,7 +48,7 @@ void ParallelWorker::wait()
     for (int spins = 0; fDone.load(std::memory_order_acquire) != target; ++spins)
     {
         if (spins < 4000)
-            _mm_pause();
+            cpuPause();
         else
             std::this_thread::yield();
     }
@@ -57,7 +57,7 @@ void ParallelWorker::wait()
 void ParallelWorker::run()
 {
     // Flush denormals to zero, as hosts do on their audio threads
-    _mm_setcsr(_mm_getcsr() | 0x8040);
+    flushDenormals();
 
     uint32_t seen = 0;
     for (;;)

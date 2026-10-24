@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.24)
 
+# macOS: a universal binary (Apple Silicon and Intel) by default, for macOS 11 and later (C++20's atomic wait)
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
+  set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Architectures to build for")
+  set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Oldest macOS to run on")
+endif()
+
 project(NAMsayin VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -12,15 +18,26 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+# Linux and Windows: x86-64 only. macOS: arm64 and x86-64 (see docs/Requirements.md).
+if(APPLE)
+  foreach(arch ${CMAKE_OSX_ARCHITECTURES})
+    if(NOT arch MATCHES "^(arm64|x86_64)$")
+      message(FATAL_ERROR "NAMsayin builds for arm64 and x86_64 on macOS (found ${arch})")
+    endif()
+  endforeach()
+elseif(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
   message(FATAL_ERROR "NAMsayin only supports x86-64 (found ${CMAKE_SYSTEM_PROCESSOR})")
 endif()
 
-# AVX2/FMA is a hard requirement (see docs/Requirements.md). No fast-math on any platform: the engine relies on
-# IEEE behaviour, and both platforms should compute the same results.
+# AVX2/FMA is a hard requirement on x86-64 (see docs/Requirements.md). No fast-math on any platform: the engine
+# relies on IEEE behaviour, and all platforms should compute the same results.
 if(MSVC)
   add_compile_options(/arch:AVX2 /utf-8)
   add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN _USE_MATH_DEFINES)
+elseif(APPLE)
+  # only for the Intel half of a universal binary (SHELL: keeps CMake from merging the repeated -Xarch_x86_64)
+  add_compile_options("SHELL:-Xarch_x86_64 -mavx2" "SHELL:-Xarch_x86_64 -mfma")
+  add_compile_definitions(GL_SILENCE_DEPRECATION)
 else()
   add_compile_options(-mavx2 -mfma)
 endif()
@@ -29,7 +46,8 @@ endif()
 # Dependencies
 
 # Our patches to DPF (patches/dpf/, see the README there), applied to the submodule's checkout once. They only change
-# Linux code, and a Windows checkout may have CRLF line endings that a patch wouldn't apply to.
+# Linux code (guarded, so applying them on macOS is harmless), and a Windows checkout may have CRLF line endings that
+# a patch wouldn't apply to.
 if(NOT WIN32)
   find_package(Git REQUIRED)
   file(GLOB NAMSAYIN_DPF_PATCHES ${CMAKE_CURRENT_SOURCE_DIR}/patches/dpf/*.patch)
@@ -161,8 +179,14 @@ target_compile_options(namsayin-engine PRIVATE ${NAMSAYIN_WARNINGS})
 # ---------------------------------------------------------------------------------------------------------------------
 # Plugin
 
+# Audio Units only exist on macOS (Logic and GarageBand load nothing else)
+set(NAMSAYIN_FORMATS lv2 vst3)
+if(APPLE)
+  list(APPEND NAMSAYIN_FORMATS au)
+endif()
+
 dpf_add_plugin(namsayin
-  TARGETS lv2 vst3
+  TARGETS ${NAMSAYIN_FORMATS}
   USE_FILE_BROWSER
   FILES_DSP
     src/plugin/NAMsayinPlugin.cpp
@@ -231,6 +255,10 @@ if(NAMSAYIN_BUILD_TESTS)
     src/ui/ParamHelp.cpp
     src/ui/TextEdit.cpp)
   target_include_directories(namsayin-tests PRIVATE tests deps/doctest src)
+  if(APPLE)
+    # the tests run on the machine that builds them: only its own architecture
+    set_target_properties(namsayin-tests PROPERTIES OSX_ARCHITECTURES ${CMAKE_HOST_SYSTEM_PROCESSOR})
+  endif()
   target_link_libraries(namsayin-tests PRIVATE namsayin-engine)
   target_compile_options(namsayin-tests PRIVATE ${NAMSAYIN_WARNINGS})
   target_compile_definitions(namsayin-tests PRIVATE NAMSAYIN_EXAMPLE_MODELS="${NAM_DIR}/example_models")

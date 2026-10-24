@@ -15,7 +15,7 @@ This plan covers version 1 as scoped in [Requirements.md](Requirements.md): loca
 | Font | Jost Light and Regular (embedded; `resources/fonts`, `tools/embed_font.py`) | OFL |
 | Build | CMake (DPF's `dpf_add_plugin`), dependencies as git submodules under `deps/` | — |
 
-Targets: Linux and Windows, x86-64 with AVX2/FMA required (`-mavx2 -mfma` / `/arch:AVX2`). VST3 and LV2 only; no standalone app for now. Compilers: GCC/Clang on Linux, MSVC on Windows.
+Targets: Linux and Windows, x86-64 with AVX2/FMA required (`-mavx2 -mfma` / `/arch:AVX2`), and macOS 11+ as a universal binary (arm64, and x86_64 with AVX2/FMA through `-Xarch_x86_64`). VST3 and LV2, plus AU on macOS; no standalone app for now. Compilers: GCC/Clang on Linux, MSVC on Windows, Apple Clang on macOS. The few CPU-specific bits (flushing denormals, the spin-wait hint) are in `src/engine/CpuHints.hpp`.
 
 ## 2. Repository layout
 
@@ -295,12 +295,12 @@ Notes:
 - **Redraws on Linux**: X11 events are only read when the host calls the UI. LV2 hosts call it on their idle tick (Reaper: ~30-36 Hz), so dragging redraws at that rate. For VST3, a DPF patch (`patches/dpf/`) registers the X11 connection with the host run loop's event handler, so events are handled and redrawn as they arrive, whatever the host's timer rate. The UI turns vsync off for its GL window, so a buffer swap never stalls the host's GUI thread waiting for the screen. `NAMSAYIN_SHOW_FPS=1` in the host's environment shows a frame-rate readout.
 - **Hover help**: resting the mouse on a control for 0.6 s shows a translucent popup with its name and a plain-English explanation of what it does and how to use it. The texts are in `src/ui/ParamHelp.cpp` (block controls by typeId and control name, the others by parameter symbol); `tests/ParamHelpTests.cpp` checks that every block control and every global control has one, at least 80 characters long. The top-bar icon buttons and the metronome's beat, grouping and tap controls have popups too, and so does every block type (`blockTypeHelp()`: what it is, what it's for, how and where to use it), on its tile in the chain and on its entry in Add Block (categories and search results).
 - A dark theme defined as colour tokens in one file, so it can be restyled: the window background is the owner's dark wood image, scaled to cover the window (only seen between panels); boxes are black with 1 px gray outlines (`surface()`), and buttons that are on are an accent outline over a faint accent tint. Knobs: hairline body, 21 ticks lit up to the value, a dot for the position. Font: Jost Light (Regular for small text), drawn 1.69x the layout size because Jost runs small, with DPF's DejaVu as the fallback for glyphs Jost lacks (★, ▾).
-- The GitHub and Fretbored links open the browser through a small platform helper (`xdg-open` / `ShellExecute`). On a narrow window the preset button narrows (down to 160 px) so both links still fit; while a MIDI learn message shows in a window under 1200 px, they make room for it.
+- The GitHub and Fretbored links open the browser through a small platform helper (`xdg-open` / `ShellExecute` / `open`). On a narrow window the preset button narrows (down to 160 px) so both links still fit; while a MIDI learn message shows in a window under 1200 px, they make room for it.
 
 ## 8. Build, test and release
 
 - **CI** (GitHub Actions):
-  - Linux and Windows builds of VST3 and LV2 on every push
+  - Linux and Windows builds of VST3 and LV2 on every push, and a macOS universal build (VST3, LV2, AU; ad-hoc signed, the AU checked with `auval`, tests run on arm64)
   - unit tests
   - plugin validation with pluginval (VST3) and lv2lint (LV2)
 - **Unit tests**:
@@ -353,11 +353,12 @@ M2–M3 and M4 can overlap, as can M8 and M9.
 5. **Compressor**: added to M3, studio style (owner's choice over a simple pedal-style one).
 6. **Theme**: no gradient; pure black window. Boxes were flat near-black gray at first; the owner then chose black boxes with hairline gray outlines, Jost Light and tick-scale knobs with a dot, from drafted screenshots (fonts, knobs and surfaces; 2026-10-22).
 7. **Block panel**: large block image on the left, generic knobs right-justified.
-8. **Folder choice**: DPF's file browser can't pick folders, so "Choose…" opens the system's folder picker (`src/ui/FolderPicker.*`, on its own thread): Linux tries the desktop portal (FileChooser v3, `directory`), then zenity, then kdialog; Windows uses IFileOpenDialog with FOS_PICKFOLDERS. With none of these, it falls back to DPF's browser and takes the folder of any file picked in it. The path can also be typed or pasted.
+8. **Folder choice**: DPF's file browser can't pick folders, so "Choose…" opens the system's folder picker (`src/ui/FolderPicker.*`, on its own thread): Linux tries the desktop portal (FileChooser v3, `directory`), then zenity, then kdialog; Windows uses IFileOpenDialog with FOS_PICKFOLDERS; macOS runs AppleScript's `choose folder` through `osascript` (its own process, so it needs nothing from the host's main thread). With none of these, it falls back to DPF's browser and takes the folder of any file picked in it. The path can also be typed or pasted.
 9. **MIDI map in the chain state** rather than a separate plugin state, so it follows the chain's routes (including the exchange file for Reaper's LV2) and is covered by undo and presets.
 10. **Metronome samples**: only the Classic clicks come from Fretbored. Its Digital samples carry a third-party artist credit (owner's call to remove them), so the Digital sound is generated in code.
 11. **16 parameters per block** (was 8), for the Doppelganger Delay. Most host parameter indices moved, which was fine only because nothing was released yet; from v1.0 on the count is fixed.
 12. **Pedals before v1**: the owner asked for a wide pedal set first (no rush to v1). Varieties are a Type choice inside one block rather than separate blocks; a released Choice list never changes (saved values would map to other choices), so new varieties that don't fit become new blocks.
 13. **Pitch effects without latency**: delay-line pitch shifting with pitch-synchronous splices (polyphonic, clean on notes and most chords) instead of FFT or PSOLA methods that add latency; the synth, harmonizer and octave track pitch with YIN on a decimated copy (detection takes 4-24 ms, but adds no latency to the audio).
 14. **Looper controls as momentary parameters**, so footswitches map to them with MIDI learn; the looper keeps one loop (60 s at 48 kHz).
+15. **macOS** (owner, 2026-10-24; was out of scope): a universal binary (Apple Silicon and Intel), macOS 11+, VST3, LV2 and AU (Logic and GarageBand only load AU). Linux and Windows stay x86-64 only. No Developer ID yet: CI signs the bundles ad hoc (Apple Silicon won't load unsigned code), so downloads need `xattr -dr com.apple.quarantine`.
 

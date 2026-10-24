@@ -42,6 +42,8 @@ fs::path configDir()
     if (auto appData = envPath("APPDATA"))
         return *appData / "NAMsayin";
     return homeDir() / "AppData" / "Roaming" / "NAMsayin";
+#elif defined(__APPLE__)
+    return homeDir() / "Library" / "Application Support" / "NAMsayin";
 #else
     if (auto xdg = envPath("XDG_CONFIG_HOME"))
         return *xdg / "namsayin";
@@ -57,6 +59,8 @@ fs::path cacheDir()
     if (auto local = envPath("LOCALAPPDATA"))
         return *local / "NAMsayin" / "Cache";
     return homeDir() / "AppData" / "Local" / "NAMsayin" / "Cache";
+#elif defined(__APPLE__)
+    return homeDir() / "Library" / "Caches" / "NAMsayin";
 #else
     if (auto xdg = envPath("XDG_CACHE_HOME"))
         return *xdg / "namsayin";

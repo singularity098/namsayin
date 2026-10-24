@@ -8,6 +8,7 @@
 #include "GuitarSignals.hpp"
 #include "TestSupport.hpp"
 
+#include "engine/CpuHints.hpp"
 #include "engine/blocks/CloudBlocks.hpp"
 #include "engine/blocks/InstrumentBlocks.hpp"
 #include "engine/blocks/PlayedBlocks.hpp"
@@ -21,7 +22,6 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
-#include <xmmintrin.h>
 #include <cmath>
 #include <vector>
 
@@ -487,8 +487,7 @@ TEST_CASE("piano strikes the note, damps it when you let go, and Sustain lets it
 TEST_CASE("third set: CPU use" * doctest::skip(std::getenv("NAMSAYIN_CPU") == nullptr))
 {
     // as hosts do on their audio threads: denormals flushed to zero
-    const unsigned csr = _mm_getcsr();
-    _mm_setcsr(csr | 0x8040);
+    const FloatState csr = flushDenormals();
     for (const BlockDescriptor* type :
          { &kSympatheticBlockDescriptor, &kJawariBlockDescriptor, &kGrainCloudBlockDescriptor, &kSwarmBlockDescriptor,
            &kTapeStopBlockDescriptor, &kBounceDelayBlockDescriptor, &kPatternDelayBlockDescriptor,
@@ -503,7 +502,7 @@ TEST_CASE("third set: CPU use" * doctest::skip(std::getenv("NAMSAYIN_CPU") == nu
         const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
         std::printf("%-14s %5.2f%% of a core (stereo, 48 kHz)\n", type->typeId, 100.0 * seconds / 10.0);
     }
-    _mm_setcsr(csr);
+    setFloatState(csr);
 }
 
 namespace {

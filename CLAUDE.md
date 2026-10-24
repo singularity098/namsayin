@@ -4,7 +4,7 @@ Guidance for Claude when working in this repository. Keep this file up to date: 
 
 ## Project
 
-NAMsayin is a guitar rig plugin (VST3 + LV2) in C++20, built with DPF (plugin framework + NanoVG UI) and NeuralAmpModelerCore.
+NAMsayin is a guitar rig plugin (VST3 + LV2, and AU on macOS) in C++20, built with DPF (plugin framework + NanoVG UI) and NeuralAmpModelerCore.
 
 - **Requirements**: `docs/Requirements.md` — the owner's feature list plus agreed decisions. Treat it as the source of truth; record new decisions there.
 - **Architecture and milestones**: `docs/Architecture.md` — design, v1 milestones (M0–M10) and decisions log.
@@ -12,8 +12,8 @@ NAMsayin is a guitar rig plugin (VST3 + LV2) in C++20, built with DPF (plugin fr
 
 ## Fixed decisions (don't revisit without the owner)
 
-- Formats: VST3 and LV2 only. No standalone app, no CLAP, no AU.
-- Platforms: Linux and Windows, x86-64 only, AVX2/FMA required. No macOS, no ARM.
+- Formats: VST3 and LV2; on macOS also AU (owner, 2026-10-24: Logic and GarageBand load nothing else). No standalone app, no CLAP.
+- Platforms: Linux and Windows, x86-64 only, AVX2/FMA required; macOS 11+ as a universal binary (arm64 + x86_64 with AVX2/FMA; owner, 2026-10-24, was "no macOS, no ARM"). ARM only on macOS. CPU-specific code goes through `src/engine/CpuHints.hpp` (denormal flushing, spin-wait hint).
 - License: MIT. New source files start with `// SPDX-License-Identifier: MIT` and `// Copyright (c) 2026 singularity098`.
 - UI: DPF's NanoVG, very dark theme: the window background is the owner's dark wood image (`resources/background/`), only behind the panels; bars, panels, tiles, buttons and dialogs are black with hairline gray outlines (no gradient; owner's choice), blue accent by default (configurable in Settings, where blue is the first swatch; was purple), hairline icons. Font: Jost Light. Knobs: tick scale lit to the value, with a dot for the position. Theme tokens are at the top of `src/ui/NAMsayinUI.cpp`. Draw in logical pixels and scale by `getScaleFactor()`.
 - Block panel: a large block image on the left (drawn placeholder art until real images exist), generic controls right-justified. The generic knobs may later be replaced by knobs on the image itself.
@@ -94,7 +94,7 @@ resources/fonts/      Jost (variable TTF + OFL.txt); tools/embed_font.py makes t
 resources/background/ The window background image (the owner's, generated with Krea-2 in ComfyUI); tools/embed_background.py makes it src/ui/BackgroundImage.cpp (JPEG)
 resources/blocks/     Built-in block images, named <typeId>.<ext>; tools/embed_block_images.py turns them into BlockImages.cpp
 deps/khronos/         Vendored glext.h + khrplatform.h (MSVC has none; DPF's download is unreliable)
-.github/workflows/    CI: Linux (Ninja) and Windows (MSVC) builds + tests
+.github/workflows/    CI: Linux (Ninja), Windows (MSVC) and macOS (universal, ad-hoc signed, auval) builds + tests
 .github/scripts/      CI helper scripts
 patches/dpf/          Our DPF patches (VST3: X11 events wake the UI at once), applied by CMake
 ```
@@ -111,7 +111,7 @@ ctest --test-dir build --output-on-failure          # or ./build/namsayin-tests
 LV2_PATH=$PWD/build/bin lv2info https://github.com/singularity098/namsayin   # check the LV2 bundle loads
 ```
 
-Output goes to `build/bin/namsayin.lv2` and `build/bin/namsayin.vst3`.
+Output goes to `build/bin/namsayin.lv2` and `build/bin/namsayin.vst3` (macOS: also `namsayin.component`, the AU; universal by default, `CMAKE_OSX_ARCHITECTURES`). There's no Mac here: macOS is checked by CI (build, tests on arm64, `auval`), and the engine's ARM code can be checked by cross-compiling the engine and tests with `aarch64-linux-gnu-g++` and running them under `qemu-aarch64 -L /usr/aarch64-linux-gnu`.
 
 Sanitizer runs (worth doing after touching threading or the engine):
 
@@ -174,7 +174,7 @@ The file browser opens in the host's working directory. Final checks happen in R
 - Font: the UI draws in Jost, embedded as `src/ui/FontData.cpp`: Light (also the logo, large; the owner tried Bold and preferred Light), and Regular for small text (layout sizes under 13). Jost runs small, so the UI's `fontSize()` (which hides NanoVG's) draws text 1.69x the layout size (owner: too small at 1x, then asked for 30% more than 1.3x). Long names are shortened to fit with `fitText()`. Glyphs Jost lacks (★, ▾) fall back to DPF's DejaVu. After changing `resources/fonts/` or the weight, run `python3 tools/embed_font.py` (needs fontTools); never edit `FontData.cpp` by hand.
 - Background: the window background (behind every panel, which are all black-filled, so it shows only between them) is `resources/background/background.*`, scaled to cover the window. After changing it, run `python3 tools/embed_background.py` (needs Pillow); never edit `BackgroundImage.cpp` by hand.
 - Sidecar images must be 8-bit PNG or JPEG: DPF's bundled stb_image can't decode 16-bit PNG.
-- Settings live in `~/.config/namsayin/settings.json` (Windows: `%APPDATA%\NAMsayin`); the library index caches are in `~/.cache/namsayin` (`%LOCALAPPDATA%\NAMsayin\Cache`). Every UI polls the settings file once a second, so instances stay in sync. Change settings with `updateSettings()` in the UI, which reloads before saving.
+- Settings live in `~/.config/namsayin/settings.json` (Windows: `%APPDATA%\NAMsayin`; macOS: `~/Library/Application Support/NAMsayin`); the library index caches are in `~/.cache/namsayin` (`%LOCALAPPDATA%\NAMsayin\Cache`; `~/Library/Caches/NAMsayin`). Every UI polls the settings file once a second, so instances stay in sync. Change settings with `updateSettings()` in the UI, which reloads before saving.
 - Text fields (search, folders) need keyboard focus: focusing one calls `getWindow().focus()` to take it from the host. VST3 hosts may forward keys themselves (`onKeyDown`); DPF then sends character input with an empty `string`, so `onCharacterInput` encodes `character` itself. Some hosts keep keys for themselves; in Reaper, check that typing in the plugin window works (FX window option "Send all keyboard input to plugin" if not).
 - MIDI learn: the map (CC → host parameter) is part of the chain state, so it travels like the chain and is in undo and presets. The DSP applies mapped CCs at the start of each buffer and reports every CC (`kParamMidiLastCc/LastValue/CcCount`); the UI learns from those, and also writes mapped values to the host, because LV2 hosts mostly can't take parameter changes from the DSP (VST3 can: `requestParameterValueChange`). The host must route MIDI to the plugin's track.
 - Undo covers the chain (blocks, block values, bypass, MIDI map), not the global knobs. Call `beginEdit()` before changing `fChain` in the UI. The UI mirrors host slot values into `fChain` (`syncChainValue`), so presets save automated values too.
