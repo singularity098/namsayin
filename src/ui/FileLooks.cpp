@@ -8,7 +8,7 @@ namespace namsayin {
 namespace {
 
 // Random numbers from the key: FNV-1a for the seed, then splitmix64. Both are fixed here (not std::hash), so a file
-// looks the same on every machine and in every version.
+// looks the same in every build and every version.
 class Dice {
 public:
     explicit Dice(std::string_view key)
@@ -60,10 +60,6 @@ CabLook cabLook(std::string_view key)
     if (key.empty())
         return look;
     Dice dice(key);
-    static constexpr int layouts[][2] = { { 1, 1 }, { 1, 2 }, { 2, 1 }, { 2, 2 }, { 1, 3 } };
-    const int layout = dice.below(5);
-    look.rows = layouts[layout][0];
-    look.columns = layouts[layout][1];
     look.cone = static_cast<CabLook::Cone>(dice.below(CabLook::kCones));
     look.cloth = static_cast<CabLook::Cloth>(dice.below(CabLook::kCloths));
     look.badge = static_cast<Badge>(dice.below(kBadges));

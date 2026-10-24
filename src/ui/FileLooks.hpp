@@ -9,9 +9,9 @@
 
 namespace namsayin {
 
-// Each NAM model and cab IR gets a look of its own in the placeholder art, picked from its file's content hash (the
-// block config's "hash"), so two amps or two cabs side by side tell apart at a glance and a file looks the same
-// wherever it appears (chain, library, presets, other machines). Plain data, no DPF, so the tests can check it.
+// Each NAM model and cab IR gets a look of its own in the placeholder art, picked from its file's path, so two amps
+// or two cabs side by side tell apart at a glance and a file looks the same wherever it appears (chain, library,
+// presets). Plain data, no DPF, so the tests can check it.
 //
 // An empty key gives the generic look (the Add Block list, which has no file).
 
@@ -34,12 +34,11 @@ struct CabLook {
     enum Cone { Plain, Rim, Spokes, BigCap, kCones };
     enum Cloth { Bare, Diagonal, Vertical, kCloths };
 
-    int rows = 2, columns = 2; // the speakers: 1x1, 1x2, 2x1, 2x2 or 1x3
-    Cone cone = Plain;         // how each speaker is drawn
-    Cloth cloth = Bare;        // lines of grille cloth behind the speakers
-    Badge badge = BadgeNone;   // the logo above the speakers
-    bool corners = false;      // metal corner protectors
-    float hue = 0.0f;          // shift of the cab colour, in degrees
+    Cone cone = Plain;       // how each speaker is drawn
+    Cloth cloth = Bare;      // lines of grille cloth behind the speakers
+    Badge badge = BadgeNone; // the logo above the speakers
+    bool corners = false;    // metal corner protectors
+    float hue = 0.0f;        // shift of the cab colour, in degrees
 };
 
 AmpLook ampLook(std::string_view key);

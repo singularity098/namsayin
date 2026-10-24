@@ -2406,13 +2406,8 @@ private:
         return builtinImage(block.typeId);
     }
 
-    // What picks a block's own look in the placeholder art: its file's content hash, or the path for configs saved
-    // without one
-    static std::string fileLookKey(const BlockState& block)
-    {
-        const std::string hash = block.config.value("hash", std::string());
-        return hash.empty() ? block.config.value("path", std::string()) : hash;
-    }
+    // What picks a block's own look in the placeholder art: its file's path
+    static std::string fileLookKey(const BlockState& block) { return block.config.value("path", std::string()); }
 
     // The window background behind the panels: the owner's image, scaled to cover the window and centred
     void drawBackground()
@@ -3227,7 +3222,7 @@ private:
 
     // Placeholder art until real images exist: a pedal, an amp head or a speaker cab, fitted into the rect, as black
     // enclosures outlined in glowing lines. `detailed` (the block panel) adds knobs; thumbnails keep the
-    // shapes bold so they read at small sizes. `key` (the file's content hash) gives each amp and cab its own look
+    // shapes bold so they read at small sizes. `key` (the file's path) gives each amp and cab its own look
     // (FileLooks.hpp); empty for the generic one.
     void drawBlockArt(const BlockDescriptor* type, float x, float y, float w, float h, bool detailed,
                       const std::string& key = std::string())
@@ -3452,7 +3447,7 @@ private:
 
         if (type->category == Category::Ir)
         {
-            // cab: speaker rings in a box, the layout, cones, cloth, logo and colour from the file (cabLook())
+            // cab: a 2x2 of speaker rings in a box, the cones, cloth, logo and colour from the file (cabLook())
             const CabLook look = cabLook(key);
             if (look.hue != 0.0f)
             {
@@ -3461,7 +3456,8 @@ private:
                 color.interpolate(shiftHue(Color(0x80, 0x98, 0xc0), look.hue), 0.35f);
             }
             const float band = look.badge != BadgeNone ? 0.22f : 0.0f; // room for the logo, in speaker cells
-            const float aspect = look.columns / (look.rows + band);
+            constexpr int rows = 2, columns = 2;
+            const float aspect = columns / (rows + band);
             const float bw = std::min(w, h * aspect), bh = bw / aspect;
             const float size = std::min(bw, bh);
             const float bx = cx - bw / 2, by = cy - bh / 2;
@@ -3473,8 +3469,8 @@ private:
             glowStroke(color, size * 0.012f * line);
 
             const float inset = size * 0.06f;
-            const float top = by + inset + (bh - 2 * inset) * band / (look.rows + band);
-            const float cellW = (bw - 2 * inset) / look.columns, cellH = (by + bh - inset - top) / look.rows;
+            const float top = by + inset + (bh - 2 * inset) * band / (rows + band);
+            const float cellW = (bw - 2 * inset) / columns, cellH = (by + bh - inset - top) / rows;
             const float speaker = std::min(cellW, cellH) * 0.39f;
             if (look.cloth != CabLook::Bare)
             {
@@ -3503,9 +3499,9 @@ private:
                 glowStroke(cloth, size * 0.006f * line);
                 restore();
             }
-            for (int r = 0; r < look.rows; ++r)
+            for (int r = 0; r < rows; ++r)
             {
-                for (int c = 0; c < look.columns; ++c)
+                for (int c = 0; c < columns; ++c)
                 {
                     const float sx = bx + inset + cellW * (c + 0.5f), sy = top + cellH * (r + 0.5f);
                     beginPath();
@@ -5166,7 +5162,7 @@ private:
                 drawImageFit(*img, r.x + 6.0f, r.y + 4.0f, 52.0f, r.h - 8.0f, 3.0f);
             else
                 drawBlockArt(row.type, r.x + 6.0f, r.y + 6.0f, 52.0f, r.h - 12.0f, false,
-                             row.entry ? row.entry->hash : std::string());
+                             row.entry ? row.entry->path : std::string());
 
             std::string detail;
             if (row.entry)

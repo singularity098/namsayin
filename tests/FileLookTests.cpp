@@ -5,7 +5,6 @@
 
 #include "ui/FileLooks.hpp"
 
-#include <cstdio>
 #include <set>
 #include <string>
 #include <tuple>
@@ -14,23 +13,18 @@ using namespace namsayin;
 
 namespace {
 
-// Content hashes like the library's (XXH3-128 as 32 hex digits), different for each n
-std::string fakeHash(int n)
-{
-    char text[40];
-    std::snprintf(text, sizeof(text), "%08x%08x%08x%08x", n * 2654435761u, n ^ 0x5bd1e995u, n * 40503u, n + 7u);
-    return text;
-}
+// File paths like a library's, different for each n
+std::string fakePath(int n) { return "/home/me/Guitar/Models/Amp " + std::to_string(n) + ".nam"; }
 
 auto ampKey(const AmpLook& look) { return std::tuple(look.knobs, look.grille, look.badge, look.body); }
 auto cabKey(const CabLook& look)
 {
-    return std::tuple(look.rows, look.columns, look.cone, look.cloth, look.badge, look.corners);
+    return std::tuple(look.cone, look.cloth, look.badge, look.corners);
 }
 
 } // namespace
 
-TEST_CASE("a file without a hash gets the generic look")
+TEST_CASE("no file gets the generic look")
 {
     const AmpLook amp = ampLook("");
     CHECK(amp.knobs == 6);
@@ -38,8 +32,7 @@ TEST_CASE("a file without a hash gets the generic look")
     CHECK(amp.badge == BadgeNone);
     CHECK(amp.hue == 0.0f);
     const CabLook cab = cabLook("");
-    CHECK(cab.rows == 2);
-    CHECK(cab.columns == 2);
+    CHECK(cab.cone == CabLook::Plain);
     CHECK(cab.badge == BadgeNone);
     CHECK(cab.hue == 0.0f);
 }
@@ -47,29 +40,28 @@ TEST_CASE("a file without a hash gets the generic look")
 TEST_CASE("a file always gets the same look")
 {
     // fixed values: a change here changes how everyone's files look
-    const AmpLook amp = ampLook("0123456789abcdef0123456789abcdef");
-    CHECK(amp.knobs == 6);
-    CHECK(amp.grille == AmpLook::Slats);
-    CHECK(amp.badge == BadgeNone);
+    const char* path = "/home/me/Guitar/Models/Plexi.nam";
+    const AmpLook amp = ampLook(path);
+    CHECK(amp.knobs == 5);
+    CHECK(amp.grille == AmpLook::Crosshatch);
+    CHECK(amp.badge == BadgeStar);
     CHECK(amp.body == AmpLook::Head);
-    CHECK(amp.hue == doctest::Approx(18.6973f).epsilon(1e-4));
-    const CabLook cab = cabLook("0123456789abcdef0123456789abcdef");
-    CHECK(cab.rows == 2);
-    CHECK(cab.columns == 2);
-    CHECK(cab.cone == CabLook::Plain);
-    CHECK(cab.cloth == CabLook::Bare);
-    CHECK(cab.badge == BadgeCircle);
+    CHECK(amp.hue == doctest::Approx(-3.9805f).epsilon(1e-4));
+    const CabLook cab = cabLook(path);
+    CHECK(cab.cone == CabLook::BigCap);
+    CHECK(cab.cloth == CabLook::Vertical);
+    CHECK(cab.badge == BadgeStar);
     CHECK_FALSE(cab.corners);
-    CHECK(cab.hue == doctest::Approx(9.8193f).epsilon(1e-4));
-    CHECK(cabKey(cabLook("0123456789abcdef0123456789abcdef")) == cabKey(cab));
+    CHECK(cab.hue == doctest::Approx(-8.5296f).epsilon(1e-4));
+    CHECK(cabKey(cabLook(path)) == cabKey(cab));
 }
 
 TEST_CASE("looks stay in range and use every option")
 {
-    std::set<int> knobs, grilles, badges, bodies, layouts, cones, cloths, cabBadges, corners;
+    std::set<int> knobs, grilles, badges, bodies, cones, cloths, cabBadges, corners;
     for (int n = 0; n < 500; ++n)
     {
-        const AmpLook amp = ampLook(fakeHash(n));
+        const AmpLook amp = ampLook(fakePath(n));
         CHECK(amp.knobs >= 3);
         CHECK(amp.knobs <= 7);
         CHECK(amp.hue >= -28.0f);
@@ -84,12 +76,9 @@ TEST_CASE("looks stay in range and use every option")
         badges.insert(amp.badge);
         bodies.insert(amp.body);
 
-        const CabLook cab = cabLook(fakeHash(n));
-        CHECK(cab.rows * cab.columns >= 1);
-        CHECK(cab.rows * cab.columns <= 4);
+        const CabLook cab = cabLook(fakePath(n));
         CHECK(cab.hue >= -60.0f);
         CHECK(cab.hue <= 60.0f);
-        layouts.insert(cab.rows * 10 + cab.columns);
         cones.insert(cab.cone);
         cloths.insert(cab.cloth);
         cabBadges.insert(cab.badge);
@@ -99,7 +88,6 @@ TEST_CASE("looks stay in range and use every option")
     CHECK(grilles.size() == AmpLook::kGrilles);
     CHECK(badges.size() == kBadges);
     CHECK(bodies.size() == AmpLook::kBodies);
-    CHECK(layouts.size() == 5);
     CHECK(cones.size() == CabLook::kCones);
     CHECK(cloths.size() == CabLook::kCloths);
     CHECK(cabBadges.size() == kBadges);
@@ -108,14 +96,14 @@ TEST_CASE("looks stay in range and use every option")
 
 TEST_CASE("files in a library mostly look different")
 {
-    // 420 amp shapes and 840 cab shapes (before colour and knob positions): among 40 files few should share one
+    // 420 amp shapes and 168 cab shapes (before colour and knob positions): among 40 files few should share one
     std::set<decltype(ampKey(AmpLook()))> amps;
     std::set<decltype(cabKey(CabLook()))> cabs;
     for (int n = 0; n < 40; ++n)
     {
-        amps.insert(ampKey(ampLook(fakeHash(n))));
-        cabs.insert(cabKey(cabLook(fakeHash(n))));
+        amps.insert(ampKey(ampLook(fakePath(n))));
+        cabs.insert(cabKey(cabLook(fakePath(n))));
     }
     CHECK(amps.size() >= 36);
-    CHECK(cabs.size() >= 36);
+    CHECK(cabs.size() >= 32);
 }
