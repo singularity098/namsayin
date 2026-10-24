@@ -382,4 +382,59 @@ inline std::vector<Note> longDecay()
     return notes;
 }
 
+// Open chords strummed down (12 ms from string to string), each held, then muted
+inline std::vector<Note> strummedChords()
+{
+    static const std::vector<std::vector<int>> chords = {
+        { 40, 47, 52, 56, 59, 64 }, // E
+        { 45, 52, 57, 61, 64 },     // A
+        { 50, 57, 62, 66 },         // D
+        { 43, 47, 50, 55, 59, 67 }, // G
+        { 48, 52, 55, 60, 64 },     // C
+        { 45, 52, 57, 60, 64 },     // Am
+    };
+    std::vector<Note> notes;
+    double time = 0.1;
+    for (const auto& chord : chords)
+    {
+        for (size_t k = 0; k < chord.size(); ++k)
+        {
+            Note note;
+            note.midi = chord[k];
+            note.start = time + 0.012 * static_cast<double>(k);
+            note.length = 0.9 - 0.012 * static_cast<double>(k);
+            // the strings from the low E up: the lowest note of a chord on the lowest string it uses
+            note.string = static_cast<int>(6 - chord.size() + k);
+            note.velocity = 0.8f;
+            notes.push_back(note);
+        }
+        time += 1.2;
+    }
+    return notes;
+}
+
+// Power chords (root, fifth, octave) changing every eighth note at 120 BPM, each muted by the next
+inline std::vector<Note> powerChords()
+{
+    static const int roots[] = { 40, 43, 45, 43, 40, 47, 45, 43 };
+    std::vector<Note> notes;
+    double time = 0.1;
+    for (int pass = 0; pass < 2; ++pass)
+        for (const int root : roots)
+        {
+            const int low = root < 45 ? 0 : 1;
+            for (int k = 0; k < 3; ++k)
+            {
+                Note note;
+                note.midi = root + (k == 0 ? 0 : (k == 1 ? 7 : 12));
+                note.start = time + 0.006 * k;
+                note.length = 0.25 - 0.006 * k - 0.01;
+                note.string = low + k;
+                notes.push_back(note);
+            }
+            time += 0.25;
+        }
+    return notes;
+}
+
 } // namespace guitar

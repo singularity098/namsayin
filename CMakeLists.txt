@@ -212,6 +212,7 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/NamBlockTests.cpp
     tests/ParamHelpTests.cpp
     tests/PedalTests.cpp
+    tests/PolyTrackingTests.cpp
     tests/PresetTests.cpp
     tests/ReverbBlockTests.cpp
     tests/SettingsTests.cpp

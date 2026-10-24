@@ -37,6 +37,7 @@ public:
         double hz = 0.0;       // the pitch; kept after the note ends (0 until the first note)
         float envelope = 0.0f; // the input's level
         bool onset = false;    // a new pick starts a note at this sample
+        float velocity = 0.0f; // how hard the note was picked: the input's peak from its pick until it was found
     };
 
     // Non-RT
@@ -100,6 +101,7 @@ public:
         fMuted = false;
         fCandidate = Candidate {};
         fPickPending = false;
+        fPickPeak = fVelocity = 0.0f;
         fPickTime = 0;
         fLastVoiced = 0;
         fOut = Note {};
@@ -119,12 +121,15 @@ public:
         fEstimates = fTracker.estimates();
 
         Note& now = at(fTime);
-        now = Note { fOn, fHz, fEnvelope, false };
+        now = Note { fOn, fHz, fEnvelope, false, fVelocity };
+        if (fPickPending)
+            fPickPeak = std::max(fPickPeak, fEnvelope);
 
         if (picked)
         {
             fPickPending = true;
             fPickTime = fTime;
+            fPickPeak = fEnvelope;
             if (fOn)
                 end(fTime, EndReason::Pick);
             fCandidate = Candidate {};
@@ -155,7 +160,7 @@ public:
 
         fOut = at(fTime - fLookahead);
         if (fLookahead == 0)
-            fOut = Note { fOn, fHz, fEnvelope, now.onset };
+            fOut = Note { fOn, fHz, fEnvelope, now.onset, fVelocity };
         if (fOut.hz <= 0.0)
             fOut.hz = fHz;
         return fOut;
@@ -274,6 +279,7 @@ private:
         fMisses = 0;
         fHz = fCandidate.hz;
         fPeak = fEnvelope;
+        fVelocity = fPickPending ? std::max(fPickPeak, fEnvelope) : fEnvelope;
         fLastVoiced = fTime;
         for (int64_t t = begin; t <= fTime; ++t)
         {
@@ -281,6 +287,7 @@ private:
             n.on = true;
             n.hz = fHz;
             n.onset = false;
+            n.velocity = fVelocity;
         }
         at(begin).onset = fPickPending;
         fPickPending = false;
@@ -319,6 +326,7 @@ private:
     double fHz = 0.0;
     Candidate fCandidate;
     bool fPickPending = false;
+    float fPickPeak = 0.0f, fVelocity = 0.0f;
     int64_t fPickTime = 0, fLastVoiced = 0;
     int64_t fUnvoicedLimit = 1680;
     int fMisses = 0;

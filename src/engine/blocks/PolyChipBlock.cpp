@@ -5,8 +5,8 @@
 
 #include "engine/blocks/TrackedInput.hpp"
 #include "engine/dsp/Oscillator.hpp"
+#include "engine/dsp/PolyNoteFinder.hpp"
 #include "engine/dsp/Smoother.hpp"
-#include "engine/dsp/Svf.hpp"
 
 #include <algorithm>
 #include <array>
@@ -23,30 +23,11 @@ constexpr const char* kVoiceNames[] = { "1", "2", "3", "4", "5", "6" };
 constexpr const char* kArpNames[] = { "Off", "Up", "Down" };
 constexpr const char* kOctaveNames[] = { "-2", "-1", "0", "+1" };
 
-constexpr int kFirstNote = 36; // C2 (MIDI), below drop tunings
-constexpr int kLastNote = 88;  // E6, the top of a 24-fret guitar
-constexpr int kBands = kLastNote - kFirstNote + 1;
-constexpr int kMaxVoices = 6;
-// Each band is two band-passes in series. Q 8 each: a note a semitone away comes through about 5 dB down, which the
-// peak picking sorts out. Lower bands ring up slowly (the time scales with Q over the frequency), so the octave
-// below C3 widens to Q 5 at C2: notes a semitone apart aren't played down there anyway.
-constexpr double kStageQ = 8.0;
-constexpr double kLowStageQ = 5.0;
-constexpr int kWideBands = 12;
-constexpr float kFloor = 0.002f;    // band level a note needs (about -54 dBFS)
-constexpr float kRelative = 0.12f;  // ... and against the loudest band (-18 dB)
-constexpr float kHold = 1.4f;       // a playing note counts this much louder, so voices don't flicker
+constexpr int kBands = PolyNoteFinder::kBands;
 constexpr float kGain = 5.0f;       // band level to voice amplitude
 constexpr float kVoiceLevel = 0.25f;
-// A new note that falls below this share of its peak while the Pick Filter holds it was the ring of the pick
-// attack, not a note: it starts waiting again
-constexpr float kPickDecay = 0.6f;
-constexpr double kFreqSmoothMs = 10.0; // the measured pitch (Quantize off)
-// Semitones from a note up to its 2nd..8th harmonics (the 7th, 33.7, rounds to 34)
-constexpr int kHarmonics[] = { 12, 19, 24, 28, 31, 34, 36 };
-const double kSemitoneUp = std::exp2(1.0 / 12.0);
-const double kSemitoneDown = 1.0 / kSemitoneUp;
 
+// The notes come from dsp/PolyNoteFinder.hpp; this block plays them
 class PolyChipBlock : public Block {
 public:
     PolyChipBlock() { fMix.snap(1.0f); }
@@ -55,32 +36,12 @@ public:
     {
         fSampleRate = sampleRate;
         fMix.prepare(sampleRate);
-        fHop = std::max(1, static_cast<int>(std::lround(sampleRate / 1500.0)));
-        fHopMs = 1000.0f * static_cast<float>(fHop / sampleRate);
-        fFrames.assign(static_cast<size_t>(std::ceil(NoteTracker::kMaxLookaheadMs / fHopMs)) + 2, Frame {});
-        for (int b = 0; b < kBands; ++b)
-        {
-            // how long the band takes to ring up to a note (two stages, each about Q / (pi f))
-            const double hz = 440.0 * std::exp2((kFirstNote + b - 69) / 12.0);
-            const double wide = std::max(0.0, 1.0 - static_cast<double>(b) / kWideBands);
-            const double q = kStageQ + (kLowStageQ - kStageQ) * wide;
-            fRingUpHops[b] = static_cast<int>(std::lround(1.5 * q / (M_PI * hz) * 1000.0 / fHopMs));
-        }
-        for (std::vector<float>& line : fDryLines)
-            line.assign(static_cast<size_t>(fHop) * fFrames.size() + 2, 0.0f);
-        updateLookahead();
+        fFinder.prepare(sampleRate);
         fAttackCoef = 1.0f - EnvelopeFollower::coef(sampleRate, 1.0);
-        fFreqCoef = 1.0 - EnvelopeFollower::coef(sampleRate, kFreqSmoothMs);
         updateRelease();
-        for (int b = 0; b < kBands; ++b)
-        {
-            Band& band = fBands[b];
-            const double hz = 440.0 * std::exp2((kFirstNote + b - 69) / 12.0);
-            band.dt = hz / sampleRate;
-            const double wide = std::max(0.0, 1.0 - static_cast<double>(b) / kWideBands);
-            for (Svf& stage : band.stages)
-                stage.set(sampleRate, hz, kStageQ + (kLowStageQ - kStageQ) * wide);
-        }
+        const auto maxDelay = static_cast<size_t>(std::ceil(PolyNoteFinder::kMaxLookaheadMs / 1000.0 * sampleRate)) + 64;
+        for (std::vector<float>& line : fDryLines)
+            line.assign(maxDelay + 2, 0.0f);
         reset();
     }
 
@@ -89,11 +50,11 @@ public:
         switch (index)
         {
         case kPolyChipParamWave:    fWave = std::clamp(static_cast<int>(value), 0, 3); break;
-        case kPolyChipParamVoices:  fVoices = std::clamp(static_cast<int>(value), 1, kMaxVoices); break;
+        case kPolyChipParamVoices:  fFinder.setVoices(static_cast<int>(value)); break;
         // a lower peak at a harmonic's distance drops this one when it's louder than 1/ratio of it: from 1/8
         // (only much louder notes) at 0% to 8 (harmonics 18 dB over their note) at 100%; a guitar's 2nd harmonic
         // is often twice its note, more while the note's own band rings up
-        case kPolyChipParamFocus:   fFocusRatio = std::exp2(6.0f * value / 100.0f - 3.0f); break;
+        case kPolyChipParamFocus:   fFinder.setFocus(std::exp2(6.0f * value / 100.0f - 3.0f)); break;
         case kPolyChipParamArp:     fArp = static_cast<PolyChipArp>(std::clamp(static_cast<int>(value), 0, 2)); break;
         case kPolyChipParamArpRate: fArpHz = value; break;
         case kPolyChipParamRelease:
@@ -104,22 +65,21 @@ public:
         case kPolyChipParamOctave:  fOctaveRatio = std::exp2(std::clamp(static_cast<int>(value), 0, 3) - 2); break;
         case kPolyChipParamMix:     fMix.setTarget(value / 100.0f); break;
         case kPolyChipParamQuantize: fQuantize = value >= 0.5f; break;
-        case kPolyChipParamPickFilter: fPickMs = value; break;
+        case kPolyChipParamPickFilter: fFinder.setPickFilter(value); break;
         case kPolyChipParamTrack: fTrackRig = value >= 0.5f; break;
         }
     }
 
     // Lookahead (config "lookahead", ms): the voices and the dry signal play that much (in whole hops) behind the
-    // analysis, and each new note starts back where it began, before its pick filter wait and its band's ring-up
+    // analysis, and each new note starts back where it began
     bool configure(const nlohmann::json& config) override
     {
-        fLookaheadMs = config.is_object() ? config.value(TrackedInput::kConfigKey, 0.0) : 0.0;
-        updateLookahead();
+        fFinder.setLookahead(config.is_object() ? config.value(TrackedInput::kConfigKey, 0.0) : 0.0);
         reset();
         return true;
     }
 
-    uint32_t latency() const override { return static_cast<uint32_t>(fDelayHops * fHop); }
+    uint32_t latency() const override { return fFinder.latency(); }
 
     void setRigInput(const float* const* input, uint32_t numChannels) override
     {
@@ -134,7 +94,7 @@ public:
             fSnap = false;
             fMix.snap(fMix.target());
         }
-        const size_t delay = static_cast<size_t>(fDelayHops * fHop);
+        const size_t delay = fFinder.latency();
         for (uint32_t i = 0; i < frames; ++i)
         {
             float mono;
@@ -142,21 +102,8 @@ public:
                 mono = 0.5f * (fRig[0][i] + fRig[1][i]);
             else
                 mono = numChannels > 1 ? 0.5f * (io[0][i] + io[1][i]) : io[0][i];
-            for (Band& band : fBands)
-            {
-                const float first = band.stages[0].process(mono).band * band.stages[0].k();
-                const Svf::Out out = band.stages[1].process(first);
-                if (band.on || band.sounding || band.amp > 0.0f)
-                    measurePitch(band, out);
-                band.bp = out.band;
-                band.lp = out.low;
-            }
-            if (++fSinceHop >= fHop)
-            {
-                fSinceHop = 0;
-                pickNotes();
-                playFrame(frame(fHopCount - 1 - fDelayHops));
-            }
+            if (fFinder.process(mono))
+                playFrame(fFinder.playFrame());
             if (delay > 0)
             {
                 // the dry signal, as far behind as the voices
@@ -181,22 +128,18 @@ public:
 
     void reset() override
     {
-        for (Band& band : fBands)
+        fFinder.reset();
+        for (int b = 0; b < kBands; ++b)
         {
-            for (Svf& stage : band.stages)
-                stage.reset();
-            band.bp = band.lp = band.level = band.amp = band.target = band.pending = 0.0f;
-            band.phase = 0.0;
-            band.measured = band.playedDt = band.dt;
-            band.on = band.sounding = band.playing = false;
-            band.waited = 0;
+            Voice& voice = fVoices[b];
+            voice.amp = voice.target = 0.0f;
+            voice.phase = 0.0;
+            voice.playedDt = fFinder.bandStep(b);
+            voice.playing = false;
         }
-        std::fill(fFrames.begin(), fFrames.end(), Frame {});
-        fHopCount = 0;
         for (std::vector<float>& line : fDryLines)
             std::fill(line.begin(), line.end(), 0.0f);
         fDryPos = 0;
-        fSinceHop = 0;
         fPlaying = 0;
         fArpPhase = 0.0;
         fArpStep = 0;
@@ -204,71 +147,28 @@ public:
     }
 
 private:
-    struct Band {
-        std::array<Svf, 2> stages;
-        double dt = 0.0;   // phase step per sample at octave 0
-        float bp = 0.0f, lp = 0.0f; // the second stage's outputs, a quarter cycle apart at the band's note
-        float level = 0.0f; // the band's amplitude, measured each hop
+    // A band's voice: what it plays from the frames
+    struct Voice {
         float target = 0.0f, amp = 0.0f;
         double phase = 0.0;
-        double measured = 0.0; // the pitch in the band, as a phase step per sample (for Quantize off)
-        double playedDt = 0.0; // ... in the frame the voices play
-        bool on = false;       // one of the notes found
-        bool sounding = false; // ... and past the Pick Filter
-        bool playing = false;  // sounding in the frame the voices play (behind by the lookahead)
-        int waited = 0;        // hops it has been found while the Pick Filter holds it
-        float pending = 0.0f;  // its peak level meanwhile
+        double playedDt = 0.0;
+        bool playing = false;
     };
-
-    // The band's pitch from how fast its quarter-cycle pair turns. Away from the band's note the pair's sizes differ
-    // a little, so the turn rate ripples within each cycle; the smoothing evens that out.
-    void measurePitch(Band& band, const Svf::Out& out) const
-    {
-        const double cross = static_cast<double>(band.lp) * out.band - static_cast<double>(band.bp) * out.low;
-        const double dot = static_cast<double>(band.lp) * out.low + static_cast<double>(band.bp) * out.band;
-        if (cross == 0.0 && dot == 0.0)
-            return;
-        const double step = std::fabs(std::atan2(cross, dot)) / (2.0 * M_PI);
-        band.measured += (step - band.measured) * fFreqCoef;
-        // within a semitone of the band's own note (a stronger neighbour can pull it further)
-        band.measured = std::clamp(band.measured, band.dt * kSemitoneDown, band.dt * kSemitoneUp);
-    }
-
-    // What the analysis found in one hop, for the voices to play (at once, or after the lookahead)
-    struct Frame {
-        std::array<float, kBands> level {};
-        std::array<float, kBands> target {};
-        std::array<double, kBands> measured {};
-        std::array<bool, kBands> sounding {};
-    };
-
-    Frame& frame(int64_t hop)
-    {
-        const auto size = static_cast<int64_t>(fFrames.size());
-        return fFrames[static_cast<size_t>(((hop % size) + size) % size)];
-    }
-
-    void updateLookahead()
-    {
-        if (fFrames.empty())
-            return;
-        fDelayHops = std::clamp(static_cast<int>(std::lround(fLookaheadMs / fHopMs)), 0,
-                                static_cast<int>(fFrames.size()) - 2);
-    }
 
     // The voices take up a frame: their target levels and pitches, and new notes
-    void playFrame(const Frame& f)
+    void playFrame(const PolyNoteFinder::Frame& f)
     {
         int playing = 0;
         for (int b = 0; b < kBands; ++b)
         {
-            Band& band = fBands[b];
-            band.target = f.target[b];
-            band.playedDt = f.measured[b] > 0.0 ? f.measured[b] : band.dt;
-            if (f.sounding[b] && !band.playing)
+            Voice& voice = fVoices[b];
+            voice.target = f.sounding[b] ? std::min(1.0f, f.level[b] * kGain) : 0.0f;
+            if (f.measured[b] > 0.0)
+                voice.playedDt = f.measured[b];
+            if (f.sounding[b] && !voice.playing)
                 takeOverVoice(b);
-            band.playing = f.sounding[b];
-            playing += band.playing ? 1 : 0;
+            voice.playing = f.sounding[b];
+            playing += voice.playing ? 1 : 0;
         }
         if (playing == 0 && fPlaying > 0)
         {
@@ -279,105 +179,6 @@ private:
         fPlaying = playing;
     }
 
-    // Every hop: measure the bands, find the notes and record the frame for the voices
-    void pickNotes()
-    {
-        float loudest = 0.0f;
-        for (Band& band : fBands)
-        {
-            // at the band's note the band-pass and low-pass outputs have equal size and are a quarter cycle apart,
-            // so together they give the amplitude without ripple; k makes the peak gain 1
-            band.level = band.stages[1].k() * std::sqrt(band.bp * band.bp + band.lp * band.lp);
-            loudest = std::max(loudest, band.level);
-        }
-
-        // peaks above the floors are candidate notes
-        std::array<bool, kBands> peak {};
-        for (int b = 0; b < kBands; ++b)
-        {
-            const float level = fBands[b].level * (fBands[b].on ? kHold : 1.0f);
-            const float below = b > 0 ? fBands[b - 1].level : 0.0f;
-            const float above = b + 1 < kBands ? fBands[b + 1].level : 0.0f;
-            peak[b] = fBands[b].level > below && fBands[b].level >= above && level > kFloor
-                      && level > kRelative * loudest;
-        }
-
-        // drop the harmonics of lower notes, then keep the loudest few
-        std::array<int, kMaxVoices> chosen {};
-        int count = 0;
-        for (int b = 0; b < kBands; ++b)
-        {
-            if (!peak[b])
-                continue;
-            bool harmonic = false;
-            for (const int d : kHarmonics)
-                if (b - d >= 0 && peak[b - d] && fBands[b - d].level * fFocusRatio > fBands[b].level)
-                    harmonic = true;
-            if (harmonic)
-                continue;
-            const float strength = fBands[b].level * (fBands[b].on ? kHold : 1.0f);
-            if (count < fVoices)
-            {
-                chosen[count++] = b;
-                continue;
-            }
-            int weakest = 0;
-            for (int v = 1; v < count; ++v)
-                if (fBands[chosen[v]].level < fBands[chosen[weakest]].level)
-                    weakest = v;
-            const Band& old = fBands[chosen[weakest]];
-            if (strength > old.level * (old.on ? kHold : 1.0f))
-                chosen[weakest] = b;
-        }
-
-        for (Band& band : fBands)
-            band.on = false;
-        for (int v = 0; v < count; ++v)
-            fBands[chosen[v]].on = true;
-
-        // the Pick Filter: a new note sounds once it has lasted that long without dying away, so the brief ring of
-        // the pick attack in the higher bands (they speak faster than the note's own band) never sounds
-        Frame& now = frame(fHopCount);
-        for (int b = 0; b < kBands; ++b)
-        {
-            Band& band = fBands[b];
-            if (!band.on)
-            {
-                band.sounding = false;
-                band.waited = 0;
-                band.pending = 0.0f;
-            }
-            else if (!band.sounding)
-            {
-                band.pending = std::max(band.pending, band.level);
-                if (band.level < kPickDecay * band.pending)
-                {
-                    band.waited = 0;
-                    band.pending = band.level;
-                }
-                else if (static_cast<float>(++band.waited) * fHopMs >= fPickMs)
-                {
-                    band.sounding = true;
-                    // with lookahead the note starts where it began: back over its wait and its band's ring-up,
-                    // in the frames the voices haven't played yet
-                    const int back = std::min(band.waited + fRingUpHops[b], fDelayHops);
-                    for (int k = 1; k <= back; ++k)
-                    {
-                        Frame& past = frame(fHopCount - k);
-                        past.sounding[b] = true;
-                        past.target[b] = std::min(1.0f, past.level[b] * kGain);
-                        past.measured[b] = band.measured;
-                    }
-                }
-            }
-            now.level[b] = band.level;
-            now.target[b] = band.sounding ? std::min(1.0f, band.level * kGain) : 0.0f;
-            now.measured[b] = band.measured;
-            now.sounding[b] = band.sounding;
-        }
-        ++fHopCount;
-    }
-
     // A note that starts next to one that is fading (a bend or slide into the next semitone) carries on that voice,
     // its phase and level, instead of starting a second voice against it
     void takeOverVoice(int b)
@@ -386,17 +187,17 @@ private:
         for (int d = -2; d <= 2; ++d)
         {
             const int n = b + d;
-            if (d == 0 || n < 0 || n >= kBands || fBands[n].playing || fBands[n].amp <= 0.0f)
+            if (d == 0 || n < 0 || n >= kBands || fVoices[n].playing || fVoices[n].amp <= 0.0f)
                 continue;
-            if (from < 0 || fBands[n].amp > fBands[from].amp)
+            if (from < 0 || fVoices[n].amp > fVoices[from].amp)
                 from = n;
         }
         if (from < 0)
             return;
-        Band& band = fBands[b];
-        Band& old = fBands[from];
-        band.phase = old.phase;
-        band.amp = old.amp;
+        Voice& voice = fVoices[b];
+        Voice& old = fVoices[from];
+        voice.phase = old.phase;
+        voice.amp = old.amp;
         old.amp = 0.0f;
         old.phase = 0.0;
     }
@@ -410,7 +211,7 @@ private:
         if (fArp == PolyChipArp::Down)
             index = fPlaying - 1 - index;
         for (int b = 0; b < kBands; ++b)
-            if (fBands[b].playing && index-- == 0)
+            if (fVoices[b].playing && index-- == 0)
                 return b;
         return -1;
     }
@@ -421,7 +222,7 @@ private:
         float sum = 0.0f;
         for (int b = 0; b < kBands; ++b)
         {
-            Band& band = fBands[b];
+            Voice& band = fVoices[b];
             const float target = arp < 0 || arp == b ? band.target : 0.0f;
             if (target == 0.0f && band.amp == 0.0f)
                 continue;
@@ -434,7 +235,7 @@ private:
                 band.phase = 0.0;
                 continue;
             }
-            const double dt = (fQuantize ? band.dt : band.playedDt) * fOctaveRatio;
+            const double dt = (fQuantize ? fFinder.bandStep(b) : band.playedDt) * fOctaveRatio;
             if (dt >= 0.45)
                 continue;
             advancePhase(band.phase, dt);
@@ -466,30 +267,19 @@ private:
 
     double fSampleRate = 48000.0;
     int fWave = 1;
-    int fVoices = 4;
-    float fFocusRatio = 1.0f;
     PolyChipArp fArp = PolyChipArp::Off;
     float fArpHz = 15.0f;
     float fReleaseMs = 40.0f;
     float fCrush = 0.3f;
     double fOctaveRatio = 1.0;
     bool fQuantize = false;
-    float fPickMs = 15.0f;
     bool fTrackRig = false;
     const float* fRig[2] = { nullptr, nullptr };
-    double fLookaheadMs = 0.0;
-    int fDelayHops = 0;
-    std::vector<Frame> fFrames;
-    int64_t fHopCount = 0;
-    std::array<int, kBands> fRingUpHops {};
+    PolyNoteFinder fFinder;
+    std::array<Voice, kBands> fVoices;
     std::vector<float> fDryLines[2];
     size_t fDryPos = 0;
-
-    std::array<Band, kBands> fBands;
     Smoother fMix;
-    int fHop = 32, fSinceHop = 0;
-    float fHopMs = 0.67f;
-    double fFreqCoef = 1.0;
     int fPlaying = 0;
     double fArpPhase = 0.0;
     int fArpStep = 0;
