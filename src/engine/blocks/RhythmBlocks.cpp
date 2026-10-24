@@ -137,6 +137,11 @@ private:
 
 // ---------------------------------------------------------------------------------------------------------------------
 
+constexpr const char* kRateModNames[] = { "Off", "Steps", "Sweep" };
+constexpr const char* kSpeedNames[] = { "2", "3", "4", "5" };
+constexpr const char* kStepLenNames[] = { "1", "2", "4", "8" };
+constexpr const char* kDirectionNames[] = { "Faster", "Slower", "Both" };
+
 class KillSwitchBlock : public Block {
 public:
     void prepare(double sampleRate, uint32_t /*maxFrames*/) override
@@ -177,6 +182,10 @@ public:
             fFadeMs = value;
             updateFade();
             break;
+        case kKillParamRateMod:   fRateMod = std::clamp(static_cast<int>(value), 0, 2); break;
+        case kKillParamSpeeds:    fSpeeds = std::clamp(static_cast<int>(value), 0, 3) + 2; break;
+        case kKillParamStepLen:   fStepLen = 1 << std::clamp(static_cast<int>(value), 0, 3); break;
+        case kKillParamDirection: fDirection = std::clamp(static_cast<int>(value), 0, 2); break;
         }
     }
 
@@ -191,9 +200,9 @@ public:
 
     void setSongPosition(double beats) override
     {
-        // synced: the chops land on the beat
+        // synced: the chops (and the speed steps) land on the beat
         if (fSync)
-            fPhase = songPhase(beats, syncedBeats(kKillSwitchBlockDescriptor.params[kKillParamTime], fTimeMs));
+            fCycles = beats / syncedBeats(kKillSwitchBlockDescriptor.params[kKillParamTime], fTimeMs);
         fSongPlaying = true;
     }
 
@@ -202,18 +211,20 @@ public:
         const bool killed = active(fKill) != fInvert;
         const bool stutter = active(fStutter);
         // free running, a stutter starts its cycle at the press
-        if (stutter && !fWasStuttering && !(fSync && fSongPlaying))
-            fPhase = 0.0;
+        if (stutter && !fWasStuttering)
+        {
+            if (!(fSync && fSongPlaying))
+                fCycles = 0.0;
+            fSweepPhase = 0.0;
+        }
         fWasStuttering = stutter;
         fSongPlaying = false;
 
         for (uint32_t i = 0; i < frames; ++i)
         {
-            fPhase += fPhaseStep;
-            if (fPhase >= 1.0)
-                fPhase -= std::floor(fPhase);
+            fCycles += fPhaseStep;
             float target = killed ? 0.0f : 1.0f;
-            if (stutter && fPhase >= fDuty)
+            if (stutter && phase() >= fDuty)
                 target = 0.0f;
             fGain = target + (fGain - target) * fCoef;
             for (uint32_t ch = 0; ch < numChannels; ++ch)
@@ -223,7 +234,7 @@ public:
 
     void reset() override
     {
-        fPhase = 0.0;
+        fCycles = fSweepPhase = 0.0;
         fGain = active(fKill) != fInvert ? 0.0f : 1.0f;
         fWasStuttering = false;
     }
@@ -243,6 +254,47 @@ private:
 
     bool active(const Switch& s) const { return fLatch ? s.latched : s.held; }
 
+    // Where in its on-off cycle the stutter is (0..1), from fCycles: the cycles of Time since it started
+    double phase()
+    {
+        switch (fRateMod)
+        {
+        case 1: {
+            // Steps: Step Len cycles of Time at each speed, then twice as fast; the cycles line up at each step
+            const auto step = static_cast<int64_t>(std::floor(fCycles / fStepLen));
+            const double within = fCycles - static_cast<double>(step) * fStepLen;
+            const double local = within * std::exp2(speedIndex(step));
+            return local - std::floor(local);
+        }
+        case 2: {
+            // Sweep: the speed glides from one end to the other over as long as the steps take
+            const double length = static_cast<double>(fStepLen) * fSpeeds;
+            double u = fCycles / (fDirection == 2 ? 2.0 * length : length);
+            u -= std::floor(u);
+            double position = fDirection == 0 ? u : (fDirection == 1 ? 1.0 - u : 1.0 - std::fabs(2.0 * u - 1.0));
+            fSweepPhase += fPhaseStep * std::exp2(position * (fSpeeds - 1));
+            fSweepPhase -= std::floor(fSweepPhase);
+            return fSweepPhase;
+        }
+        default:
+            return fCycles - std::floor(fCycles);
+        }
+    }
+
+    // The speed (as a power of two) of a step: up, down, or up and back down
+    int speedIndex(int64_t step) const
+    {
+        const int n = fSpeeds;
+        if (fDirection == 2)
+        {
+            const int period = 2 * (n - 1);
+            const auto p = static_cast<int>(((step % period) + period) % period);
+            return p < n ? p : period - p;
+        }
+        const auto k = static_cast<int>(((step % n) + n) % n);
+        return fDirection == 0 ? k : n - 1 - k;
+    }
+
     void updateTime()
     {
         const double ms = std::max(1.0, syncedMs(kKillSwitchBlockDescriptor.params[kKillParamTime], fTimeMs, fSync, fBpm));
@@ -260,8 +312,13 @@ private:
     bool fSync = false;
     float fDuty = 0.5f;
     float fFadeMs = 2.0f;
-    double fPhaseStep = 0.0;
-    double fPhase = 0.0;
+    int fRateMod = 0;
+    int fSpeeds = 3;
+    int fStepLen = 2;
+    int fDirection = 0;
+    double fPhaseStep = 0.0; // cycles of Time per sample
+    double fCycles = 0.0;
+    double fSweepPhase = 0.0;
     float fCoef = 0.0f;
     float fGain = 1.0f;
     bool fWasStuttering = false;
@@ -311,6 +368,10 @@ const BlockDescriptor kKillSwitchBlockDescriptor = {
         ParamSpec { "Sync", "", 0.0f, 1.0f, 0.0f, ParamScale::Toggle },
         ParamSpec { "Duty", "%", 5.0f, 95.0f, 50.0f, ParamScale::Linear },
         ParamSpec { "Fade", "ms", 1.0f, 20.0f, 2.0f, ParamScale::Log },
+        ParamSpec { "Rate Mod", "", 0.0f, 2.0f, 0.0f, ParamScale::Choice, kRateModNames },
+        ParamSpec { "Speeds", "", 0.0f, 3.0f, 1.0f, ParamScale::Choice, kSpeedNames },
+        ParamSpec { "Step Len", "", 0.0f, 3.0f, 1.0f, ParamScale::Choice, kStepLenNames },
+        ParamSpec { "Direction", "", 0.0f, 2.0f, 0.0f, ParamScale::Choice, kDirectionNames },
     },
     [] { return std::unique_ptr<Block>(new KillSwitchBlock()); },
     kKillParamSync,

@@ -51,6 +51,12 @@ struct BlockHelp {
     "chirps or jumps at the start of notes; lower it for a faster response. Around 10-20 ms suits most playing; 0 "   \
     "is off."
 
+#define TRACK_HELP                                                                                                    \
+    "What the pedal listens to for your notes. Block In: the signal arriving at this pedal. Rig In: your guitar as "  \
+    "it enters the plugin, before any amp or effect. Pick Rig In when this pedal comes after an amp, a drive or a "   \
+    "compressor: the clean guitar is much easier to follow, so notes come out cleaner. Pick Block In to follow "     \
+    "what an earlier pedal made, like an octave down."
+
 #define SYNTH_MIX_HELP                                                                                                \
     "Blends the synth with your guitar. 100% is the synth only; lower values layer it with your dry playing."
 
@@ -727,6 +733,10 @@ constexpr BlockHelp kBlockHelp[] = {
       "glide gives a smooth portamento, like a vintage mono synth lead." },
     { "synth", "Mix", MIX_HELP("synth") },
     { "synth", "Pick Filter", SYNTH_PICK_FILTER_HELP },
+    { "synth", "Track", TRACK_HELP },
+    { "octave", "Track", TRACK_HELP },
+    { "harmonizer", "Track", TRACK_HELP },
+    { "polychip", "Track", TRACK_HELP },
 
     // Filter
     { "filter", "Type",
@@ -847,6 +857,21 @@ constexpr BlockHelp kBlockHelp[] = {
     { "killswitch", "Fade",
       "How quickly the sound cuts in and out, in milliseconds. Short fades give a hard, clicky chop; longer "
       "fades soften the edges." },
+    { "killswitch", "Rate Mod",
+      "Changes the stutter's speed while it runs. Off: a steady stutter at Time. Steps: the stutter doubles its "
+      "speed in steps (with Time at 200 ms: 200, then 100, then 50 ms) and starts over, like a drum roll speeding "
+      "up. Sweep: the speed glides smoothly through the same range instead of jumping." },
+    { "killswitch", "Speeds",
+      "How many speeds Rate Mod goes through, each twice as fast as the last. 3 with Time at 200 ms gives 200, 100 "
+      "and 50 ms; 5 goes all the way to 12.5 ms." },
+    { "killswitch", "Step Len",
+      "How long Rate Mod stays at each speed, counted in cycles of Time: with Time at 200 ms, 2 holds each speed "
+      "for 400 ms (2 chops at 200 ms, 4 at 100 ms, 8 at 50 ms). With Sync on, the steps land on the beat. Sweep "
+      "takes as long to go through all the speeds." },
+    { "killswitch", "Direction",
+      "Which way Rate Mod goes. Faster: from Time to the fastest speed, then starts over. Slower: from the fastest "
+      "speed down to Time. Both: faster, then slower again, back and forth (for Sweep, a smooth rise and fall in "
+      "speed)." },
 
     // Barber Pole
     { "barberpole", "Rate",
@@ -1144,6 +1169,7 @@ constexpr BlockHelp kBlockHelp[] = {
     { "supersaw", "Glide", SYNTH_GLIDE_HELP },
     { "supersaw", "Mix", SYNTH_MIX_HELP },
     { "supersaw", "Pick Filter", SYNTH_PICK_FILTER_HELP },
+    { "supersaw", "Track", TRACK_HELP },
 
     // FM Synth
     { "fmsynth", "Ratio",
@@ -1166,6 +1192,7 @@ constexpr BlockHelp kBlockHelp[] = {
     { "fmsynth", "Glide", SYNTH_GLIDE_HELP },
     { "fmsynth", "Mix", SYNTH_MIX_HELP },
     { "fmsynth", "Pick Filter", SYNTH_PICK_FILTER_HELP },
+    { "fmsynth", "Track", TRACK_HELP },
 
     // Fold Synth
     { "foldsynth", "Fold",
@@ -1189,6 +1216,7 @@ constexpr BlockHelp kBlockHelp[] = {
     { "foldsynth", "Glide", SYNTH_GLIDE_HELP },
     { "foldsynth", "Mix", SYNTH_MIX_HELP },
     { "foldsynth", "Pick Filter", SYNTH_PICK_FILTER_HELP },
+    { "foldsynth", "Track", TRACK_HELP },
 
     // Acid Synth
     { "acidsynth", "Wave",
@@ -1215,6 +1243,7 @@ constexpr BlockHelp kBlockHelp[] = {
       "line; short times jump between notes." },
     { "acidsynth", "Mix", SYNTH_MIX_HELP },
     { "acidsynth", "Pick Filter", SYNTH_PICK_FILTER_HELP },
+    { "acidsynth", "Track", TRACK_HELP },
 
     // String Machine
     { "stringsynth", "Low",
@@ -1233,6 +1262,7 @@ constexpr BlockHelp kBlockHelp[] = {
     { "stringsynth", "Octave", SYNTH_OCTAVE_HELP },
     { "stringsynth", "Mix", SYNTH_MIX_HELP },
     { "stringsynth", "Pick Filter", SYNTH_PICK_FILTER_HELP },
+    { "stringsynth", "Track", TRACK_HELP },
 
     // Chip Synth
     { "chipsynth", "Wave",
@@ -1255,6 +1285,7 @@ constexpr BlockHelp kBlockHelp[] = {
     { "chipsynth", "Octave", SYNTH_OCTAVE_HELP },
     { "chipsynth", "Mix", SYNTH_MIX_HELP },
     { "chipsynth", "Pick Filter", SYNTH_PICK_FILTER_HELP },
+    { "chipsynth", "Track", TRACK_HELP },
 
     // Poly Chip
     { "polychip", "Wave",

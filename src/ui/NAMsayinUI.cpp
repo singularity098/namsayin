@@ -113,6 +113,24 @@ constexpr float kCellHeight = 128.0f;
 constexpr float kPanelMargin = 16.0f;
 constexpr uint kDoubleClickMs = 350;
 constexpr auto kTunerHold = std::chrono::milliseconds(1000); // the tuner keeps showing the last note this long
+
+// The Lookahead button of the pitch-following blocks steps through these (ms; 0 = off)
+constexpr double kLookaheads[] = { 0.0, 5.0, 10.0, 15.0, 20.0, 30.0 };
+
+double nextLookahead(double ms)
+{
+    for (const double step : kLookaheads)
+        if (step > ms + 0.5)
+            return step;
+    return 0.0;
+}
+
+constexpr const char* kLookaheadHelp =
+    "Lets the pedal hear your notes a few milliseconds before it plays them, so it can find each note's pitch "
+    "before the note starts: notes start on time, without wrong notes from the pick's attack. The whole plugin's "
+    "sound is delayed by that much; your DAW makes up for it on playback and recording, but you hear the delay "
+    "while you play (10 ms is like standing 3.4 m from your amp). Click to step through Off, 5, 10, 15, 20 and "
+    "30 ms. Off adds no delay.";
 constexpr float kTunerInTuneCents = 2.0f;
 
 // How long the audio engine gets to start a changed chain before the UI reports blocks that aren't running
@@ -147,6 +165,7 @@ enum class Hit {
     Fretbored,    // open the Fretbored web app
     GitHub,       // open the project's GitHub page
     A2Size,       // index = position in the chain
+    Lookahead,    // index = position in the chain: step to the next lookahead
     Choice,       // index = host parameter; click steps to the next choice
     InClip,
     OutClip,
@@ -1045,6 +1064,14 @@ protected:
             beginEdit();
             nlohmann::json& config = fChain.blocks[hit->index].config;
             config["a2Size"] = config.value("a2Size", 1.0) >= 0.5 ? 0.0 : 1.0;
+            sendChain();
+            return true;
+        }
+
+        case Hit::Lookahead: {
+            beginEdit();
+            nlohmann::json& config = fChain.blocks[hit->index].config;
+            config["lookahead"] = nextLookahead(config.value("lookahead", 0.0));
             sendChain();
             return true;
         }
@@ -2932,6 +2959,8 @@ private:
         }
         case Hit::Insert:
             return { "Insert Block", "Adds a new block here, between the blocks on either side." };
+        case Hit::Lookahead:
+            return { "Lookahead", kLookaheadHelp };
         case Hit::Split:
             return { "Split",
                      "Splits the chain here into two parallel paths, A and B, which both start empty. Add blocks to "
@@ -4252,7 +4281,7 @@ private:
             return;
 
         // The controls: one cell each, plus block-specific extras
-        enum class Cell { Param, A2Size, Meter };
+        enum class Cell { Param, A2Size, Lookahead, Meter };
         struct Control {
             Cell cell;
             int param;
@@ -4262,6 +4291,8 @@ private:
             controls.push_back({ Cell::Param, p });
         if (type == &kNamBlockDescriptor)
             controls.push_back({ Cell::A2Size, 0 });
+        if (type->lookahead)
+            controls.push_back({ Cell::Lookahead, 0 });
         if (type->meterName)
             controls.push_back({ Cell::Meter, 0 });
         const int count = static_cast<int>(controls.size());
@@ -4340,6 +4371,16 @@ private:
                 const bool lite = block.config.value("a2Size", 1.0) < 0.5;
                 drawButton({ cx - 40.0f, cy - 14.0f, 80.0f, 28.0f }, lite ? "A2: Lite" : "A2: Full", lite,
                            theme::accent, Hit::A2Size, fSelected);
+                continue;
+            }
+            if (control.cell == Cell::Lookahead)
+            {
+                const double ms = block.config.value("lookahead", 0.0);
+                const std::string text = ms > 0.0 ? std::to_string(static_cast<int>(std::lround(ms))) + " ms"
+                                                  : std::string("Off");
+                label(cx, cy - 26.0f, "Lookahead", theme::textDim, 12.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+                drawButton({ cx - 42.0f, cy - 14.0f, 84.0f, 28.0f }, text.c_str(), ms > 0.0, theme::accent,
+                           Hit::Lookahead, fSelected);
                 continue;
             }
             if (control.cell == Cell::Meter)

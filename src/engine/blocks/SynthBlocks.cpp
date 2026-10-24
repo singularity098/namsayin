@@ -3,13 +3,11 @@
 
 #include "engine/blocks/SynthBlocks.hpp"
 
+#include "engine/blocks/TrackedSynth.hpp"
 #include "engine/dsp/DelayLine.hpp"
 #include "engine/dsp/Lfo.hpp"
-#include "engine/dsp/OnsetDetector.hpp"
 #include "engine/dsp/Oscillator.hpp"
 #include "engine/dsp/Oversampler.hpp"
-#include "engine/dsp/PickFilter.hpp"
-#include "engine/dsp/PitchTracker.hpp"
 #include "engine/dsp/Smoother.hpp"
 #include "engine/dsp/Svf.hpp"
 
@@ -22,148 +20,6 @@ namespace {
 
 constexpr const char* kOctaveNames[] = { "-2", "-1", "0", "+1" };
 constexpr float kTwoPi = 6.2831853f;
-
-// What the synths share: the pitch tracker (with glide, the octave and the Pick Filter), a pick detector, and an
-// amplitude that follows your playing with Attack and Release. A synth renders one stereo sample per call from the current note.
-class TrackedSynth : public Block {
-public:
-    void prepare(double sampleRate, uint32_t /*maxFrames*/) override
-    {
-        fSampleRate = sampleRate;
-        fTracker.prepare(sampleRate);
-        fPick.prepare(sampleRate);
-        fOnset.prepare(sampleRate);
-        fMix.prepare(sampleRate);
-        updateAmp();
-        updateGlide();
-        prepareVoice();
-        reset();
-    }
-
-    void process(float* const* io, uint32_t numChannels, uint32_t frames) override
-    {
-        if (fSnap)
-        {
-            fSnap = false;
-            fMix.snap(fMix.target());
-        }
-        for (uint32_t i = 0; i < frames; ++i)
-        {
-            const float mono = numChannels > 1 ? 0.5f * (io[0][i] + io[1][i]) : io[0][i];
-            Note note;
-            note.onset = fOnset.process(std::fabs(mono));
-            const bool estimated = fTracker.process(mono);
-            if (fPick.process(fTracker.sounding(), estimated ? fTracker.hz() : 0.0))
-                fTargetHz = targetHz(fPick.hz());
-            fHz += (fTargetHz - fHz) * fGlideCoef;
-            note.hz = std::min(fHz * fOctaveRatio, 0.45 * fSampleRate);
-            note.dt = note.hz / fSampleRate;
-            note.envelope = fTracker.envelope();
-            note.on = fTracker.sounding() && fPick.open();
-            if (fPick.active())
-            {
-                // a pick waits with its note, so plucked envelopes start when the note does
-                fOnsetPending = (fOnsetPending || note.onset) && fTracker.sounding();
-                note.onset = fOnsetPending && note.on;
-                if (note.onset)
-                    fOnsetPending = false;
-            }
-            // the guitar's envelope, with Attack as a swell at the start of each note and Release as its tail
-            const float level = std::min(1.0f, note.envelope * 4.0f);
-            const float target = note.on ? level : 0.0f;
-            fAmp += (target - fAmp) * (target > fAmp ? fAmpAttack : fAmpRelease);
-            note.amp = fAmp;
-
-            float left, right;
-            render(note, left, right);
-            const float mix = fMix.next();
-            if (numChannels == 1)
-            {
-                io[0][i] = io[0][i] * (1.0f - mix) + 0.5f * (left + right) * mix;
-            }
-            else
-            {
-                io[0][i] = io[0][i] * (1.0f - mix) + left * mix;
-                io[1][i] = io[1][i] * (1.0f - mix) + right * mix;
-            }
-        }
-    }
-
-    void reset() override
-    {
-        fTracker.reset();
-        fPick.reset();
-        fOnset.reset();
-        fOnsetPending = false;
-        fTargetHz = fHz = 110.0;
-        fAmp = 0.0f;
-        resetVoice();
-        fSnap = true;
-    }
-
-protected:
-    struct Note {
-        double hz = 110.0;   // with glide and octave
-        double dt = 0.0;     // phase step per sample
-        float envelope = 0.0f; // the guitar's level
-        float amp = 0.0f;    // the amplitude to play at (0..1)
-        bool on = false;     // a note is sounding
-        bool onset = false;  // a new pick, this sample
-    };
-
-    virtual void prepareVoice() {}
-    virtual void resetVoice() {}
-    virtual void render(const Note& note, float& left, float& right) = 0;
-    // The pitch to play for a tracked pitch (the chip synth snaps it to semitones)
-    virtual double targetHz(double tracked) { return tracked; }
-
-    void setOctave(float choice) { fOctaveRatio = std::exp2(std::clamp(static_cast<int>(choice), 0, 3) - 2); }
-    void setMix(float percent) { fMix.setTarget(percent / 100.0f); }
-
-    void setAttack(float ms)
-    {
-        fAttackMs = ms;
-        updateAmp();
-    }
-
-    void setRelease(float ms)
-    {
-        fReleaseMs = ms;
-        updateAmp();
-    }
-
-    void setGlide(float ms)
-    {
-        fGlideMs = ms;
-        updateGlide();
-    }
-
-    void setPickFilter(float ms) { fPick.setMs(ms); }
-
-    double fSampleRate = 48000.0;
-
-private:
-    void updateAmp()
-    {
-        fAmpAttack = 1.0f - EnvelopeFollower::coef(fSampleRate, std::max(1.0f, fAttackMs));
-        fAmpRelease = 1.0f - EnvelopeFollower::coef(fSampleRate, std::max(1.0f, fReleaseMs));
-    }
-
-    void updateGlide() { fGlideCoef = 1.0 - EnvelopeFollower::coef(fSampleRate, std::max(0.1f, fGlideMs)); }
-
-    PitchTracker fTracker;
-    PickFilter fPick;
-    OnsetDetector fOnset;
-    bool fOnsetPending = false;
-    Smoother fMix;
-    double fOctaveRatio = 1.0;
-    float fAttackMs = 5.0f, fReleaseMs = 30.0f, fGlideMs = 10.0f;
-    double fTargetHz = 110.0, fHz = 110.0;
-    double fGlideCoef = 1.0;
-    float fAmp = 0.0f;
-    float fAmpAttack = 1.0f, fAmpRelease = 1.0f;
-    bool fSnap = true;
-};
 
 // The filter cutoff for a base cutoff, opened by the playing level over up to five octaves
 double openedCutoff(double cutoff, float amount, float envelope, double sampleRate)
@@ -201,6 +57,7 @@ public:
         case kSuperSawParamGlide:     setGlide(value); break;
         case kSuperSawParamMix:       setMix(value); break;
         case kSuperSawParamPickFilter: setPickFilter(value); break;
+        case kSuperSawParamTrack: setTrack(value); break;
         }
     }
 
@@ -280,6 +137,7 @@ public:
         case kFmParamGlide:    setGlide(value); break;
         case kFmParamMix:      setMix(value); break;
         case kFmParamPickFilter: setPickFilter(value); break;
+        case kFmParamTrack: setTrack(value); break;
         }
     }
 
@@ -356,6 +214,7 @@ public:
         case kFoldParamGlide:  setGlide(value); break;
         case kFoldParamMix:    setMix(value); break;
         case kFoldParamPickFilter: setPickFilter(value); break;
+        case kFoldParamTrack: setTrack(value); break;
         }
     }
 
@@ -462,6 +321,7 @@ public:
         case kAcidParamGlide:  setGlide(value); break;
         case kAcidParamMix:    setMix(value); break;
         case kAcidParamPickFilter: setPickFilter(value); break;
+        case kAcidParamTrack: setTrack(value); break;
         }
     }
 
@@ -548,6 +408,7 @@ public:
         case kStringParamOctave:  setOctave(value); break;
         case kStringParamMix:     setMix(value); break;
         case kStringParamPickFilter: setPickFilter(value); break;
+        case kStringParamTrack: setTrack(value); break;
         }
     }
 
@@ -663,6 +524,7 @@ public:
         case kChipParamOctave:   setOctave(value); break;
         case kChipParamMix:      setMix(value); break;
         case kChipParamPickFilter: setPickFilter(value); break;
+        case kChipParamTrack: setTrack(value); break;
         }
     }
 
@@ -739,7 +601,7 @@ private:
     int fWave = 1;
     int fArp = 0;
     float fArpHz = 30.0f;
-    bool fQuantize = true;
+    bool fQuantize = false;
     float fVibrato = 0.3f;
     float fCrush = 0.3f;
     double fPhase = 0.0, fArpPhase = 0.0;
@@ -772,8 +634,16 @@ const BlockDescriptor kSuperSawBlockDescriptor = {
         ParamSpec { "Glide", "ms", 0.1f, 500.0f, 10.0f, ParamScale::Log },
         ParamSpec { "Mix", "%", 0.0f, 100.0f, 100.0f, ParamScale::Linear },
         ParamSpec { "Pick Filter", "ms", 0.0f, 60.0f, 0.0f, ParamScale::Linear },
+        ParamSpec { "Track", "", 0.0f, 1.0f, 0.0f, ParamScale::Choice, TrackedInput::kTrackNames },
     },
     [] { return std::unique_ptr<Block>(new SuperSawBlock()); },
+    -1,
+    -1,
+    false,
+    nullptr,
+    24.0f,
+    MeterStyle::Reduction,
+    true,
 };
 
 const BlockDescriptor kFmSynthBlockDescriptor = {
@@ -793,8 +663,16 @@ const BlockDescriptor kFmSynthBlockDescriptor = {
         ParamSpec { "Glide", "ms", 0.1f, 500.0f, 10.0f, ParamScale::Log },
         ParamSpec { "Mix", "%", 0.0f, 100.0f, 100.0f, ParamScale::Linear },
         ParamSpec { "Pick Filter", "ms", 0.0f, 60.0f, 0.0f, ParamScale::Linear },
+        ParamSpec { "Track", "", 0.0f, 1.0f, 0.0f, ParamScale::Choice, TrackedInput::kTrackNames },
     },
     [] { return std::unique_ptr<Block>(new FmSynthBlock()); },
+    -1,
+    -1,
+    false,
+    nullptr,
+    24.0f,
+    MeterStyle::Reduction,
+    true,
 };
 
 const BlockDescriptor kFoldSynthBlockDescriptor = {
@@ -813,8 +691,16 @@ const BlockDescriptor kFoldSynthBlockDescriptor = {
         ParamSpec { "Glide", "ms", 0.1f, 500.0f, 10.0f, ParamScale::Log },
         ParamSpec { "Mix", "%", 0.0f, 100.0f, 100.0f, ParamScale::Linear },
         ParamSpec { "Pick Filter", "ms", 0.0f, 60.0f, 0.0f, ParamScale::Linear },
+        ParamSpec { "Track", "", 0.0f, 1.0f, 0.0f, ParamScale::Choice, TrackedInput::kTrackNames },
     },
     [] { return std::unique_ptr<Block>(new FoldSynthBlock()); },
+    -1,
+    -1,
+    false,
+    nullptr,
+    24.0f,
+    MeterStyle::Reduction,
+    true,
 };
 
 const BlockDescriptor kAcidSynthBlockDescriptor = {
@@ -834,8 +720,16 @@ const BlockDescriptor kAcidSynthBlockDescriptor = {
         ParamSpec { "Glide", "ms", 0.1f, 500.0f, 60.0f, ParamScale::Log },
         ParamSpec { "Mix", "%", 0.0f, 100.0f, 100.0f, ParamScale::Linear },
         ParamSpec { "Pick Filter", "ms", 0.0f, 60.0f, 0.0f, ParamScale::Linear },
+        ParamSpec { "Track", "", 0.0f, 1.0f, 0.0f, ParamScale::Choice, TrackedInput::kTrackNames },
     },
     [] { return std::unique_ptr<Block>(new AcidSynthBlock()); },
+    -1,
+    -1,
+    false,
+    nullptr,
+    24.0f,
+    MeterStyle::Reduction,
+    true,
 };
 
 const BlockDescriptor kStringSynthBlockDescriptor = {
@@ -854,8 +748,16 @@ const BlockDescriptor kStringSynthBlockDescriptor = {
         ParamSpec { "Octave", "", 0.0f, 3.0f, 2.0f, ParamScale::Choice, kOctaveNames },
         ParamSpec { "Mix", "%", 0.0f, 100.0f, 100.0f, ParamScale::Linear },
         ParamSpec { "Pick Filter", "ms", 0.0f, 60.0f, 0.0f, ParamScale::Linear },
+        ParamSpec { "Track", "", 0.0f, 1.0f, 0.0f, ParamScale::Choice, TrackedInput::kTrackNames },
     },
     [] { return std::unique_ptr<Block>(new StringSynthBlock()); },
+    -1,
+    -1,
+    false,
+    nullptr,
+    24.0f,
+    MeterStyle::Reduction,
+    true,
 };
 
 const BlockDescriptor kChipSynthBlockDescriptor = {
@@ -867,14 +769,22 @@ const BlockDescriptor kChipSynthBlockDescriptor = {
         ParamSpec { "Wave", "", 0.0f, 3.0f, 1.0f, ParamScale::Choice, kChipWaveNames },
         ParamSpec { "Arp", "", 0.0f, 4.0f, 0.0f, ParamScale::Choice, kChipArpNames },
         ParamSpec { "Arp Rate", "Hz", 5.0f, 60.0f, 30.0f, ParamScale::Log },
-        ParamSpec { "Quantize", "", 0.0f, 1.0f, 1.0f, ParamScale::Toggle },
+        ParamSpec { "Quantize", "", 0.0f, 1.0f, 0.0f, ParamScale::Toggle },
         ParamSpec { "Vibrato", "%", 0.0f, 100.0f, 30.0f, ParamScale::Linear },
         ParamSpec { "Crush", "%", 0.0f, 100.0f, 30.0f, ParamScale::Linear },
         ParamSpec { "Octave", "", 0.0f, 3.0f, 2.0f, ParamScale::Choice, kOctaveNames },
         ParamSpec { "Mix", "%", 0.0f, 100.0f, 100.0f, ParamScale::Linear },
         ParamSpec { "Pick Filter", "ms", 0.0f, 60.0f, 0.0f, ParamScale::Linear },
+        ParamSpec { "Track", "", 0.0f, 1.0f, 0.0f, ParamScale::Choice, TrackedInput::kTrackNames },
     },
     [] { return std::unique_ptr<Block>(new ChipSynthBlock()); },
+    -1,
+    -1,
+    false,
+    nullptr,
+    24.0f,
+    MeterStyle::Reduction,
+    true,
 };
 
 } // namespace namsayin

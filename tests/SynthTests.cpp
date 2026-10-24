@@ -241,6 +241,7 @@ TEST_CASE("chip synth snaps to semitones and arpeggiates")
 {
     // a slightly sharp A (445 Hz) plays as A 440 when quantized
     auto block = make(kChipSynthBlockDescriptor);
+    block->setParam(kChipParamQuantize, 1.0f); // (off by default)
     block->setParam(kChipParamVibrato, 0.0f);
     block->setParam(kChipParamWave, 2.0f); // a square: no even harmonics of its own
     auto x = note(445.0, 48000);
@@ -281,6 +282,7 @@ std::unique_ptr<Block> polyChip()
     auto block = make(kPolyChipBlockDescriptor);
     block->setParam(kPolyChipParamWave, 2.0f); // a square: no even harmonics of its own
     block->setParam(kPolyChipParamCrush, 0.0f);
+    block->setParam(kPolyChipParamQuantize, 1.0f); // (off by default)
     return block;
 }
 
@@ -563,9 +565,13 @@ TEST_CASE("every mono synth has a pick filter that holds the note back, then pla
                                          &kStringSynthBlockDescriptor, &kChipSynthBlockDescriptor })
     {
         CAPTURE(std::string(type->typeId));
-        const int last = type->numParams - 1;
+        // the last two controls: Pick Filter, then Track
+        const int last = type->numParams - 2;
         REQUIRE(std::string(type->params[static_cast<size_t>(last)].name) == "Pick Filter");
         CHECK(type->params[static_cast<size_t>(last)].def == 0.0f); // off by default: synths sound as they did
+        REQUIRE(std::string(type->params[static_cast<size_t>(last + 1)].name) == "Track");
+        CHECK(type->params[static_cast<size_t>(last + 1)].def == 0.0f); // Block In: as they did
+        CHECK(type->lookahead);
 
         // when the synth starts sounding, and how loud it plays once the note has settled
         const auto run = [&](float pickMs, size_t& start, double& level) {

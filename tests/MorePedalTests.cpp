@@ -251,6 +251,72 @@ TEST_CASE("kill switch stutter chops at its time and duty")
     }
 }
 
+TEST_CASE("kill switch rate mod: steps double the stutter's speed, and sweep glides through the speeds")
+{
+    // checks a stretch is on for its first half of each cycle and off for the second
+    auto chops = [](const std::vector<float>& x, double from, double cycle, int count) {
+        for (int c = 0; c < count; ++c)
+        {
+            CAPTURE(from);
+            CAPTURE(c);
+            const double start = from + cycle * c;
+            CHECK(testing::rms(x, ms(start + 0.1 * cycle), ms(start + 0.4 * cycle)) > 0.3);
+            CHECK(testing::rms(x, ms(start + 0.6 * cycle), ms(start + 0.9 * cycle)) < 1e-3);
+        }
+    };
+    auto stutter = [](int direction, int rateMod) {
+        auto block = make(kKillSwitchBlockDescriptor);
+        block->setParam(kKillParamTime, 200.0f);
+        block->setParam(kKillParamFade, 1.0f);
+        block->setParam(kKillParamRateMod, static_cast<float>(rateMod));
+        block->setParam(kKillParamSpeeds, 1.0f);  // 3: 200, 100, 50 ms
+        block->setParam(kKillParamStepLen, 1.0f); // 2 cycles of 200 ms at each
+        block->setParam(kKillParamDirection, static_cast<float>(direction));
+        block->setParam(kKillParamStutter, 1.0f);
+        auto x = sine(2000.0, 0.5f, ms(2800));
+        testing::runBlock(*block, x);
+        return x;
+    };
+
+    // Faster: 200 ms twice, 100 ms four times, 50 ms eight times, then over again
+    const auto faster = stutter(0, 1);
+    chops(faster[0], 0.0, 200.0, 2);
+    chops(faster[0], 400.0, 100.0, 4);
+    chops(faster[0], 800.0, 50.0, 8);
+    chops(faster[0], 1200.0, 200.0, 2);
+    // Slower: the other way round
+    const auto slower = stutter(1, 1);
+    chops(slower[0], 0.0, 50.0, 8);
+    chops(slower[0], 400.0, 100.0, 4);
+    chops(slower[0], 800.0, 200.0, 2);
+    // Both: 200, 100, 50, 100, then 200 again
+    const auto both = stutter(2, 1);
+    chops(both[0], 800.0, 50.0, 8);
+    chops(both[0], 1200.0, 100.0, 4);
+    chops(both[0], 1600.0, 200.0, 2);
+
+    // Sweep: the gaps get shorter over the sweep, then start long again
+    const auto sweep = stutter(0, 2);
+    std::vector<double> gaps; // ms each silence lasts, in order
+    size_t off = 0;
+    for (size_t t = 1; t < sweep[0].size(); ++t)
+    {
+        const bool silent = std::fabs(sweep[0][t]) < 1e-4f && std::fabs(sweep[0][t - 1]) < 1e-4f;
+        if (silent && off == 0)
+            off = t;
+        if (!silent && off > 0 && std::fabs(sweep[0][t]) > 0.1f)
+        {
+            gaps.push_back(1000.0 * static_cast<double>(t - off) / kRate);
+            off = 0;
+        }
+    }
+    REQUIRE(gaps.size() > 6);
+    CHECK(gaps[0] > 60.0);
+    CHECK(gaps[0] > gaps[1]);
+    CHECK(gaps[1] > gaps[3]);
+    CHECK(*std::min_element(gaps.begin(), gaps.end()) < 30.0);
+}
+
 TEST_CASE("slicer plays its steps at their levels, and Steps sets the pattern length")
 {
     auto block = make(kSlicerBlockDescriptor);

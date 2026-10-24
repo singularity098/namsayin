@@ -69,6 +69,7 @@ enum HarmonizerParam {
     kHarmParamLevel2, // %
     kHarmParamDry,    // %
     kHarmParamWindow, // ms
+    kHarmParamTrack,  // choice: Block In, Rig In: what the played note is found from
     kHarmParamCount
 };
 

@@ -9,14 +9,17 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 
 namespace namsayin {
 
-// Real-time monophonic pitch tracking for the synth and the harmonizer: YIN (de Cheveigné and Kawahara, 2002) on a
-// copy decimated to about 12 kHz, every 4 ms, over a 17 ms window, for 60..1500 Hz; the period is then refined at
-// the full rate (difference function around it, parabolic peak) to within a few cents. YIN's cumulative-mean
+// Real-time monophonic pitch tracking for the synths and pitch pedals (dsp/NoteTracker.hpp turns it into notes):
+// YIN (de Cheveigné and Kawahara, 2002) on a copy decimated to about 12 kHz, every 4 ms, for 60..1500 Hz; the period
+// is then refined at the full rate (difference function around it, parabolic peak) to within a few cents. The
+// difference at each lag is over a window of one lag (at least 2 ms), so a note's estimate needs about two of its
+// periods, and is relative to the windows' energy, so fast swells and decays don't blur it. YIN's cumulative-mean
 // normalized difference and absolute threshold keep it on the fundamental of a plucked string, whose harmonics are
-// often stronger. A note is reported from about 20 ms after it starts; no latency is added to the audio. Chords
+// often stronger. A note is reported from about 10 ms after it starts; no latency is added to the audio. Chords
 // confuse it (it reports no pitch, or one of the notes).
 class PitchTracker {
 public:
@@ -31,7 +34,7 @@ public:
         fRate = sampleRate / fDecimation;
         fMinLag = std::max(2, static_cast<int>(fRate / kMaxHz));
         fMaxLag = std::min(kMaxLags - 2, static_cast<int>(std::ceil(fRate / kMinHz)));
-        fWindow = fMaxLag;
+        fWindow = std::max(4, static_cast<int>(0.002 * fRate));
         fHop = std::max(1, static_cast<int>(0.004 * fRate));
         fHighPass.setHighPass(sampleRate, 50.0);
         for (Biquad& filter : fAntiAlias)
@@ -53,6 +56,7 @@ public:
         fPhase = 0;
         fSinceHop = 0;
         fHz = 0.0;
+        fAperiodicity = 1.0f;
         fVoiced = false;
     }
 
@@ -82,6 +86,10 @@ public:
 
     double hz() const { return fHz; } // the last accepted pitch; 0 until one is found
     bool voiced() const { return fVoiced; } // the last estimate found a clear pitch
+    uint32_t estimates() const { return fEstimates; } // counts every estimate made, with or without a clear pitch
+    // How aperiodic the last estimate's signal was: YIN's normalized difference at the chosen period (0 = a pure
+    // tone, about 0.1 for a plucked string, over kVoicedLimit for noise)
+    float aperiodicity() const { return fAperiodicity; }
     float envelope() const { return fEnvelope.value(); }
     bool sounding() const { return fEnvelope.value() > kGateLevel; }
 
@@ -106,7 +114,7 @@ private:
         const double centre = coarseLag * fDecimation;
         const int from = std::max(2, static_cast<int>(std::floor(centre)) - fDecimation - 1);
         const int to = static_cast<int>(std::ceil(centre)) + fDecimation + 1;
-        const int window = std::min(2 * to, kFullHistory - to - 2);
+        const int window = std::min(to, kFullHistory - to - 2);
         if (fDecimation == 1 || window < to)
             return centre;
         float values[64];
@@ -138,17 +146,24 @@ private:
 
     bool estimate()
     {
-        // difference function over the newest fWindow samples
+        // difference function over the newest samples: a window of one lag at each lag (at least fWindow), so a
+        // note's estimate needs only about two of its periods, not a fixed window plus a period
         std::array<float, kMaxLags> d {};
         for (int lag = 1; lag <= fMaxLag; ++lag)
         {
-            float sum = 0.0f;
-            for (int j = 0; j < fWindow; ++j)
+            const int window = std::max(fWindow, lag);
+            float cross = 0.0f, now = 0.0f, before = 0.0f;
+            for (int j = 0; j < window; ++j)
             {
-                const float diff = at(j) - at(j + lag);
-                sum += diff * diff;
+                const float a = at(j), b = at(j + lag);
+                cross += a * b;
+                now += a * a;
+                before += b * b;
             }
-            d[static_cast<size_t>(lag)] = sum;
+            // the difference relative to the two windows' energy: a note that swells or dies away fast (a pick
+            // attack, a palm mute) differs from itself a period ago as little as a steady one
+            const float energy = now + before;
+            d[static_cast<size_t>(lag)] = energy > 1e-20f ? (energy - 2.0f * cross) / energy : 1.0f;
         }
         // cumulative mean normalized difference
         float running = 0.0f;
@@ -177,7 +192,9 @@ private:
                 if (d[static_cast<size_t>(lag)] < d[static_cast<size_t>(best)])
                     best = lag;
         }
-        fVoiced = d[static_cast<size_t>(best)] < kVoicedLimit;
+        ++fEstimates;
+        fAperiodicity = d[static_cast<size_t>(best)];
+        fVoiced = fAperiodicity < kVoicedLimit;
         if (!fVoiced)
             return false;
 
@@ -209,7 +226,9 @@ private:
     int fPhase = 0;
     int fSinceHop = 0;
     double fHz = 0.0;
+    float fAperiodicity = 1.0f;
     bool fVoiced = false;
+    uint32_t fEstimates = 0;
 };
 
 } // namespace namsayin

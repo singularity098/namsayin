@@ -149,6 +149,9 @@ struct BlockDescriptor {
     const char* meterName = nullptr;
     float meterRange = 24.0f;
     MeterStyle meterStyle = MeterStyle::Reduction;
+    // The block follows the played note and takes the "lookahead" config (ms; blocks/TrackedInput.hpp): the UI
+    // shows a Lookahead button
+    bool lookahead = false;
 };
 
 } // namespace namsayin

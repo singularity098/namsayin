@@ -4,6 +4,7 @@
 #include "engine/blocks/PitchBlocks.hpp"
 
 #include "engine/TempoSync.hpp"
+#include "engine/blocks/TrackedInput.hpp"
 #include "engine/dsp/Biquad.hpp"
 #include "engine/dsp/DelayLine.hpp"
 #include "engine/dsp/Lfo.hpp"
@@ -79,8 +80,6 @@ protected:
             period = fSampleRate / fTracker.hz();
         return pitchSyncWindow(fWindow, period, fMaxWindow);
     }
-
-    double trackedHz() const { return fTracker.hz(); }
 
     float tone(uint32_t ch, float x) { return fToneOn ? fTone[ch].process(x) : x; }
 
@@ -364,6 +363,7 @@ public:
             s->prepare(sampleRate);
         for (Smoother& s : fShift)
             s.prepare(sampleRate, 0.015);
+        fInput.prepare(sampleRate);
         PitchBase::prepare(sampleRate, maxFrames);
         fSnap = true;
     }
@@ -381,8 +381,19 @@ public:
         case kHarmParamLevel2: fLevel[1].setTarget(value / 100.0f); break;
         case kHarmParamDry:    fDry.setTarget(value / 100.0f); break;
         case kHarmParamWindow: setWindowMs(value); break;
+        case kHarmParamTrack:  fInput.setTrackRig(value); break;
         }
     }
+
+    bool configure(const nlohmann::json& config) override
+    {
+        fInput.configure(config);
+        return true;
+    }
+
+    uint32_t latency() const override { return fInput.latency(); }
+
+    void setRigInput(const float* const* input, uint32_t numChannels) override { fInput.setRig(input, numChannels); }
 
     void process(float* const* io, uint32_t numChannels, uint32_t frames) override
     {
@@ -394,11 +405,13 @@ public:
         }
         for (uint32_t i = 0; i < frames; ++i)
         {
+            // the played note (io[..][i] is delayed by the lookahead from here on)
+            const NoteTracker::Note& played = fInput.process(io, numChannels, i);
             const float window = track(numChannels > 1 ? 0.5f * (io[0][i] + io[1][i]) : io[0][i]);
-            if (trackedHz() > 0.0)
+            if (played.on)
             {
                 // the played note, to the nearest semitone; the harmony is relative to it, so bends carry over
-                const int note = static_cast<int>(std::lround(69.0 + 12.0 * std::log2(trackedHz() / 440.0)));
+                const int note = static_cast<int>(std::lround(69.0 + 12.0 * std::log2(played.hz / 440.0)));
                 for (int v = 0; v < 2; ++v)
                     fShift[v].setTarget(static_cast<float>(harmonySemitones(note, fKey, fScale, fSteps[v])));
             }
@@ -420,10 +433,12 @@ public:
     void reset() override
     {
         PitchBase::reset();
+        fInput.reset();
         fSnap = true;
     }
 
 private:
+    TrackedInput fInput;
     int fKey = 0;
     int fScale = 0;
     int fSteps[2] = { 2, 4 };
@@ -1103,8 +1118,16 @@ const BlockDescriptor kHarmonizerBlockDescriptor = {
         ParamSpec { "Level 2", "%", 0.0f, 100.0f, 0.0f, ParamScale::Linear },
         ParamSpec { "Dry", "%", 0.0f, 100.0f, 100.0f, ParamScale::Linear },
         ParamSpec { "Window", "ms", 15.0f, 100.0f, 40.0f, ParamScale::Log },
+        ParamSpec { "Track", "", 0.0f, 1.0f, 0.0f, ParamScale::Choice, TrackedInput::kTrackNames },
     },
     [] { return std::unique_ptr<Block>(new HarmonizerBlock()); },
+    -1,
+    -1,
+    false,
+    nullptr,
+    24.0f,
+    MeterStyle::Reduction,
+    true,
 };
 
 } // namespace namsayin

@@ -24,7 +24,10 @@ enum SlicerParam {
 };
 
 // Kill switch: Kill mutes while held, and Stutter chops the sound on and off at Time while held (Latch makes both
-// switch on and off with each press instead). Invert turns it around: silent until you press Kill. No config.
+// switch on and off with each press instead). Invert turns it around: silent until you press Kill. Rate Mod changes
+// the stutter's speed as it runs (owner's request, 2026-10-23): Steps doubles it in steps (Time, Time/2, Time/4 ...,
+// Speeds of them, each for Step Len cycles of Time, then over again), Sweep glides through the same speeds; Direction
+// goes faster, slower, or back and forth. No config.
 extern const BlockDescriptor kKillSwitchBlockDescriptor;
 
 enum KillSwitchParam {
@@ -36,6 +39,10 @@ enum KillSwitchParam {
     kKillParamSync,    // toggle
     kKillParamDuty,    // %, how much of each cycle sounds
     kKillParamFade,    // ms
+    kKillParamRateMod, // choice: Off, Steps, Sweep
+    kKillParamSpeeds,  // choice: 2..5 speeds, each twice the last
+    kKillParamStepLen, // choice: 1, 2, 4, 8 cycles of Time per speed
+    kKillParamDirection, // choice: Faster, Slower, Both
     kKillParamCount
 };
 

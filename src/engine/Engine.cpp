@@ -537,6 +537,9 @@ void Engine::merge(uint32_t numChannels, uint32_t frames)
 
 void Engine::updateLatency(Graph& graph)
 {
+    for (std::vector<Node>* nodes : { &graph.pre, &graph.branchA, &graph.branchB, &graph.post })
+        for (Node& node : *nodes)
+            node.bypassDelay.prepare(node.block->latency());
     const uint32_t a = sectionLatency(graph.branchA);
     const uint32_t b = sectionLatency(graph.branchB);
     const uint32_t branches = std::max(a, b);
@@ -570,6 +573,32 @@ void Engine::processNodes(const std::vector<Node>& nodes, float* const* work, fl
         block.setRigInput(rig, numChannels);
 
         const float bypassTarget = param(slotBypassParam(node.slot)) >= 0.5f ? 1.0f : 0.0f;
+        if (node.bypassDelay.delay() > 0)
+        {
+            // a block with latency: its dry signal is delayed as much, so bypassing it doesn't shift the timing
+            for (uint32_t ch = 0; ch < numChannels; ++ch)
+                std::memcpy(scratch[ch], work[ch], sizeof(float) * frames);
+            node.bypassDelay.process(scratch, numChannels, frames);
+            if (slot.bypassMix == bypassTarget && bypassTarget != 0.0f)
+            {
+                for (uint32_t ch = 0; ch < numChannels; ++ch)
+                    std::memcpy(work[ch], scratch[ch], sizeof(float) * frames);
+                continue;
+            }
+            block.process(work, numChannels, frames);
+            if (slot.bypassMix == bypassTarget)
+                continue;
+            float mix = slot.bypassMix;
+            for (uint32_t i = 0; i < frames; ++i)
+            {
+                mix = mix < bypassTarget ? std::min(bypassTarget, mix + fRampStep)
+                                         : std::max(bypassTarget, mix - fRampStep);
+                for (uint32_t ch = 0; ch < numChannels; ++ch)
+                    work[ch][i] += (scratch[ch][i] - work[ch][i]) * mix;
+            }
+            slot.bypassMix = mix;
+            continue;
+        }
         if (slot.bypassMix == bypassTarget)
         {
             if (bypassTarget == 0.0f)

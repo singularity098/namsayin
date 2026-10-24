@@ -84,6 +84,8 @@ private:
         std::shared_ptr<Block> block;
         const BlockDescriptor* type;
         int slot;
+        // for a block with latency: delays the signal while it's bypassed, so the chain's latency stays the same
+        mutable AlignmentDelay bypassDelay;
     };
 
     // The chain in four sections: before the split, the two branches, and after the merge. Without a split,

@@ -3,9 +3,8 @@
 
 #include "engine/blocks/SynthBlock.hpp"
 
+#include "engine/blocks/TrackedInput.hpp"
 #include "engine/dsp/Oscillator.hpp"
-#include "engine/dsp/PickFilter.hpp"
-#include "engine/dsp/PitchTracker.hpp"
 #include "engine/dsp/Smoother.hpp"
 #include "engine/dsp/Svf.hpp"
 
@@ -29,8 +28,7 @@ public:
     {
         fSampleRate = sampleRate;
         fMix.prepare(sampleRate);
-        fTracker.prepare(sampleRate);
-        fPick.prepare(sampleRate);
+        fInput.prepare(sampleRate);
         updateAmp();
         updateGlide();
         reset();
@@ -61,10 +59,23 @@ public:
             fMix.setTarget(value / 100.0f);
             break;
         case kSynthParamPickFilter:
-            fPick.setMs(value);
+            fInput.setPickFilter(value);
+            break;
+        case kSynthParamTrack:
+            fInput.setTrackRig(value);
             break;
         }
     }
+
+    bool configure(const nlohmann::json& config) override
+    {
+        fInput.configure(config);
+        return true;
+    }
+
+    uint32_t latency() const override { return fInput.latency(); }
+
+    void setRigInput(const float* const* input, uint32_t numChannels) override { fInput.setRig(input, numChannels); }
 
     void process(float* const* io, uint32_t numChannels, uint32_t frames) override
     {
@@ -75,12 +86,10 @@ public:
         }
         for (uint32_t i = 0; i < frames; ++i)
         {
-            float in = io[0][i];
-            if (numChannels > 1)
-                in = 0.5f * (in + io[1][i]);
-            const bool estimated = fTracker.process(in);
-            if (fPick.process(fTracker.sounding(), estimated ? fTracker.hz() : 0.0))
-                fTargetHz = fPick.hz();
+            // (io[..][i] is the dry signal from here on: delayed by the lookahead, if any)
+            const NoteTracker::Note& tracked = fInput.process(io, numChannels, i);
+            if (tracked.hz > 0.0)
+                fTargetHz = tracked.hz;
 
             // the oscillator glides to the tracked pitch
             fHz += (fTargetHz - fHz) * fGlideCoef;
@@ -95,8 +104,8 @@ public:
             const float osc = oscillator(dt);
 
             // amplitude: the guitar's envelope, with Attack as a swell at the start of each note
-            const float env = fTracker.envelope();
-            const bool on = fTracker.sounding() && fPick.open();
+            const float env = tracked.envelope;
+            const bool on = tracked.on;
             const float level = std::min(1.0f, env * 4.0f);
             fAmp += ((on ? level : 0.0f) - fAmp) * (on && level > fAmp ? fAmpAttack : fAmpRelease);
 
@@ -112,8 +121,7 @@ public:
 
     void reset() override
     {
-        fTracker.reset();
-        fPick.reset();
+        fInput.reset();
         fFilter.reset();
         fTargetHz = fHz = 110.0;
         fPhase = fSubPhase = 0.0;
@@ -154,8 +162,7 @@ private:
     float fAttackMs = 5.0f;
     float fGlideMs = 10.0f;
 
-    PitchTracker fTracker;
-    PickFilter fPick;
+    TrackedInput fInput;
     Svf fFilter;
     Smoother fMix;
     double fTargetHz = 110.0, fHz = 110.0;
@@ -183,8 +190,16 @@ const BlockDescriptor kSynthBlockDescriptor = {
         ParamSpec { "Glide", "ms", 0.1f, 500.0f, 10.0f, ParamScale::Log },
         ParamSpec { "Mix", "%", 0.0f, 100.0f, 100.0f, ParamScale::Linear },
         ParamSpec { "Pick Filter", "ms", 0.0f, 60.0f, 0.0f, ParamScale::Linear },
+        ParamSpec { "Track", "", 0.0f, 1.0f, 0.0f, ParamScale::Choice, TrackedInput::kTrackNames },
     },
     [] { return std::unique_ptr<Block>(new SynthBlock()); },
+    -1,
+    -1,
+    false,
+    nullptr,
+    24.0f,
+    MeterStyle::Reduction,
+    true,
 };
 
 } // namespace namsayin

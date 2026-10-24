@@ -211,6 +211,7 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/SettingsTests.cpp
     tests/SynthTests.cpp
     tests/TextEditTests.cpp
+    tests/TrackingTests.cpp
     tests/TunerTests.cpp
     tests/UndoStackTests.cpp
     src/ui/BlockGlyphs.cpp

@@ -141,6 +141,44 @@ TEST_CASE("chain latency is reported")
     CHECK(rig.engine.latency() == 64);
 }
 
+TEST_CASE("a bypassed block with latency still delays the signal, so the timing doesn't change")
+{
+    Rig rig;
+    rig.engine.setParameter(kParamLimiter, 0.0f);
+    rig.engine.setParameter(slotParam(0, 0), gainParam(-6.0f));
+    REQUIRE(rig.engine.setChain(gainChain(0, { { "latency", 100 } })));
+    std::fill(rig.inL.begin(), rig.inL.end(), 0.0f);
+    rig.run(4);
+    // where an impulse comes out, and how loud
+    auto impulse = [&]() {
+        rig.inL[0] = 1.0f;
+        std::vector<float> out;
+        for (int i = 0; i < 2; ++i)
+        {
+            rig.run(1);
+            out.insert(out.end(), rig.outL.begin(), rig.outL.end());
+            rig.inL[0] = 0.0f;
+        }
+        size_t at = 0;
+        for (size_t i = 0; i < out.size(); ++i)
+            if (std::fabs(out[i]) > std::fabs(out[at]))
+                at = i;
+        for (size_t i = 0; i < out.size(); ++i)
+            if (i != at)
+                CHECK(out[i] == 0.0f);
+        return std::make_pair(at, out[at]);
+    };
+    const auto active = impulse();
+    CHECK(active.first == 100);
+    CHECK(active.second == doctest::Approx(std::pow(10.0f, -6.0f / 20.0f)));
+
+    rig.engine.setParameter(slotBypassParam(0), 1.0f);
+    rig.run(20); // past the bypass ramp
+    const auto bypassed = impulse();
+    CHECK(bypassed.first == 100);
+    CHECK(bypassed.second == doctest::Approx(1.0f));
+}
+
 TEST_CASE("a block that fails to configure is left out and reported")
 {
     Rig rig;

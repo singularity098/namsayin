@@ -43,13 +43,15 @@ src/engine/           Audio engine, independent of DPF (static library `namsayin
   SpscQueue.hpp       Lock-free queue (retired graphs go back to the non-RT side through it)
   dsp/                Smoother, Biquad, ToneStack, Limiter, Meter, Lfo (+ RandomLfo), Svf (+ OnePole, EnvelopeFollower),
                       Waveshapers (clipping curves), PitchShifter (delay-line voices), Fdn (8-line reverb tank),
-                      PitchTracker (YIN, real time; synth, harmonizer, octave), PickFilter (the mono synths' Pick Filter),
+                      PitchTracker (YIN, real time), NoteTracker (notes from it: starts, ends, pick filter, lookahead;
+                      synths, harmonizer, octave), PickFilter (old pick filter, kept for its tests and the benchmark),
                       PeriodFinder (autocorrelation; pitch-synchronous splices for the pitch shifter, chords included)
                       Oversampler (polyphase IIR half-band, 4x, zero latency), OnsetDetector (new pick attacks),
                       Oscillator (PolyBLEP saw and pulse for the synths)
   dsp/DelayLine.hpp   Delay line with Hermite reads, sine LFO, dry/wet mix law; AlignmentDelay (split branches)
   tuner/              PitchDetector (MPM + sub-cent refinement), Tuner (ring buffer from the audio thread, analysis off it)
   metronome/          Metronome (sample-accurate, free and DAW sync; all sounds generated in code)
+  blocks/TrackedInput.hpp  Track From (Block In / Rig In) and Lookahead around the NoteTracker, for the pitch-following blocks
   blocks/             Block implementations (NAM, IR, delay, Doppelganger delay, reverb, compressor, gate, EQs, chorus, flanger, phaser,
                       modulation sweeper,
                       tremolo, doubler, wah, auto wah, boost, overdrive, distortion, fuzz, bitcrusher, volume,
@@ -75,7 +77,9 @@ src/ui/               UI side (UI subclass, NanoVG). FolderPicker: the system fo
                       BlockImages.cpp (generated) holds the built-in block images (none at the moment); BlockGlyphs.cpp the
                       symbol on each pedal's face; ParamHelp.cpp the hover help texts; TextEdit the text fields' cursor,
                       selection and word editing (no DPF, tested)
-tests/                doctest unit tests; TestSupport.hpp has a test block and an allocation counter
+tests/                doctest unit tests; TestSupport.hpp has a test block and an allocation counter; GuitarSignals.hpp a
+                      synthetic guitar with ground truth for TrackingTests.cpp (the note tracking benchmark:
+                      NAMSAYIN_TRACKING_BENCH=1 ./build/namsayin-tests -tc="tracking benchmark")
 docs/                 Requirements and architecture
 resources/fonts/      Jost (variable TTF + OFL.txt); tools/embed_font.py makes the Light and Regular instances into src/ui/FontData.cpp
 resources/background/ The window background image (the owner's, generated with Krea-2 in ComfyUI); tools/embed_background.py makes it src/ui/BackgroundImage.cpp (JPEG)
@@ -129,6 +133,7 @@ The file browser opens in the host's working directory. Final checks happen in R
 - `CMAKE_CXX_EXTENSIONS` is ON because DPF's UI code uses `typeof`.
 - **Host parameter indices are DAW automation IDs — never reorder or remove them.** Globals come first, then 32 slots × 17 (bypass + 16; was 8, raised before release for the Doppelganger Delay — fixed from v1.0 on). Parameters added later go after the slots (`kFirstLaterParam` in `src/engine/Params.hpp`).
 - Slot parameters are normalized 0..1 for the host; each block's `ParamSpec` maps them to real values. `Choice` params list their labels in `ParamSpec::choices`; the UI draws them as a button that steps through the choices. `Momentary` params are footswitch actions (the looper's buttons): 1 while held (the UI holds a quick click for 80 ms so the DSP sees it), and the block acts on the 0 -> 1 edge, which also suits MIDI footswitches.
+- Pitch-following blocks use `TrackedInput` (Track as their last parameter, the `"lookahead"` config, `BlockDescriptor::lookahead` for the UI's Lookahead button). Lookahead stays off by default (owner, 2026-10-23). When touching the note tracking, run the benchmark before and after.
 - Blocks get the host tempo through `Block::setTempo()` and can show a level in the UI through `Block::meter()` (one hidden output parameter per slot, `slotMeterParam()`; the descriptor's `meterName` makes the panel show it). `Block::setRigInput()` gives blocks the chain's input (the noise gate's "Rig In" key).
 - Tempo sync is generic: a descriptor's `syncParam`/`syncedParam`/`syncedIsRate` make the UI show note values (`TempoSync.hpp`); the block maps the knob itself. While the host plays, `Block::setSongPosition()` gives the position in quarter notes; synced LFOs lock to it (`Lfo::syncTo`), so they land on the beat.
 - A `Choice` parameter's list must never grow or shrink once released: its normalized values would map to other choices in saved projects. Add a new block type instead.

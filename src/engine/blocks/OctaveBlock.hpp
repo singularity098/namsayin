@@ -20,6 +20,7 @@ enum OctaveParam {
     kOctParamDry,      // %
     kOctParamTone,     // Hz, low-pass on the octaves
     kOctParamTracking, // Hz, the detector's low-pass until the note is known (then it follows the note)
+    kOctParamTrack,    // choice: Block In, Rig In: what the note is found from (the octaves always come from the input)
     kOctParamCount
 };
 

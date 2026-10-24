@@ -3,8 +3,8 @@
 
 #include "engine/blocks/OctaveBlock.hpp"
 
+#include "engine/blocks/TrackedInput.hpp"
 #include "engine/dsp/Biquad.hpp"
-#include "engine/dsp/PitchTracker.hpp"
 #include "engine/dsp/Smoother.hpp"
 #include "engine/dsp/Svf.hpp"
 
@@ -34,7 +34,7 @@ public:
         for (Smoother* s : { &fSub1, &fSub2, &fUp, &fDry })
             s->prepare(sampleRate);
         fGate.prepare(sampleRate, 0.01);
-        fTracker.prepare(sampleRate);
+        fInput.prepare(sampleRate);
         updateFilters();
         reset();
     }
@@ -55,8 +55,21 @@ public:
             fTracking = value;
             updateFilters();
             break;
+        case kOctParamTrack:
+            fInput.setTrackRig(value);
+            break;
         }
     }
+
+    bool configure(const nlohmann::json& config) override
+    {
+        fInput.configure(config);
+        return true;
+    }
+
+    uint32_t latency() const override { return fInput.latency(); }
+
+    void setRigInput(const float* const* input, uint32_t numChannels) override { fInput.setRig(input, numChannels); }
 
     void process(float* const* io, uint32_t numChannels, uint32_t frames) override
     {
@@ -69,14 +82,19 @@ public:
 
         for (uint32_t i = 0; i < frames; ++i)
         {
+            // once the note is known, the detector's low-pass sits just above it, so harmonics (often stronger than
+            // the fundamental on a plucked string) can't add zero crossings. (io[..][i] is delayed by the lookahead
+            // from here on, so with lookahead the low-pass is set when the note arrives.)
+            const NoteTracker::Note& note = fInput.process(io, numChannels, i);
+            if (note.on && note.hz != fTrackedHz)
+            {
+                fTrackedHz = note.hz;
+                setTrackLowPass(1.3 * note.hz);
+            }
             // one detector for both channels (it's a single-note effect)
             float in = io[0][i];
             if (numChannels > 1)
                 in = 0.5f * (in + io[1][i]);
-            // once the note is known, the detector's low-pass sits just above it, so harmonics (often stronger than
-            // the fundamental on a plucked string) can't add zero crossings
-            if (fTracker.process(in))
-                setTrackLowPass(1.3 * fTracker.hz());
             const float tracked = fTrack[2].process(fTrack[1].process(fTrack[0].process(in)));
             const float env = fEnvelope.process(tracked);
 
@@ -114,7 +132,8 @@ public:
             filter.reset();
         for (Biquad& filter : fToneFilter)
             filter.reset();
-        fTracker.reset();
+        fInput.reset();
+        fTrackedHz = 0.0;
         setTrackLowPass(fTracking);
         fUpHighPass.reset();
         fEnvelope.reset();
@@ -150,7 +169,8 @@ private:
     float fTone = 1500.0f;
     float fTracking = 700.0f;
     Biquad fTrack[3], fToneFilter[2];
-    PitchTracker fTracker;
+    TrackedInput fInput;
+    double fTrackedHz = 0.0;
     OnePole fUpHighPass;
     EnvelopeFollower fEnvelope;
     Smoother fSub1, fSub2, fUp, fDry, fGate;
@@ -174,8 +194,16 @@ const BlockDescriptor kOctaveBlockDescriptor = {
         ParamSpec { "Dry", "%", 0.0f, 100.0f, 70.0f, ParamScale::Linear },
         ParamSpec { "Tone", "Hz", 200.0f, 8000.0f, 1500.0f, ParamScale::Log },
         ParamSpec { "Tracking", "Hz", 200.0f, 2000.0f, 700.0f, ParamScale::Log },
+        ParamSpec { "Track", "", 0.0f, 1.0f, 0.0f, ParamScale::Choice, TrackedInput::kTrackNames },
     },
     [] { return std::unique_ptr<Block>(new OctaveBlock()); },
+    -1,
+    -1,
+    false,
+    nullptr,
+    24.0f,
+    MeterStyle::Reduction,
+    true,
 };
 
 } // namespace namsayin
