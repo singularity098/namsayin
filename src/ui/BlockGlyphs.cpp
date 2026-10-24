@@ -157,6 +157,16 @@ void sawWave(Builder& b)
     b.polyline({ { 28, 112 }, { 50, 84 }, { 50, 112 }, { 74, 84 }, { 74, 112 }, { 96, 84 } });
 }
 
+void diBox(Builder& b) // a DI box: the jack in, the XLR out
+{
+    b.rect(30, 82, 94, 114);
+    b.circle(44, 98, 6);
+    b.circle(78, 98, 9);
+    b.dot(74, 95, 1.6f);
+    b.dot(82, 95, 1.6f);
+    b.dot(78, 102, 1.6f);
+}
+
 void lowPass(Builder& b) // a resonant low-pass
 {
     b.move(28, 96);
@@ -173,6 +183,84 @@ using Draw = void (*)(Builder&);
 const std::map<std::string, Draw>& drawings()
 {
     static const std::map<std::string, Draw> map = {
+        // DI
+        { "studiodi", [](Builder& b) { // a transformer: two windings on an iron core
+             for (int k = 0; k < 4; ++k)
+             {
+                 b.arc(46, 84.0f + 9.0f * k, 4.5f, 270, 450);
+                 b.arc(78, 84.0f + 9.0f * k, 4.5f, 90, 270);
+             }
+             b.polyline({ { 58, 78 }, { 58, 118 } });
+             b.polyline({ { 66, 78 }, { 66, 118 } });
+         } },
+        { "valvedi", [](Builder& b) { // a valve: its glass, the plate, the grid and the cathode
+             b.arc(62, 92, 18, 180, 360);
+             b.polyline({ { 44, 92 }, { 44, 116 }, { 80, 116 }, { 80, 92 } });
+             b.polyline({ { 52, 86 }, { 72, 86 } });
+             b.polyline({ { 50, 98 }, { 54, 98 } });
+             b.polyline({ { 58, 98 }, { 62, 98 } });
+             b.polyline({ { 66, 98 }, { 70, 98 } });
+             b.polyline({ { 52, 108 }, { 56, 104 }, { 68, 104 }, { 72, 108 } });
+         } },
+        { "tubepreamp", [](Builder& b) { // two preamp valves side by side
+             for (const float cx : { 46.0f, 78.0f })
+             {
+                 b.arc(cx, 92, 11, 180, 360);
+                 b.polyline({ { cx - 11, 92 }, { cx - 11, 114 }, { cx + 11, 114 }, { cx + 11, 92 } });
+                 b.polyline({ { cx - 5, 104 }, { cx, 96 }, { cx + 5, 104 } });
+             }
+         } },
+        { "optodi", [](Builder& b) { // a lamp shining on a light-dependent resistor
+             b.circle(44, 98, 9);
+             b.polyline({ { 40, 98 }, { 42, 94 }, { 46, 102 }, { 48, 98 } });
+             b.polyline({ { 58, 92 }, { 66, 88 } });
+             b.polyline({ { 58, 104 }, { 66, 108 } });
+             b.polyline({ { 60, 98 }, { 68, 98 } });
+             b.polyline({ { 76, 82 }, { 76, 86 }, { 82, 88 }, { 72, 92 }, { 82, 96 }, { 72, 100 }, { 82, 104 },
+                          { 72, 108 }, { 76, 110 }, { 76, 114 } });
+         } },
+        { "hifipreamp", [](Builder& b) { // a mid bell that sweeps
+             b.plot(28, 96, [](float u) { return 108.0f - 22.0f * std::exp(-std::pow((u - 0.5f) / 0.14f, 2.0f)); });
+             b.polyline({ { 46, 120 }, { 78, 120 } });
+             b.arrowhead(46, 120, -1, 0, 6);
+             b.arrowhead(78, 120, 1, 0, 6);
+         } },
+        { "britishpreamp", [](Builder& b) { // a five-band graphic set to a smile
+             static constexpr float kKnob[] = { 86, 98, 108, 98, 86 };
+             for (int k = 0; k < 5; ++k)
+             {
+                 const float x = 34.0f + 14.0f * k;
+                 b.polyline({ { x, 78 }, { x, 118 } });
+                 b.rect(x - 4, kKnob[k] - 2, x + 4, kKnob[k] + 2);
+             }
+         } },
+        { "driverdi", [](Builder& b) { // a speaker cone, driven
+             b.polyline({ { 34, 90 }, { 44, 90 }, { 58, 78 }, { 58, 118 }, { 44, 106 }, { 34, 106 } }, true);
+             b.arc(62, 98, 10, -50, 50);
+             b.arc(62, 98, 20, -45, 45);
+             b.plot(78, 96, [](float u) { return 98.0f - 8.0f * std::tanh(3.0f * sine(u, 1.0f)) / std::tanh(3.0f); });
+         } },
+        { "dualdrive", [](Builder& b) { // two channels side by side: clean above, distorted below
+             b.plot(28, 96, [](float u) { return 88.0f - 7.0f * sine(u, 1.5f); });
+             b.polyline({ { 28, 110 }, { 36, 110 }, { 36, 102 }, { 50, 102 }, { 50, 116 }, { 64, 116 }, { 64, 102 },
+                          { 78, 102 }, { 78, 116 }, { 92, 116 }, { 92, 110 }, { 96, 110 } });
+         } },
+        { "moderndrive", [](Builder& b) { // a jagged high-gain edge riding on a deep, clean wave
+             b.plot(28, 96, [](float u) { return 104.0f - 12.0f * sine(u, 1.0f); });
+             b.move(28, 86);
+             for (int k = 1; k <= 12; ++k)
+                 b.line(28.0f + 5.67f * k, 86.0f + (k % 2 ? -6.0f : 6.0f) - 12.0f * sine(k / 12.0f, 1.0f));
+         } },
+        { "crossoverdrive", [](Builder& b) { // a low-pass and a high-pass crossing over
+             b.move(28, 86);
+             b.line(56, 86);
+             b.curve(66, 86, 72, 110, 96, 118);
+             b.move(28, 118);
+             b.curve(52, 110, 58, 86, 68, 86);
+             b.line(96, 86);
+             b.dot(62, 92, 2.5f);
+         } },
+
         // Distortion
         { "boost", [](Builder& b) { // an arrow lifting the level
              upArrow(b);
@@ -748,6 +836,7 @@ const Glyph& categoryGlyph(Category category)
         Builder b;
         switch (category)
         {
+        case Category::Di:         diBox(b); break;
         case Category::Delay:      delayRepeats(b); break;
         case Category::Reverb:     reverbArcs(b); break;
         case Category::Dynamics:   compressorKnee(b); break;

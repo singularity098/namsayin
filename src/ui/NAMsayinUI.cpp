@@ -91,6 +91,7 @@ const Color pedalEq(0x9a, 0xa0, 0xa8);
 const Color pedalPitch(0xd0, 0xb0, 0x40);
 const Color pedalSynth(0xd0, 0x4c, 0x9c);
 const Color pedalFilter(0x5c, 0xa0, 0x3a);
+const Color pedalDi(0x40, 0xb4, 0xc8);
 const Color pedalOther(0x70, 0x70, 0x7a);
 } // namespace theme
 
@@ -3243,6 +3244,7 @@ private:
         {
         case Category::Nam:   return theme::amp;
         case Category::Ir:    return theme::cab;
+        case Category::Di:         return theme::pedalDi;
         case Category::Delay:      return theme::pedalDelay;
         case Category::Reverb:     return theme::pedalReverb;
         case Category::Dynamics:   return theme::pedalDynamics;

@@ -121,6 +121,7 @@ add_library(namsayin-engine STATIC
   src/engine/blocks/DelayFxBlocks.cpp
   src/engine/blocks/DoppelgangerBlock.cpp
   src/engine/blocks/DoublerBlock.cpp
+  src/engine/blocks/DiBlocks.cpp
   src/engine/blocks/DriveBlocks.cpp
   src/engine/blocks/EchoBlocks.cpp
   src/engine/blocks/EqBlocks.cpp
@@ -227,6 +228,7 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/ChainStateTests.cpp
     tests/CompressorBlockTests.cpp
     tests/DelayBlockTests.cpp
+    tests/DiTests.cpp
     tests/DoppelgangerBlockTests.cpp
     tests/DriveTests.cpp
     tests/DspTests.cpp

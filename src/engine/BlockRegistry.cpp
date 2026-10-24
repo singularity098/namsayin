@@ -11,6 +11,7 @@
 #include "engine/blocks/CompressorBlock.hpp"
 #include "engine/blocks/DelayBlock.hpp"
 #include "engine/blocks/DelayFxBlocks.hpp"
+#include "engine/blocks/DiBlocks.hpp"
 #include "engine/blocks/DoppelgangerBlock.hpp"
 #include "engine/blocks/DoublerBlock.hpp"
 #include "engine/blocks/DriveBlocks.hpp"
@@ -54,6 +55,7 @@ const char* categoryName(Category category)
     {
     case Category::Nam:             return "NAM";
     case Category::Ir:              return "IR";
+    case Category::Di:              return "DI";
     case Category::Distortion:      return "Distortion";
     case Category::Dynamics:        return "Dynamics";
     case Category::Eq:              return "EQ";
@@ -79,6 +81,16 @@ const BlockRegistry& BlockRegistry::builtin()
     static const BlockRegistry registry({
         &kNamBlockDescriptor,
         &kIrBlockDescriptor,
+        &kStudioDiBlockDescriptor,
+        &kValveDiBlockDescriptor,
+        &kOptoDiBlockDescriptor,
+        &kHiFiPreampBlockDescriptor,
+        &kTubePreampBlockDescriptor,
+        &kBritishPreampBlockDescriptor,
+        &kDriverDiBlockDescriptor,
+        &kDualDriveBlockDescriptor,
+        &kModernDriveBlockDescriptor,
+        &kCrossoverDriveBlockDescriptor,
         &kBoostBlockDescriptor,
         &kOverdriveBlockDescriptor,
         &kDistortionBlockDescriptor,

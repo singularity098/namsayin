@@ -94,6 +94,182 @@ constexpr BlockHelp kBlockHelp[] = {
       "Brings every IR to about the same loudness, so switching cabs doesn't make big jumps in volume. Turn it off "
       "to hear the file at its own level." },
 
+    // DI: Studio DI
+    { "studiodi", "Iron",
+      "How hard the transformer is pushed. A transformer's core saturates on the lows first, so turning this up "
+      "thickens and rounds off the low end while the highs stay clean. Around 30% is a big studio DI's weight; 0% is "
+      "a plain, transparent DI." },
+    { "studiodi", "Low Cut",
+      "Cuts the lowest lows: rumble, handling noise and boom you can't hear but that eats headroom. 30 Hz is safe "
+      "for any bass, 60 Hz tightens a five-string's low B for a busy mix, and 100 Hz thins the bass out on purpose." },
+    { "studiodi", "Air",
+      "Lifts or softens the very top (above about 9 kHz): string zing, slap and pick click. Turn it up for a "
+      "modern, hi-fi bass and down for a vintage, thumpy one." },
+    { "studiodi", "Level",
+      "The output volume. Set it so the bass is as loud as with the block bypassed, or louder to push what comes next." },
+
+    // DI: Valve DI
+    { "valvedi", "Character",
+      "The DI's voicing switch. Flat is the plain tube sound; Deep adds weight below 100 Hz; Bright adds top for "
+      "slap and pick; Mid pushes the middle so the bass is heard on small speakers; Scoop cuts the mids for a modern, "
+      "hi-fi sound; Vintage rolls off the top for an old, round, thumpy tone." },
+    { "valvedi", "Warmth",
+      "How hard the tube is driven. Low settings add a little thickness and smooth the attack; higher settings "
+      "round the peaks off and add the tube's even harmonics, for a warmer, slightly compressed bass." },
+    { "valvedi", "Level",
+      "The output volume. Set it so the bass is as loud as with the block bypassed, or louder to push what comes next." },
+
+    // DI: Tube Preamp
+    { "tubepreamp", "Gain",
+      "How hard the preamp tubes are driven. Low settings are big and clean; past about 50% the classic tube "
+      "growl comes in when you dig in, and near the top it's an overdriven rock bass sound." },
+    { "tubepreamp", "Bass",
+      "Boosts or cuts the low end (a shelf around 60 Hz). Boost for a bigger bottom, cut if the bass booms in the "
+      "room or the mix." },
+    { "tubepreamp", "Mid",
+      "Boosts or cuts the midrange at the Mid Freq you choose. Boost to be heard in a band, cut for a scooped, "
+      "deep sound." },
+    { "tubepreamp", "Mid Freq",
+      "Where the Mid knob works: 220 Hz for warmth and body, 450 Hz and 800 Hz for growl and punch, 1.6 kHz and "
+      "3 kHz for finger and string attack." },
+    { "tubepreamp", "Treble",
+      "Boosts or cuts the highs (a shelf around 4 kHz): more string and pick when up, a rounder, older sound when "
+      "down." },
+    { "tubepreamp", "Ultra Lo",
+      "The classic deep switch: more extreme lows and a big cut in the mids around 500 Hz. Great on its own or for "
+      "a scooped rock sound; it can disappear in a busy band." },
+    { "tubepreamp", "Ultra Hi",
+      "Adds a bright, glassy top (a 9 dB shelf from about 8 kHz) for slap and pick attack." },
+    { "tubepreamp", "Level",
+      "The output volume. Set it so the bass is as loud as with the block bypassed, or louder to push what comes next." },
+
+    // DI: Driver DI
+    { "driverdi", "Drive",
+      "How hard the emulated amp is driven: from a warm, clean amp sound to a fat, overdriven one. The driven side "
+      "always goes through a bass speaker's voicing, like a miked amp." },
+    { "driverdi", "Blend",
+      "Mixes the amp sound with your clean bass. 0% is the clean bass only, 100% the amp only. In between, the clean "
+      "signal keeps the low end solid and the attack clear while the amp adds the grit and growl." },
+    { "driverdi", "Presence",
+      "Boosts or cuts the upper mids and highs of the amp sound only: more bite and definition when up, smoother "
+      "and darker when down." },
+    { "driverdi", "Bass",
+      "Boosts or cuts the lows of the whole sound (a shelf around 80 Hz): more weight when up, tighter when down." },
+    { "driverdi", "Treble",
+      "Boosts or cuts the highs of the whole sound (a shelf around 5 kHz): more string and pick when up, rounder down." },
+    { "driverdi", "Level",
+      "The output volume. Set it so the bass is as loud as with the block bypassed, or louder to push what comes next." },
+
+    // DI: Modern Drive
+    { "moderndrive", "Drive",
+      "How much distortion: from a gritty edge to a modern, high-gain bass sound. Use Blend to keep the low end "
+      "clean under it." },
+    { "moderndrive", "Blend",
+      "Mixes the distortion with your clean bass. The clean bass keeps the lows tight and the notes clear; the "
+      "distortion adds the snarl on top. 50-70% is a typical modern rock and metal setting." },
+    { "moderndrive", "Grunt",
+      "How much low end goes into the distortion. Low settings keep it tight and focused; high settings give a "
+      "fatter, more fuzzy, saturated low end." },
+    { "moderndrive", "Attack",
+      "How much top goes into the distortion. Up for a cutting, clanky, aggressive edge; down for a smoother, "
+      "darker drive." },
+    { "moderndrive", "Bass",
+      "Boosts or cuts the lows of the whole sound (a shelf around 80 Hz), after the blend: weight and thump." },
+    { "moderndrive", "Lo Mid",
+      "Boosts or cuts around 500 Hz: body and punch when up, a deeper, scooped modern sound when down." },
+    { "moderndrive", "Hi Mid",
+      "Boosts or cuts around 1.5 kHz: the growl and note definition that let a distorted bass be heard in a mix." },
+    { "moderndrive", "Treble",
+      "Boosts or cuts the highs of the whole sound (a shelf around 5 kHz): clank and fizz up, smoother down." },
+    { "moderndrive", "Level",
+      "The output volume. Set it so the bass is as loud as with the block bypassed, or louder to push what comes next." },
+
+    // DI: Crossover Drive
+    { "crossoverdrive", "Crossover",
+      "Where the bass is split: below this frequency it stays clean, above it is distorted. Low settings (80-150 Hz) "
+      "distort more of the bass for a bigger dirty sound; high settings (300-500 Hz) keep the whole body clean and "
+      "only distort the growl and attack." },
+    { "crossoverdrive", "Lows",
+      "The level of the clean lows below the crossover. Turn it up for a bigger, solid bottom under the dirt." },
+    { "crossoverdrive", "Drive",
+      "How much the highs above the crossover are distorted, from a light edge to a heavy, saturated growl." },
+    { "crossoverdrive", "Tone",
+      "Brightness of the distorted highs: darker and smoother when turned down, more fizz and bite when turned up." },
+    { "crossoverdrive", "Highs",
+      "The level of the distorted highs. Balance it against Lows: more for an aggressive sound, less for a subtle edge." },
+    { "crossoverdrive", "Level",
+      "The output volume. Set it so the bass is as loud as with the block bypassed, or louder to push what comes next." },
+
+    // DI: Dual Drive
+    { "dualdrive", "Clean",
+      "The level of the clean channel. Turn it all the way down for distortion only, or up to keep the low end solid." },
+    { "dualdrive", "Drive", "How much the distortion channel distorts: from crunch to a hard, buzzy fuzz-like edge." },
+    { "dualdrive", "Dist",
+      "The level of the distortion channel, mixed with the clean one. Bring it up under the clean channel for "
+      "grit that keeps the bass solid." },
+    { "dualdrive", "Color",
+      "Scoops the distortion channel: cuts its mids and lifts its lows and highs, for a more aggressive, "
+      "modern edge." },
+    { "dualdrive", "Bass",
+      "Boosts or cuts the lows of the mix of both channels (a shelf around 80 Hz): more weight up, tighter down." },
+    { "dualdrive", "Mid",
+      "Boosts or cuts the mids of the mix around 600 Hz: punch and presence in a band up, a scooped sound down." },
+    { "dualdrive", "Treble",
+      "Boosts or cuts the highs of the mix (a shelf around 3.5 kHz): more edge and fizz up, smoother and darker down." },
+    { "dualdrive", "Level",
+      "The output volume. Set it so the bass is as loud as with the block bypassed, or louder to push what comes next." },
+
+    // DI: Hi-Fi Preamp
+    { "hifipreamp", "Gain",
+      "How hard the tube stage is driven: clean and transparent at 0, warmer and rounder as you turn it up. It "
+      "stays fairly clean, for a hi-fi sound." },
+    { "hifipreamp", "Comp",
+      "The built-in compressor: evens out your playing so every note sits at the same level. Great for slap and "
+      "fingerstyle. The meter shows how much it is turning down." },
+    { "hifipreamp", "Bass",
+      "Boosts or cuts the lows (a shelf around 60 Hz). Boost for a fuller bottom; cut if the bass booms or muddies the mix." },
+    { "hifipreamp", "Mid",
+      "Boosts or cuts the mids at Mid Freq. Boost to be heard in a band, cut for a scooped, modern slap sound." },
+    { "hifipreamp", "Mid Freq",
+      "Where the Mid knob works, from 180 Hz (warmth) to 1 kHz (definition). Cut around 400 Hz for a modern, "
+      "scooped slap sound; boost around 700-800 Hz to cut through a band." },
+    { "hifipreamp", "Treble",
+      "Boosts or cuts the highs (a shelf around 4 kHz): more finger, string and slap when up, rounder and older when down." },
+    { "hifipreamp", "Level",
+      "The output volume. Set it so the bass is as loud as with the block bypassed, or louder to push what comes next." },
+
+    // DI: British Preamp
+    { "britishpreamp", "Gain",
+      "How hard the preamp is driven: clean and punchy low, a little edge and compression higher up." },
+    { "britishpreamp", "Pre Shape",
+      "The classic British bass preamp switch: a big mid cut with a lift in the lows and highs. Instantly a "
+      "modern, hi-fi, slap-ready sound." },
+    { "britishpreamp", "63 Hz",
+      "The graphic EQ's lowest band, at 63 Hz: the deep bottom you feel. Boost for weight, cut if the room booms." },
+    { "britishpreamp", "200 Hz",
+      "The 200 Hz band: warmth and body. Cut a little if the bass sounds muddy or covers the kick drum and guitars." },
+    { "britishpreamp", "600 Hz",
+      "The 600 Hz band: punch and growl, where a bass is heard in a band. Cut it for a scooped, hi-fi sound." },
+    { "britishpreamp", "1.6 kHz",
+      "The 1.6 kHz band: note definition and finger attack. Boost it to hear every note clearly in a dense mix." },
+    { "britishpreamp", "5 kHz",
+      "The 5 kHz band: string zing, slap and pick click. Boost for a bright modern sound, cut to tame string noise." },
+    { "britishpreamp", "Level",
+      "The output volume. Set it so the bass is as loud as with the block bypassed, or louder to push what comes next." },
+
+    // DI: Opto DI
+    { "optodi", "Peak Reduction",
+      "How much the optical compressor turns down your peaks. Low settings just catch the loudest notes; high "
+      "settings even the playing right out. Its slow, smooth release keeps it natural. The meter shows how much it "
+      "is turning down." },
+    { "optodi", "Gain",
+      "Make-up gain after the compressor: bring the level back up to where it was before the compression." },
+    { "optodi", "Mix",
+      "Parallel compression: blends the compressed sound with the uncompressed one. Below 100% the attack of each "
+      "note comes through while the sustain is evened out." },
+    { "optodi", "Bright",
+      "Adds a little top (a shelf from about 6 kHz) for a clearer, more present bass that cuts through a busy mix." },
+
     // Boost
     { "boost", "Gain",
       "How much louder the boost makes your signal, from 0 to 24 dB. Before an amp, a boost pushes it into more "
@@ -1641,6 +1817,37 @@ constexpr TypeHelp kTypeHelp[] = {
       "A cabinet impulse response: a .wav file that recreates the sound of a speaker cabinet and the microphone on "
       "it. Put it right after an amp model that has no cab of its own; without one, an amp sounds harsh and fizzy. "
       "Low Cut and High Cut tidy up the result for a mix." },
+    { "studiodi",
+      "A passive studio DI box with a big transformer: the cleanest way to record a bass, with the weight a good "
+      "transformer adds to the low end (Iron). Put it first, or after your bass pedals, as the bass's whole chain or "
+      "in front of an amp model." },
+    { "valvedi",
+      "A studio tube DI: the bass gets a little tube warmth and one of six voicings, from Flat to Vintage. A one-box "
+      "recording chain for bass; use it on its own or before a cab IR." },
+    { "optodi",
+      "A DI with an optical compressor, like the classic studio levelling amps: it evens out your playing slowly "
+      "and smoothly, so the bass sits steadily in a mix. Put it first, or after a drive to tame it." },
+    { "hifipreamp",
+      "A clean, modern bass preamp with a built-in compressor, a gentle tube stage and an EQ with a sweepable mid. "
+      "Made for slap, fingerstyle and clear, defined modern bass tones; use it on its own as a DI." },
+    { "tubepreamp",
+      "The preamp of a classic all-tube bass amp: the big, warm rock bass sound, clean or growling, with the famous "
+      "Ultra Lo and Ultra Hi switches. Use it on its own as a DI, or follow it with a bass cab IR." },
+    { "britishpreamp",
+      "A punchy British solid-state bass preamp with a five-band graphic EQ and the Pre Shape switch for an "
+      "instant scooped, hi-fi sound. Great for slap and modern rock; use it on its own as a DI." },
+    { "driverdi",
+      "A tube-amp emulating DI pedal: a driven bass amp and its speaker, blended with your clean bass, in one box. "
+      "The classic way to get a miked-amp sound straight into a desk. No cab IR needed after it." },
+    { "dualdrive",
+      "A two-channel bass distortion: a clean channel and a distorted one with their own levels, mixed, so the "
+      "bass keeps its low end under the dirt. Color scoops the distortion for a more modern edge." },
+    { "moderndrive",
+      "A modern high-gain bass preamp: a tight, aggressive distortion with a clean blend to keep the lows solid, "
+      "Grunt and Attack to shape what goes into the drive, and a four-band EQ. For modern rock, metal and djent." },
+    { "crossoverdrive",
+      "A crossover bass distortion: the bass is split in two, the lows stay clean and only the highs are driven. "
+      "However much gain you use, the low end stays tight and the notes clear." },
     { "boost",
       "A clean boost to push the next block harder or lift your level for solos. Clean adds level without "
       "colouring the sound, Treble brightens it like a classic treble booster, and Mid pushes the midrange so a lead "

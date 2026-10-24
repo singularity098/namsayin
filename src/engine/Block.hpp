@@ -19,6 +19,7 @@ namespace namsayin {
 enum class Category {
     Nam,
     Ir,
+    Di,
     Distortion,
     Dynamics,
     Eq,
