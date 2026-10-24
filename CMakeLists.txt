@@ -170,6 +170,7 @@ dpf_add_plugin(namsayin
     src/ui/BackgroundImage.cpp
     src/ui/BlockGlyphs.cpp
     src/ui/BlockImages.cpp
+    src/ui/FileLooks.cpp
     src/ui/FolderPicker.cpp
     src/ui/FontData.cpp
     src/ui/ParamHelp.cpp
@@ -206,6 +207,7 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/DriveTests.cpp
     tests/DspTests.cpp
     tests/EngineTests.cpp
+    tests/FileLookTests.cpp
     tests/IrBlockTests.cpp
     tests/LibraryTests.cpp
     tests/MetronomeTests.cpp
@@ -225,6 +227,7 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/TunerTests.cpp
     tests/UndoStackTests.cpp
     src/ui/BlockGlyphs.cpp
+    src/ui/FileLooks.cpp
     src/ui/ParamHelp.cpp
     src/ui/TextEdit.cpp)
   target_include_directories(namsayin-tests PRIVATE tests deps/doctest src)

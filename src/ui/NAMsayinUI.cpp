@@ -7,6 +7,7 @@
 #include "BackgroundImage.hpp"
 #include "BlockGlyphs.hpp"
 #include "BlockImages.hpp"
+#include "FileLooks.hpp"
 #include "FontData.hpp"
 #include "FolderPicker.hpp"
 #include "OpenUrl.hpp"
@@ -2405,6 +2406,14 @@ private:
         return builtinImage(block.typeId);
     }
 
+    // What picks a block's own look in the placeholder art: its file's content hash, or the path for configs saved
+    // without one
+    static std::string fileLookKey(const BlockState& block)
+    {
+        const std::string hash = block.config.value("hash", std::string());
+        return hash.empty() ? block.config.value("path", std::string()) : hash;
+    }
+
     // The window background behind the panels: the owner's image, scaled to cover the window and centred
     void drawBackground()
     {
@@ -3218,14 +3227,16 @@ private:
 
     // Placeholder art until real images exist: a pedal, an amp head or a speaker cab, fitted into the rect, as black
     // enclosures outlined in glowing lines. `detailed` (the block panel) adds knobs; thumbnails keep the
-    // shapes bold so they read at small sizes.
-    void drawBlockArt(const BlockDescriptor* type, float x, float y, float w, float h, bool detailed)
+    // shapes bold so they read at small sizes. `key` (the file's content hash) gives each amp and cab its own look
+    // (FileLooks.hpp); empty for the generic one.
+    void drawBlockArt(const BlockDescriptor* type, float x, float y, float w, float h, bool detailed,
+                      const std::string& key = std::string())
     {
         if (type == nullptr)
             return;
         lineCap(ROUND);
         lineJoin(ROUND);
-        drawBlockArtNeon(type, x, y, w, h, detailed);
+        drawBlockArtNeon(type, x, y, w, h, detailed, key);
         lineCap(BUTT);
         lineJoin(MITER);
     }
@@ -3245,8 +3256,194 @@ private:
         stroke();
     }
 
+    // A colour turned around the hue circle by `degrees`
+    static Color shiftHue(const Color& color, float degrees)
+    {
+        if (degrees == 0.0f)
+            return color;
+        const float hi = std::max({ color.red, color.green, color.blue });
+        const float lo = std::min({ color.red, color.green, color.blue });
+        const float l = (hi + lo) / 2, d = hi - lo;
+        if (d <= 0.0f)
+            return color;
+        const float s = d / (1.0f - std::fabs(2 * l - 1));
+        float h = hi == color.red ? std::fmod((color.green - color.blue) / d + 6.0f, 6.0f)
+                : hi == color.green ? (color.blue - color.red) / d + 2.0f
+                : (color.red - color.green) / d + 4.0f;
+        h = std::fmod(h / 6.0f + degrees / 360.0f + 1.0f, 1.0f);
+        return Color::fromHSL(h, s, l, color.alpha);
+    }
+
+    // A file's logo, centred on (bx, by), about 2r across, on a black backing so patterns behind it stop short
+    void drawBadge(Badge badge, float bx, float by, float r, const Color& color, float width)
+    {
+        if (badge == BadgeNone)
+            return;
+        const auto polygon = [&](std::initializer_list<std::pair<float, float>> points) {
+            bool first = true;
+            for (const auto& [px, py] : points)
+            {
+                if (first)
+                    moveTo(bx + px * r, by + py * r);
+                else
+                    lineTo(bx + px * r, by + py * r);
+                first = false;
+            }
+            closePath();
+        };
+        const auto shape = [&] {
+            switch (badge)
+            {
+            case BadgeCircle:
+                circle(bx, by, r);
+                break;
+            case BadgeDiamond:
+                polygon({ { 0, -1.1f }, { 1.1f, 0 }, { 0, 1.1f }, { -1.1f, 0 } });
+                break;
+            case BadgeBolt:
+                polygon({ { 0.25f, -1.1f }, { -0.55f, 0.15f }, { 0, 0.15f }, { -0.25f, 1.1f }, { 0.55f, -0.15f },
+                          { 0, -0.15f } });
+                break;
+            case BadgeStar:
+            {
+                std::pair<float, float> points[10];
+                for (int k = 0; k < 10; ++k)
+                {
+                    const float a = static_cast<float>(M_PI) * (k / 5.0f - 0.5f), pr = k % 2 == 0 ? 1.15f : 0.5f;
+                    points[k] = { std::cos(a) * pr, std::sin(a) * pr };
+                }
+                moveTo(bx + points[0].first * r, by + points[0].second * r);
+                for (int k = 1; k < 10; ++k)
+                    lineTo(bx + points[k].first * r, by + points[k].second * r);
+                closePath();
+                break;
+            }
+            case BadgePlate:
+                roundedRect(bx - 1.6f * r, by - 0.55f * r, 3.2f * r, 1.1f * r, 0.4f * r);
+                break;
+            case BadgeTriangle:
+                polygon({ { 0, -1.05f }, { 1.1f, 0.85f }, { -1.1f, 0.85f } });
+                break;
+            default:
+                break;
+            }
+        };
+        beginPath();
+        shape();
+        fillColor(theme::neonBody);
+        fill();
+        glowStroke(color, width);
+        if (badge == BadgePlate)
+        {
+            // a line of "script" on the plate
+            beginPath();
+            moveTo(bx - 1.0f * r, by + 0.1f * r);
+            bezierTo(bx - 0.6f * r, by - 0.5f * r, bx - 0.3f * r, by + 0.5f * r, bx, by);
+            bezierTo(bx + 0.3f * r, by - 0.5f * r, bx + 0.6f * r, by + 0.4f * r, bx + 1.0f * r, by - 0.1f * r);
+            glowStroke(color, width * 0.8f);
+        }
+    }
+
+    // A grille pattern filling the rect (clipped to it)
+    void drawGrille(AmpLook::Grille grille, float gx, float gy, float gw, float gh, bool detailed, const Color& color,
+                    float width)
+    {
+        save();
+        intersectScissor(gx, gy, gw, gh);
+        beginPath();
+        const int rows = detailed ? 5 : 3;
+        switch (grille)
+        {
+        case AmpLook::Slats:
+            for (int row = 0; row < rows; ++row)
+            {
+                const float ly = gy + gh * (row + 0.5f) / rows;
+                moveTo(gx + gw * 0.1f, ly);
+                lineTo(gx + gw * 0.9f, ly);
+            }
+            break;
+        case AmpLook::Bars:
+        {
+            const int bars = detailed ? 9 : 5;
+            for (int k = 0; k < bars; ++k)
+            {
+                const float lx = gx + gw * (0.1f + 0.8f * (k + 0.5f) / bars);
+                moveTo(lx, gy + gh * 0.15f);
+                lineTo(lx, gy + gh * 0.85f);
+            }
+            break;
+        }
+        case AmpLook::Crosshatch:
+        {
+            const float step = gh / (detailed ? 3.0f : 2.0f);
+            for (float d = -gh; d < gw + gh; d += step)
+            {
+                moveTo(gx + d, gy);
+                lineTo(gx + d + gh, gy + gh);
+                moveTo(gx + d + gh, gy);
+                lineTo(gx + d, gy + gh);
+            }
+            break;
+        }
+        case AmpLook::Perforated:
+        {
+            const int dotRows = detailed ? 4 : 3, dotColumns = static_cast<int>(dotRows * gw / gh + 0.5f);
+            const float r = gh * (detailed ? 0.045f : 0.07f);
+            for (int row = 0; row < dotRows; ++row)
+            {
+                for (int col = 0; col < dotColumns; ++col)
+                {
+                    const float offset = row % 2 == 0 ? 0.25f : 0.75f;
+                    circle(gx + gw * (col + offset) / dotColumns, gy + gh * (row + 0.5f) / dotRows, r);
+                }
+            }
+            fillColor(color);
+            fill();
+            restore();
+            return;
+        }
+        case AmpLook::Waves:
+            for (int row = 0; row < rows; ++row)
+            {
+                const float ly = gy + gh * (row + 0.5f) / rows, amplitude = gh * 0.05f;
+                for (int k = 0; k <= 24; ++k)
+                {
+                    const float u = k / 24.0f;
+                    const float px = gx + gw * (0.08f + 0.84f * u);
+                    const float py = ly + amplitude * std::sin(u * 6.0f * static_cast<float>(M_PI));
+                    if (k == 0)
+                        moveTo(px, py);
+                    else
+                        lineTo(px, py);
+                }
+            }
+            break;
+        case AmpLook::Zigzag:
+            for (int row = 0; row < rows; ++row)
+            {
+                const float ly = gy + gh * (row + 0.5f) / rows, amplitude = gh * 0.06f;
+                const int teeth = detailed ? 10 : 6;
+                for (int k = 0; k <= teeth * 2; ++k)
+                {
+                    const float px = gx + gw * (0.08f + 0.84f * k / (teeth * 2.0f));
+                    const float py = ly + (k % 2 == 0 ? -amplitude : amplitude);
+                    if (k == 0)
+                        moveTo(px, py);
+                    else
+                        lineTo(px, py);
+                }
+            }
+            break;
+        default:
+            break;
+        }
+        glowStroke(color, width);
+        restore();
+    }
+
     // Black enclosures outlined in glowing lines of the kind of block's colour
-    void drawBlockArtNeon(const BlockDescriptor* type, float x, float y, float w, float h, bool detailed)
+    void drawBlockArtNeon(const BlockDescriptor* type, float x, float y, float w, float h, bool detailed,
+                          const std::string& key)
     {
         const float cx = x + w / 2, cy = y + h / 2;
         Color color = artColor(type->category);
@@ -3255,75 +3452,179 @@ private:
 
         if (type->category == Category::Ir)
         {
-            // cab: a 2x2 of speaker rings
-            const float size = std::min(w, h);
-            const float bx = cx - size / 2, by = cy - size / 2;
-            fillRect(bx, by, size, size, theme::neonBody, size * 0.08f);
-            beginPath();
-            roundedRect(bx + size * 0.02f, by + size * 0.02f, size * 0.96f, size * 0.96f, size * 0.07f);
-            glowStroke(color, size * 0.012f * line);
-            for (int r = 0; r < 2; ++r)
+            // cab: speaker rings in a box, the layout, cones, cloth, logo and colour from the file (cabLook())
+            const CabLook look = cabLook(key);
+            if (look.hue != 0.0f)
             {
-                for (int c = 0; c < 2; ++c)
+                // the cab grey has little colour to turn; give it a little more
+                color = shiftHue(color, look.hue);
+                color.interpolate(shiftHue(Color(0x80, 0x98, 0xc0), look.hue), 0.35f);
+            }
+            const float band = look.badge != BadgeNone ? 0.22f : 0.0f; // room for the logo, in speaker cells
+            const float aspect = look.columns / (look.rows + band);
+            const float bw = std::min(w, h * aspect), bh = bw / aspect;
+            const float size = std::min(bw, bh);
+            const float bx = cx - bw / 2, by = cy - bh / 2;
+            const float radius = look.corners ? size * 0.03f : size * 0.08f;
+            fillRect(bx, by, bw, bh, theme::neonBody, radius);
+            beginPath();
+            roundedRect(bx + size * 0.02f, by + size * 0.02f, bw - size * 0.04f, bh - size * 0.04f,
+                        std::max(0.0f, radius - size * 0.01f));
+            glowStroke(color, size * 0.012f * line);
+
+            const float inset = size * 0.06f;
+            const float top = by + inset + (bh - 2 * inset) * band / (look.rows + band);
+            const float cellW = (bw - 2 * inset) / look.columns, cellH = (by + bh - inset - top) / look.rows;
+            const float speaker = std::min(cellW, cellH) * 0.39f;
+            if (look.cloth != CabLook::Bare)
+            {
+                Color cloth = color;
+                cloth.interpolate(theme::neonBody, 0.55f);
+                save();
+                intersectScissor(bx + inset, top, bw - 2 * inset, by + bh - inset - top);
+                beginPath();
+                const float step = size * (detailed ? 0.06f : 0.1f);
+                if (look.cloth == CabLook::Diagonal)
                 {
-                    const float sx = bx + size * (0.28f + 0.44f * c), sy = by + size * (0.28f + 0.44f * r);
+                    for (float d = -bh; d < bw; d += step)
+                    {
+                        moveTo(bx + d, by + bh);
+                        lineTo(bx + d + bh, by);
+                    }
+                }
+                else
+                {
+                    for (float lx = bx + inset + step / 2; lx < bx + bw - inset; lx += step)
+                    {
+                        moveTo(lx, top);
+                        lineTo(lx, by + bh - inset);
+                    }
+                }
+                glowStroke(cloth, size * 0.006f * line);
+                restore();
+            }
+            for (int r = 0; r < look.rows; ++r)
+            {
+                for (int c = 0; c < look.columns; ++c)
+                {
+                    const float sx = bx + inset + cellW * (c + 0.5f), sy = top + cellH * (r + 0.5f);
                     beginPath();
-                    circle(sx, sy, size * 0.17f);
-                    if (detailed)
-                        circle(sx, sy, size * 0.1f);
-                    circle(sx, sy, size * 0.035f);
+                    circle(sx, sy, speaker);
+                    fillColor(theme::neonBody);
+                    fill();
+                    switch (look.cone)
+                    {
+                    case CabLook::Plain:
+                        if (detailed)
+                            circle(sx, sy, speaker * 0.6f);
+                        circle(sx, sy, speaker * 0.2f);
+                        break;
+                    case CabLook::Rim:
+                        circle(sx, sy, speaker * 0.84f);
+                        circle(sx, sy, speaker * 0.22f);
+                        break;
+                    case CabLook::Spokes:
+                        for (int k = 0; k < 4; ++k)
+                        {
+                            const float a = static_cast<float>(M_PI) * (0.25f + 0.5f * k);
+                            moveTo(sx + std::cos(a) * speaker * 0.3f, sy + std::sin(a) * speaker * 0.3f);
+                            lineTo(sx + std::cos(a) * speaker * 0.85f, sy + std::sin(a) * speaker * 0.85f);
+                        }
+                        circle(sx, sy, speaker * 0.18f);
+                        break;
+                    case CabLook::BigCap:
+                        circle(sx, sy, speaker * 0.42f);
+                        if (detailed)
+                            circle(sx, sy, speaker * 0.12f);
+                        break;
+                    default:
+                        break;
+                    }
                     glowStroke(color, size * 0.012f * line);
                 }
+            }
+            if (look.badge != BadgeNone)
+            {
+                const float logo = std::min((top - by - inset) * 0.42f, bw * 0.08f);
+                drawBadge(look.badge, cx, (by + inset + top) / 2, logo, color, size * 0.01f * line);
+            }
+            if (look.corners)
+            {
+                beginPath();
+                const float c = size * 0.09f;
+                for (int k = 0; k < 4; ++k)
+                {
+                    const float ex = k % 2 == 0 ? bx : bx + bw, ey = k < 2 ? by : by + bh;
+                    const float dx = k % 2 == 0 ? 1.0f : -1.0f, dy = k < 2 ? 1.0f : -1.0f;
+                    moveTo(ex + dx * c, ey + dy * size * 0.01f);
+                    lineTo(ex + dx * size * 0.01f, ey + dy * size * 0.01f);
+                    lineTo(ex + dx * size * 0.01f, ey + dy * c);
+                }
+                glowStroke(color, size * 0.014f * line);
             }
             return;
         }
 
         if (type->category == Category::Nam)
         {
-            // amp head, landscape: knobs along the top, a grille of glowing slats
-            float aw = w, ah = w / 1.7f;
+            // amp: knobs along the top, a glowing grille; the body, knobs, grille, logo and colour from the file
+            // (ampLook())
+            const AmpLook look = ampLook(key);
+            color = shiftHue(color, look.hue);
+            const float ratio = look.body == AmpLook::Combo ? 1.2f : 1.7f;
+            float aw = w, ah = w / ratio;
             if (ah > h)
             {
                 ah = h;
-                aw = h * 1.7f;
+                aw = h * ratio;
             }
+            const float unit = aw / 1.7f; // the head's height, which sizes the details
             const float ax = cx - aw / 2, ay = cy - ah / 2;
             fillRect(ax, ay, aw, ah, theme::neonBody, aw * 0.05f);
             beginPath();
             roundedRect(ax + aw * 0.01f, ay + aw * 0.01f, aw * 0.98f, ah - aw * 0.02f, aw * 0.045f);
-            glowStroke(color, ah * 0.012f * line);
+            glowStroke(color, unit * 0.012f * line);
             float gy = ay + ah * 0.16f, gh = ah * 0.68f;
             if (detailed)
             {
-                static constexpr float turns[] = { 0.55f, 0.4f, 0.65f, 0.5f, 0.35f, 0.6f };
-                for (int k = 0; k < 6; ++k)
+                const float ky = ay + unit * 0.17f, r = unit * 0.065f;
+                const float step = look.knobs >= 6 ? 0.1f : 0.6f / (look.knobs - 1);
+                for (int k = 0; k < look.knobs; ++k)
                 {
-                    const float kx = ax + aw * (0.14f + 0.1f * k), ky = ay + ah * 0.17f, r = ah * 0.065f;
-                    const float a = (0.75f + 1.5f * turns[k]) * static_cast<float>(M_PI);
+                    const float kx = ax + aw * (0.14f + step * k);
+                    const float a = (0.75f + 1.5f * look.turns[k]) * static_cast<float>(M_PI);
                     beginPath();
                     circle(kx, ky, r);
                     moveTo(kx + std::cos(a) * r * 0.3f, ky + std::sin(a) * r * 0.3f);
                     lineTo(kx + std::cos(a) * r * 0.85f, ky + std::sin(a) * r * 0.85f);
-                    glowStroke(color, ah * 0.012f);
+                    glowStroke(color, unit * 0.012f);
                 }
                 beginPath();
-                circle(ax + aw * 0.86f, ay + ah * 0.17f, ah * 0.03f);
+                circle(ax + aw * 0.86f, ky, unit * 0.03f);
                 fillColor(color);
                 fill();
-                gy = ay + ah * 0.34f;
-                gh = ah * 0.54f;
+                gy = ay + unit * 0.34f;
+                gh = ah - unit * 0.46f;
+            }
+            else
+            {
+                // thumbnails: the knobs as dots, so their number shows too
+                const float step = look.knobs >= 6 ? 0.1f : 0.6f / (look.knobs - 1);
+                beginPath();
+                for (int k = 0; k < look.knobs; ++k)
+                    circle(ax + aw * (0.14f + step * k), ay + ah * 0.14f, unit * 0.04f);
+                fillColor(color);
+                fill();
+                gy = ay + ah * 0.26f;
+                gh = ah * 0.62f;
             }
             const float gx = ax + aw * 0.07f, gw = aw * 0.86f;
             beginPath();
             roundedRect(gx, gy, gw, gh, aw * 0.025f);
-            const int slats = detailed ? 5 : 3;
-            for (int row = 0; row < slats; ++row)
-            {
-                const float ly = gy + gh * (row + 0.5f) / slats;
-                moveTo(gx + gw * 0.1f, ly);
-                lineTo(gx + gw * 0.9f, ly);
-            }
-            glowStroke(color, ah * 0.012f * line);
+            glowStroke(color, unit * 0.012f * line);
+            drawGrille(look.grille, gx, gy, gw, gh, detailed, color, unit * 0.012f * line);
+            drawBadge(look.badge, gx + gw / 2, gy + gh / 2, std::min(gh * 0.2f, gw * 0.09f), color,
+                      unit * 0.011f * line);
             return;
         }
 
@@ -4224,7 +4525,7 @@ private:
         if (NanoImage* img = blockImage(block))
             drawImageFit(*img, 16, 24, kTileSize - 32, 58, 4.0f);
         else
-            drawBlockArt(type, 16, 24, kTileSize - 32, 58, false);
+            drawBlockArt(type, 16, 24, kTileSize - 32, 58, false, fileLookKey(block));
         std::string name = missing ? "Missing file"
                          : notRunning ? "Not running"
                          : path.empty() ? (type ? type->displayName : block.typeId)
@@ -4327,7 +4628,7 @@ private:
                 drawImageFit(*img, imageX + 8.0f, imageY + 8.0f, imageSize - 16.0f, imageSize - 16.0f, 6.0f);
             else
                 drawBlockArt(type, imageX + imageSize * 0.1f, imageY + imageSize * 0.1f, imageSize * 0.8f,
-                             imageSize * 0.8f, true);
+                             imageSize * 0.8f, true, fileLookKey(block));
             globalAlpha(1.0f);
         }
 
@@ -4864,7 +5165,8 @@ private:
             if (img)
                 drawImageFit(*img, r.x + 6.0f, r.y + 4.0f, 52.0f, r.h - 8.0f, 3.0f);
             else
-                drawBlockArt(row.type, r.x + 6.0f, r.y + 6.0f, 52.0f, r.h - 12.0f, false);
+                drawBlockArt(row.type, r.x + 6.0f, r.y + 6.0f, 52.0f, r.h - 12.0f, false,
+                             row.entry ? row.entry->hash : std::string());
 
             std::string detail;
             if (row.entry)
