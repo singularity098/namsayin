@@ -1,0 +1,11 @@
+# Power chords G5, A5, C5, B5 (root, fifth, often the octave), open and palm-muted; a passing A#5 between A5 and C5.
+# Boundaries checked against the filter bank's band levels.
+1.95 2.72 G2 D3 ?G3 ?D4
+2.72 2.75 *
+2.75 4.47 A2 ?E3 ?A3 ?E4
+4.47 4.66 ?A2 ?E3 ?A3 ?A#2 ?F3 ?A#3 ?F4 ?C3 ?G3 ?C4
+4.66 5.18 C3 G3 ?C4
+5.18 5.21 *
+5.21 5.95 B2 F#3 ?B3
+5.95 7.70 B2 ?F#3 ?B3
+7.70 8.47 ?B2 ?F#3 ?B3

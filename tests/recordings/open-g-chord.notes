@@ -1,0 +1,4 @@
+# Open G (320003), one strum. The guitar is tuned about 20 cents sharp.
+# start end notes: X played, ?X may sound or not (a doubling or harmonic we can't tell apart), A|B one of them, * anything
+1.72 4.00 G2 B2 D3 G3 B3 G4
+4.00 6.14 ?G2 ?B2 ?D3 ?G3 ?B3 ?G4

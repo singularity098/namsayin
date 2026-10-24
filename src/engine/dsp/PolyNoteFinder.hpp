@@ -17,12 +17,18 @@ namespace namsayin {
 
 // Finds the notes of chords (the Poly Chip and the MIDI Out's Poly mode): one band per semitone, C2..E6 (53 bands,
 // each two SVF band-passes in series at Q 8, widening to Q 5 over the octave below C3 so the low strings ring up
-// faster). Every ~0.7 ms (a hop): local peaks over the floor and within 18 dB of the loudest band are candidates;
-// Focus drops a peak when one at a harmonic's distance below is louder than 1/Focus of it; the loudest Voices remain
-// (playing notes counted 3 dB louder, so they don't flicker). The Pick Filter: a new note sounds once found for that
-// long without falling below 60% of its peak meanwhile (the pick attack's ring in the higher bands dies away). Each
-// band also measures the pitch in it (from the turn rate of its band-pass and low-pass outputs, a quarter cycle
-// apart at its note), for bends.
+// faster), and above them up to C8 for their harmonics. Every ~0.7 ms (a hop) it finds the notes one at a time
+// (Klapuri's iterative estimation): each candidate scores the weighted sum of its first eight harmonics' levels; the
+// best is a note, preferring one an octave, a twelfth or two octaves below that is there too (the low strings'
+// fundamentals are weak in a DI signal: the owner's open G has G3 12 dB over G2), and what it explains is taken out
+// before the next: its fundamental and odd harmonics, its even ones up to Focus times their odd neighbours (more is a
+// note an octave up), and what the neighbouring bands let through of them. A candidate's own band must hold a local
+// peak and stand over the floors; it must not be much weaker than its harmonics, a note below a played one has only
+// even harmonics there, and its first partials must be within 9 dB of the loudest band. Up to Voices notes; playing
+// notes count 6 dB louder, so they don't flicker. The Pick Filter: a new note sounds once found for that long without
+// falling below 60% of its peak meanwhile (the pick attack's ring in the higher bands dies away). Each band also
+// measures the pitch in it (from the turn rate of its band-pass and low-pass outputs, a quarter cycle apart at its
+// note), for bends.
 //
 // Like the single-note tracker (NoteTracker.hpp), it also follows the input's own level (a peak follower that holds
 // for the lowest note's period, then falls fast) and its noise floor: a band louder than the input itself is only
@@ -39,6 +45,9 @@ public:
     static constexpr int kLastNote = 88;  // E6, the top of a 24-fret guitar
     static constexpr int kBands = kLastNote - kFirstNote + 1;
     static constexpr int kMaxVoices = 6;
+    // the bands measured: the notes' and, above them, their harmonics' (up to C8)
+    static constexpr int kLastMeasured = 108;
+    static constexpr int kMeasured = kLastMeasured - kFirstNote + 1;
     static constexpr double kMaxLookaheadMs = 30.0;
 
     struct Frame {
@@ -57,17 +66,26 @@ public:
         fHopMs = 1000.0f * static_cast<float>(fHop / sampleRate);
         fFreqCoef = 1.0 - EnvelopeFollower::coef(sampleRate, kFreqSmoothMs);
         fFrames.assign(static_cast<size_t>(std::ceil(kMaxLookaheadMs / fHopMs)) + 2, Frame {});
-        for (int b = 0; b < kBands; ++b)
+        for (int m = 0; m < kMeasured; ++m)
         {
-            Band& band = fBands[b];
-            const double hz = 440.0 * std::exp2((kFirstNote + b - 69) / 12.0);
-            band.dt = hz / sampleRate;
-            const double wide = std::max(0.0, 1.0 - static_cast<double>(b) / kWideBands);
+            const double hz = 440.0 * std::exp2((kFirstNote + m - 69) / 12.0);
+            const double wide = std::max(0.0, 1.0 - static_cast<double>(m) / kWideBands);
             const double q = kStageQ + (kLowStageQ - kStageQ) * wide;
-            for (Svf& stage : band.stages)
+            for (Svf& stage : fFilters[m].stages)
                 stage.set(sampleRate, hz, q);
+            // how much of a note a semitone away the band lets through (two stages)
+            const double off = std::exp2(1.0 / 12.0) - std::exp2(-1.0 / 12.0);
+            fLeak[m] = static_cast<float>(1.0 / (1.0 + q * q * off * off));
+            if (m >= kBands)
+                continue;
+            Band& band = fBands[m];
+            band.dt = hz / sampleRate;
             // how long the band takes to ring up to a note (two stages, each about Q / (pi f))
-            fRingUpHops[b] = static_cast<int>(std::lround(1.5 * q / (M_PI * hz) * 1000.0 / fHopMs));
+            fRingUpHops[m] = static_cast<int>(std::lround(1.5 * q / (M_PI * hz) * 1000.0 / fHopMs));
+            // how much each harmonic counts towards the note (Klapuri's weights: the low ones count more for high
+            // notes, about the same for low notes, whose fundamental is often weak)
+            for (int h = 0; h < kPartials; ++h)
+                fWeight[m][h] = static_cast<float>((hz + 52.0) / ((h + 1) * hz + 320.0));
         }
         fOnset.prepare(sampleRate);
         fClick.prepare(sampleRate);
@@ -106,11 +124,15 @@ public:
 
     void reset()
     {
+        for (Filter& filter : fFilters)
+        {
+            for (Svf& stage : filter.stages)
+                stage.reset();
+            filter.bp = filter.lp = 0.0f;
+        }
         for (Band& band : fBands)
         {
-            for (Svf& stage : band.stages)
-                stage.reset();
-            band.bp = band.lp = band.level = band.pending = 0.0f;
+            band.level = band.pending = 0.0f;
             band.measured = band.dt;
             band.on = band.sounding = false;
             band.waited = 0;
@@ -143,14 +165,15 @@ public:
             fPickPending = true;
             ++fPicks;
         }
-        for (Band& band : fBands)
+        for (int m = 0; m < kMeasured; ++m)
         {
-            const float first = band.stages[0].process(in).band * band.stages[0].k();
-            const Svf::Out out = band.stages[1].process(first);
-            if (band.on || band.sounding || band.recent > 0)
-                measurePitch(band, out);
-            band.bp = out.band;
-            band.lp = out.low;
+            Filter& filter = fFilters[m];
+            const float first = filter.stages[0].process(in).band * filter.stages[0].k();
+            const Svf::Out out = filter.stages[1].process(first);
+            if (m < kBands && (fBands[m].on || fBands[m].sounding || fBands[m].recent > 0))
+                measurePitch(fBands[m], filter, out);
+            filter.bp = out.band;
+            filter.lp = out.low;
         }
         if (++fSinceHop < fHop)
             return false;
@@ -163,11 +186,14 @@ public:
     const Frame& playFrame() { return frame(fHopCount - 1 - fDelayHops); }
 
 private:
-    struct Band {
+    struct Filter {
         std::array<Svf, 2> stages;
-        double dt = 0.0;   // phase step per sample at its note
         float bp = 0.0f, lp = 0.0f; // the second stage's outputs, a quarter cycle apart at the band's note
-        float level = 0.0f; // measured each hop
+    };
+
+    struct Band {
+        double dt = 0.0;   // phase step per sample at its note
+        float level = 0.0f; // the note's level, measured each hop
         double measured = 0.0;
         bool on = false;       // one of the notes found
         bool sounding = false; // ... and past the Pick Filter
@@ -204,9 +230,10 @@ private:
     static constexpr double kStageQ = 8.0;
     static constexpr double kLowStageQ = 5.0;
     static constexpr int kWideBands = 12;
-    static constexpr float kFloor = 0.002f;    // band level a note needs (about -54 dBFS)
-    static constexpr float kRelative = 0.12f;  // ... and against the loudest band (-18 dB)
-    static constexpr float kHold = 1.4f;       // a playing note counts this much louder, so voices don't flicker
+    static constexpr float kFloor = 0.0002f;   // band level a note needs (about -74 dBFS; DI recordings are quiet)
+    static constexpr float kRelative = 0.12f;  // a note's score against the first note's (-18 dB)
+    static constexpr float kRelativeLevel = 0.35f; // its first three partials against the loudest band (-9 dB)
+    static constexpr float kHold = 2.0f;       // a playing note counts this much louder, so voices don't flicker
     static constexpr float kPickDecay = 0.6f;  // a new note falling below this share of its peak while held: the pick
     static constexpr double kFreqSmoothMs = 10.0;
     static constexpr int kRecentHops = 150;    // ~100 ms
@@ -216,8 +243,52 @@ private:
     static constexpr float kMutedFall = 0.7f;  // this long was muted
     static constexpr float kStale = 1.5f;      // a band this much louder than the input is ringing on by itself
     static constexpr float kFloorGate = 4.0f;  // notes stand 12 dB over the noise floor
-    // Semitones from a note up to its 2nd..8th harmonics (the 7th, 33.7, rounds to 34)
-    static constexpr int kHarmonics[7] = { 12, 19, 24, 28, 31, 34, 36 };
+    // Semitones from a note up to its 1st..8th harmonics (the 7th, 33.7, rounds to 34)
+    static constexpr int kPartials = 8;
+    static constexpr int kPartialSteps[kPartials] = { 0, 12, 19, 24, 28, 31, 34, 36 };
+    static constexpr float kFundamental = 0.05f; // a note's own band against its loudest harmonic (-26 dB)
+    static constexpr float kOwnShare = 0.3f;     // ... and what the notes found before leave of it
+    static constexpr float kOdd = 0.25f;         // its 3rd or 5th against its 2nd (else only a strong fundamental
+    static constexpr float kStrongFundamental = 0.5f; // makes it a note: it's below one)
+    static constexpr float kLowerShare = 0.3f;   // a note below scoring this share of the best is taken first
+    static constexpr float kFocusScale = 0.535f; // Focus 70% (2.3) explains an octave up to 1.23x its odd neighbours
+    static constexpr float kPlayingFocus = 0.5f; // ... and half that of a note already playing there
+
+    // Takes out of `rest` what a found note explains: its fundamental, its odd harmonics and the even ones up to
+    // Focus times the louder odd neighbour (more is a note an octave up), and what the neighbouring bands let
+    // through of them. The note's level is its loudest partial.
+    void explain(int b, std::array<float, kMeasured>& rest, const std::array<float, kMeasured>& level)
+    {
+        std::array<float, kPartials> part {};
+        for (int h = 0; h < kPartials; ++h)
+        {
+            const int m = b + kPartialSteps[h];
+            part[h] = m < kMeasured ? rest[m] : 0.0f;
+        }
+        float loudest = 0.0f;
+        for (int h = 0; h < kPartials; ++h)
+        {
+            const int m = b + kPartialSteps[h];
+            if (m >= kMeasured)
+                break;
+            float take = part[h];
+            if ((h & 1) == 1) // 2nd, 4th, 6th, 8th: an octave of a lower partial
+            {
+                // (a note playing there needs less to stay a note than to start)
+                const float odd = 0.5f * (part[h - 1] + (h + 1 < kPartials ? part[h + 1] : part[h - 1]));
+                const bool playing = m < kBands && fBands[m].sounding;
+                take = std::min(take, (playing ? kPlayingFocus : 1.0f) * kFocusScale * fFocusRatio * odd);
+            }
+            rest[m] -= take;
+            if (m > 0)
+                rest[m - 1] = std::max(0.0f, rest[m - 1] - fLeak[m - 1] * take);
+            if (m + 1 < kMeasured)
+                rest[m + 1] = std::max(0.0f, rest[m + 1] - fLeak[m + 1] * take);
+            if (h < 3)
+                loudest = std::max(loudest, take);
+        }
+        fBands[b].level = std::max(level[b], loudest);
+    }
 
     Frame& frame(int64_t hop)
     {
@@ -227,10 +298,10 @@ private:
 
     // The band's pitch from how fast its quarter-cycle pair turns. Away from the band's note the pair's sizes differ
     // a little, so the turn rate ripples within each cycle; the smoothing evens that out.
-    void measurePitch(Band& band, const Svf::Out& out) const
+    void measurePitch(Band& band, const Filter& filter, const Svf::Out& out) const
     {
-        const double cross = static_cast<double>(band.lp) * out.band - static_cast<double>(band.bp) * out.low;
-        const double dot = static_cast<double>(band.lp) * out.low + static_cast<double>(band.bp) * out.band;
+        const double cross = static_cast<double>(filter.lp) * out.band - static_cast<double>(filter.bp) * out.low;
+        const double dot = static_cast<double>(filter.lp) * out.low + static_cast<double>(filter.bp) * out.band;
         if (cross == 0.0 && dot == 0.0)
             return;
         const double step = std::fabs(std::atan2(cross, dot)) / (2.0 * M_PI);
@@ -243,56 +314,91 @@ private:
     void pickNotes()
     {
         const float floor = std::max(kFloor, kFloorGate * fFloor);
-        float loudest = 0.0f;
-        for (Band& band : fBands)
+        // at the band's note the band-pass and low-pass outputs have equal size and are a quarter cycle apart, so
+        // together they give the amplitude without ripple; k makes the peak gain 1
+        std::array<float, kMeasured> level {};
+        for (int m = 0; m < kMeasured; ++m)
         {
-            // at the band's note the band-pass and low-pass outputs have equal size and are a quarter cycle apart,
-            // so together they give the amplitude without ripple; k makes the peak gain 1
-            band.level = band.stages[1].k() * std::sqrt(band.bp * band.bp + band.lp * band.lp);
-            loudest = std::max(loudest, band.level);
+            const Filter& filter = fFilters[m];
+            level[m] = filter.stages[1].k() * std::sqrt(filter.bp * filter.bp + filter.lp * filter.lp);
         }
 
-        // peaks above the floors are candidate notes
-        std::array<bool, kBands> peak {};
-        for (int b = 0; b < kBands; ++b)
-        {
-            const float level = fBands[b].level * (fBands[b].on ? kHold : 1.0f);
-            const float below = b > 0 ? fBands[b - 1].level : 0.0f;
-            const float above = b + 1 < kBands ? fBands[b + 1].level : 0.0f;
-            // (a playing note keeps its head start against its neighbours too, so it doesn't flicker)
-            const float self = fBands[b].level * (fBands[b].sounding ? kHold : 1.0f);
-            peak[b] = self > below && self >= above && level > floor && level > kRelative * loudest
-                      && !stale(fBands[b]);
-        }
-
-        // drop the harmonics of lower notes, then keep the loudest few
+        // Find the notes one at a time: each candidate scores the weighted sum of its harmonics' levels; the best
+        // is a note, and what it explains (its harmonics, and what of them the neighbouring bands let through) is
+        // taken out before the next. A candidate's own band must hold a peak (playing notes count kHold louder),
+        // stand over the floors, and not be much weaker than its harmonics (a subharmonic has nothing there).
+        const float loudest = *std::max_element(level.begin(), level.end());
+        std::array<float, kMeasured> rest = level;
+        std::array<bool, kBands> taken {};
         std::array<int, kMaxVoices> chosen {};
         int count = 0;
+        float first = 0.0f;
         for (int b = 0; b < kBands; ++b)
+            fBands[b].level = level[b];
+        while (count < fVoices)
         {
-            if (!peak[b])
-                continue;
-            bool harmonic = false;
-            for (const int d : kHarmonics)
-                if (b - d >= 0 && peak[b - d] && fBands[b - d].level * fFocusRatio > fBands[b].level)
-                    harmonic = true;
-            if (harmonic)
-                continue;
-            const float strength = fBands[b].level * (fBands[b].on ? kHold : 1.0f);
-            if (count < fVoices)
+            std::array<float, kBands> scores {};
+            int best = -1;
+            for (int b = 0; b < kBands; ++b)
             {
-                chosen[count++] = b;
-                continue;
+                if (taken[b])
+                    continue;
+                const float hold = fBands[b].on ? kHold : 1.0f;
+                const float self = level[b] * (fBands[b].sounding ? kHold : 1.0f);
+                // (the lowest band has no neighbour below: it must stand clearly over the one above, or a palm
+                // mute's thump is a C2)
+                if (!(self > (b > 0 ? level[b - 1] : level[b + 1]) && self >= level[b + 1]) || level[b] * hold <= floor
+                    || stale(level[b]) || rest[b] * hold < kOwnShare * level[b])
+                    continue;
+                float score = 0.0f, strongest = 0.0f, low = 0.0f;
+                for (int h = 0; h < kPartials; ++h)
+                {
+                    const int m = b + kPartialSteps[h];
+                    if (m >= kMeasured)
+                        break;
+                    score += fWeight[b][h] * rest[m];
+                    strongest = std::max(strongest, level[m]);
+                    if (h < 3)
+                        low = std::max(low, rest[m]);
+                }
+                // its first three partials within reach of the loudest band
+                if (low * hold < kRelativeLevel * loudest)
+                    continue;
+                if (level[b] < kFundamental * strongest)
+                    continue;
+                // a note below one played (or under a muted strum's thump) has only even harmonics there: a real one
+                // has its 3rd or 5th, or a strong fundamental of its own
+                // (of what the notes found so far don't explain)
+                const float even = rest[b + 12];
+                const float odd = std::max(b + 19 < kMeasured ? rest[b + 19] : 0.0f,
+                                           b + 28 < kMeasured ? rest[b + 28] : 0.0f);
+                if (b + 19 < kMeasured && odd < kOdd * even && level[b] < kStrongFundamental * even)
+                    continue;
+                scores[b] = score * hold;
+                if (best < 0 || scores[b] > scores[best])
+                    best = b;
             }
-            int weakest = 0;
-            for (int v = 1; v < count; ++v)
-                if (fBands[chosen[v]].level < fBands[chosen[weakest]].level)
-                    weakest = v;
-            const Band& old = fBands[chosen[weakest]];
-            if (strength > old.level * (old.on ? kHold : 1.0f))
-                chosen[weakest] = b;
+            // a note an octave, a twelfth or two octaves below that is there too is the one played: the best one is
+            // its harmonic (the low strings' fundamentals are weak, especially from a bridge pickup)
+            for (bool lower = best >= 0; lower;)
+            {
+                lower = false;
+                for (const int d : { 12, 19, 24 })
+                    if (best - d >= 0 && scores[best - d] >= kLowerShare * scores[best])
+                    {
+                        best -= d;
+                        lower = true;
+                        break;
+                    }
+            }
+            const float bestScore = best >= 0 ? scores[best] : 0.0f;
+            if (best < 0 || bestScore < kRelative * first)
+                break;
+            first = std::max(first, bestScore);
+            taken[best] = true;
+            chosen[count++] = best;
+            explain(best, rest, level);
         }
-
         for (Band& band : fBands)
             band.on = false;
         for (int v = 0; v < count; ++v)
@@ -396,12 +502,15 @@ private:
     int fVoices = 4;
     double fLookaheadMs = 0.0;
     int fDelayHops = 0;
+    std::array<Filter, kMeasured> fFilters;
+    std::array<float, kMeasured> fLeak {};
+    std::array<std::array<float, kPartials>, kBands> fWeight {};
     std::array<Band, kBands> fBands;
     std::array<int, kBands> fRingUpHops {};
     std::vector<Frame> fFrames;
     int64_t fHopCount = 0;
 
-    bool stale(const Band& band) const { return band.level > kStale * fEnvelope; }
+    bool stale(float level) const { return level > kStale * fEnvelope; }
 
     OnsetDetector fOnset, fClick;
     Biquad fClickFilter;

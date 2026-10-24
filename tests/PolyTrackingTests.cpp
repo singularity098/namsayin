@@ -242,15 +242,18 @@ TEST_CASE("poly tracking benchmark" * doctest::skip(std::getenv("NAMSAYIN_TRACKI
 TEST_CASE("the poly note finder plays chords with few extra notes and no flicker")
 {
     // the scores before the 2026-10-24 changes (no level follower, mute or re-pick rules, no hold in the peak test):
-    // 45 missed, 151 extra stretches (3.6 s), 2.2 s of dropouts; with 20 ms lookahead 196 extra (9.9 s)
+    // 45 missed, 151 extra stretches (3.6 s), 2.2 s of dropouts; with 20 ms lookahead 196 extra (9.9 s). Then 45
+    // missed, 143 extra (2.7 s), 1.3 s of dropouts. The owner's recordings (RealTrackingTests.cpp) led to finding the
+    // notes by their harmonics (2026-10-24): fewer missed and far fewer dropouts here, somewhat more extra time (the
+    // synthetic guitar's strong fundamentals don't need it; real DI does), and on the recordings a third fewer strays.
     const auto plain = polyBench("poly note finder", finderTracker(0.0), false);
-    CHECK(plain.back().missed <= 46);
-    CHECK(plain.back().extra <= 150);
-    CHECK(plain.back().extraMs <= 3000.0);
-    CHECK(plain.back().dropoutMs <= 1500.0);
-    CHECK(plain[0].dropoutMs <= 1000.0); // strummed chords: the thirds no longer flicker
+    CHECK(plain.back().missed <= 38);
+    CHECK(plain.back().extra <= 140);
+    CHECK(plain.back().extraMs <= 4500.0);
+    CHECK(plain.back().dropoutMs <= 400.0);
+    CHECK(plain[0].dropoutMs <= 300.0); // strummed chords: the thirds don't flicker
     const auto ahead = polyBench("poly note finder, lookahead 20 ms", finderTracker(20.0), false);
-    CHECK(ahead.back().missed <= 25);
-    CHECK(ahead.back().extraMs <= 5500.0);
+    CHECK(ahead.back().missed <= 21);
+    CHECK(ahead.back().extraMs <= 6500.0);
     CHECK(ahead[2].medianDelayMs <= 10.0); // single notes start nearly on time
 }

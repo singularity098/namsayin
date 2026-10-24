@@ -88,7 +88,9 @@ src/ui/               UI side (UI subclass, NanoVG). FolderPicker: the system fo
 tests/                doctest unit tests; TestSupport.hpp has a test block and an allocation counter; GuitarSignals.hpp a
                       synthetic guitar with ground truth for TrackingTests.cpp (the note tracking benchmark:
                       NAMSAYIN_TRACKING_BENCH=1 ./build/namsayin-tests -tc="*tracking benchmark"; PolyTrackingTests.cpp
-                      is the chords' benchmark)
+                      is the chords' benchmark; RealTrackingTests.cpp scores both trackers on the owner's DI recordings)
+tests/recordings/     The owner's guitar recordings (MP3) and their note lists (<clip>.notes); decode them with
+                      tools/decode_recordings.sh (ffmpeg) before NAMSAYIN_TRACKING_BENCH=1 ./build/namsayin-tests -tc="*real recordings*"
 docs/                 Requirements and architecture
 resources/fonts/      Jost (variable TTF + OFL.txt); tools/embed_font.py makes the Light and Regular instances into src/ui/FontData.cpp
 resources/background/ The window background image (the owner's, generated with Krea-2 in ComfyUI); tools/embed_background.py makes it src/ui/BackgroundImage.cpp (JPEG)
@@ -142,6 +144,7 @@ The file browser opens in the host's working directory. Final checks happen in R
 - `CMAKE_CXX_EXTENSIONS` is ON because DPF's UI code uses `typeof`.
 - **Host parameter indices are DAW automation IDs — never reorder or remove them.** Globals come first, then 32 slots × 17 (bypass + 16; was 8, raised before release for the Doppelganger Delay — fixed from v1.0 on). Parameters added later go after the slots (`kFirstLaterParam` in `src/engine/Params.hpp`).
 - Slot parameters are normalized 0..1 for the host; each block's `ParamSpec` maps them to real values. `Choice` params list their labels in `ParamSpec::choices`; the UI draws them as a button that opens a dropdown of the choices (owner, 2026-10-24; so does the Lookahead button). `Momentary` params are footswitch actions (the looper's buttons): 1 while held (the UI holds a quick click for 80 ms so the DSP sees it), and the block acts on the 0 -> 1 edge, which also suits MIDI footswitches.
+- When touching the note tracking (mono or poly), run both benchmarks before and after: the synthetic guitar's and the owner's recordings' (`tools/decode_recordings.sh` first). The recordings are what counts; the synthetic guitar has stronger fundamentals than a real DI.
 - Pitch-following blocks use `TrackedInput` (Track as their last parameter, the `"lookahead"` config, `BlockDescriptor::lookahead` for the UI's Lookahead button). Track defaults to Rig In (owner, 2026-10-24), but the sound always comes from the block's own input: the note's level and velocity are its input's (`LevelFollower`), so what's before the block still shapes it. Lookahead stays off by default (owner, 2026-10-23). When touching the note tracking, run the benchmark before and after.
 - Blocks send MIDI through `Block::setMidiOutput()` (`MidiOutput`: frames are the block's buffer's; the engine handles the timing and ends a block's notes when it's bypassed, removed or rebuilt). The plugin has a MIDI output (`DISTRHO_PLUGIN_WANT_MIDI_OUTPUT`); in Reaper the next plugin in the FX chain receives it.
 - Blocks get the host tempo through `Block::setTempo()` and can show a level in the UI through `Block::meter()` (one hidden output parameter per slot, `slotMeterParam()`; the descriptor's `meterName` makes the panel show it). `Block::setRigInput()` gives blocks the chain's input (the noise gate's "Rig In" key).

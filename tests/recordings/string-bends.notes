@@ -1,0 +1,6 @@
+# Two single-string bends, a whole step each, with vibrato: D4 to E4, then F4 to G4. The rest is string noise.
+1.84 3.60 D4|D#4|E4 ?D4 ?D#4 ?E4 ?F4
+3.60 4.60 ?D4 ?D#4 ?E4 ?F4
+6.23 8.30 F4|F#4|G4 ?F4 ?F#4 ?G4 ?G#4
+8.30 9.05 ?F4 ?F#4 ?G4 ?G#4
+9.05 10.63 *

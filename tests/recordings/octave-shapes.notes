@@ -1,0 +1,13 @@
+# Octave shapes (root and octave, strummed with the other strings muted): D, F, E, G, F. Boundaries checked against the
+# filter bank's band levels; the slides between shapes are left out.
+0.85 1.52 D3 D4
+1.52 1.72 *
+1.72 2.32 F3 F4
+2.32 2.37 *
+2.37 2.85 E3 E4
+2.85 3.15 E3 ?E4
+3.15 3.33 *
+3.33 4.70 G3 G4
+4.70 4.82 *
+4.82 6.02 F3 F4
+6.02 6.95 ?F3 ?F4

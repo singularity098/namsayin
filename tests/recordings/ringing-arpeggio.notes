@@ -1,0 +1,11 @@
+# E major arpeggio at the 12th fret, notes left ringing: up E3 B3 E4 G#4 B4 E5, then down again G#4 E4 B3 E3
+# (each picked again). Boundaries checked against the filter bank's band levels.
+1.06 1.32 E3
+1.32 1.58 E3 B3
+1.58 1.80 E3 B3 E4
+1.80 2.05 E3 B3 E4 G#4
+2.05 2.29 E3 B3 E4 G#4 B4
+2.29 2.82 E3 B3 E4 G#4 B4 E5
+2.82 3.40 E3 B3 E4 G#4 ?B4 ?E5
+3.40 5.00 E3 B3 E4 G#4 ?B4 ?E5
+5.00 6.22 ?E3 ?B3 ?E4 ?G#4 ?B4 ?E5

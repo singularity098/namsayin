@@ -242,6 +242,7 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/PedalTests.cpp
     tests/PolyTrackingTests.cpp
     tests/PresetTests.cpp
+    tests/RealTrackingTests.cpp
     tests/ReverbBlockTests.cpp
     tests/SettingsTests.cpp
     tests/SynthTests.cpp
@@ -261,6 +262,7 @@ if(NAMSAYIN_BUILD_TESTS)
   endif()
   target_link_libraries(namsayin-tests PRIVATE namsayin-engine)
   target_compile_options(namsayin-tests PRIVATE ${NAMSAYIN_WARNINGS})
-  target_compile_definitions(namsayin-tests PRIVATE NAMSAYIN_EXAMPLE_MODELS="${NAM_DIR}/example_models")
+  target_compile_definitions(namsayin-tests PRIVATE NAMSAYIN_EXAMPLE_MODELS="${NAM_DIR}/example_models"
+    NAMSAYIN_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/recordings" NAMSAYIN_RECORDINGS_WAV="${CMAKE_BINARY_DIR}/recordings")
   add_test(NAME namsayin-tests COMMAND namsayin-tests)
 endif()
