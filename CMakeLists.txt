@@ -97,6 +97,7 @@ add_library(namsayin-engine STATIC
   src/engine/blocks/BarberPoleBlock.cpp
   src/engine/blocks/BitcrusherBlock.cpp
   src/engine/blocks/ChorusBlock.cpp
+  src/engine/blocks/CloudBlocks.cpp
   src/engine/blocks/CompressorBlock.cpp
   src/engine/blocks/DelayBlock.cpp
   src/engine/blocks/DelayFxBlocks.cpp
@@ -108,6 +109,7 @@ add_library(namsayin-engine STATIC
   src/engine/blocks/FilterBlock.cpp
   src/engine/blocks/FlangerBlock.cpp
   src/engine/blocks/GateBlock.cpp
+  src/engine/blocks/InstrumentBlocks.cpp
   src/engine/blocks/IrBlock.cpp
   src/engine/blocks/LooperBlock.cpp
   src/engine/blocks/ModSweeperBlock.cpp
@@ -115,7 +117,9 @@ add_library(namsayin-engine STATIC
   src/engine/blocks/OctaveBlock.cpp
   src/engine/blocks/PhaserBlock.cpp
   src/engine/blocks/PitchBlocks.cpp
+  src/engine/blocks/PlayedBlocks.cpp
   src/engine/blocks/PolyChipBlock.cpp
+  src/engine/blocks/ResonatorBlocks.cpp
   src/engine/blocks/ReverbBlock.cpp
   src/engine/blocks/RhythmBlocks.cpp
   src/engine/blocks/RingModBlock.cpp
@@ -124,6 +128,8 @@ add_library(namsayin-engine STATIC
   src/engine/blocks/SynthBlock.cpp
   src/engine/blocks/SynthBlocks.cpp
   src/engine/blocks/TalkBoxBlock.cpp
+  src/engine/blocks/TextureBlocks.cpp
+  src/engine/blocks/TimeFxBlocks.cpp
   src/engine/blocks/TremoloBlock.cpp
   src/engine/blocks/VolumeBlocks.cpp
   src/engine/blocks/WahBlocks.cpp
@@ -211,6 +217,7 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/SettingsTests.cpp
     tests/SynthTests.cpp
     tests/TextEditTests.cpp
+    tests/ThirdSetTests.cpp
     tests/TrackingTests.cpp
     tests/TunerTests.cpp
     tests/UndoStackTests.cpp

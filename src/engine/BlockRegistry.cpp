@@ -7,6 +7,7 @@
 #include "engine/blocks/BarberPoleBlock.hpp"
 #include "engine/blocks/BitcrusherBlock.hpp"
 #include "engine/blocks/ChorusBlock.hpp"
+#include "engine/blocks/CloudBlocks.hpp"
 #include "engine/blocks/CompressorBlock.hpp"
 #include "engine/blocks/DelayBlock.hpp"
 #include "engine/blocks/DelayFxBlocks.hpp"
@@ -18,6 +19,7 @@
 #include "engine/blocks/FilterBlock.hpp"
 #include "engine/blocks/FlangerBlock.hpp"
 #include "engine/blocks/GateBlock.hpp"
+#include "engine/blocks/InstrumentBlocks.hpp"
 #include "engine/blocks/IrBlock.hpp"
 #include "engine/blocks/LooperBlock.hpp"
 #include "engine/blocks/ModSweeperBlock.hpp"
@@ -25,7 +27,9 @@
 #include "engine/blocks/OctaveBlock.hpp"
 #include "engine/blocks/PhaserBlock.hpp"
 #include "engine/blocks/PitchBlocks.hpp"
+#include "engine/blocks/PlayedBlocks.hpp"
 #include "engine/blocks/PolyChipBlock.hpp"
+#include "engine/blocks/ResonatorBlocks.hpp"
 #include "engine/blocks/ReverbBlock.hpp"
 #include "engine/blocks/RhythmBlocks.hpp"
 #include "engine/blocks/RingModBlock.hpp"
@@ -34,6 +38,8 @@
 #include "engine/blocks/SynthBlock.hpp"
 #include "engine/blocks/SynthBlocks.hpp"
 #include "engine/blocks/TalkBoxBlock.hpp"
+#include "engine/blocks/TextureBlocks.hpp"
+#include "engine/blocks/TimeFxBlocks.hpp"
 #include "engine/blocks/TremoloBlock.hpp"
 #include "engine/blocks/VolumeBlocks.hpp"
 #include "engine/blocks/WahBlocks.hpp"
@@ -79,6 +85,7 @@ const BlockRegistry& BlockRegistry::builtin()
         &kGatedFuzzBlockDescriptor,
         &kEnvDriveBlockDescriptor,
         &kBitcrusherBlockDescriptor,
+        &kJawariBlockDescriptor,
         &kCompressorBlockDescriptor,
         &kGateBlockDescriptor,
         &kVolumeBlockDescriptor,
@@ -86,6 +93,7 @@ const BlockRegistry& BlockRegistry::builtin()
         &kKillSwitchBlockDescriptor,
         &kGraphicEqBlockDescriptor,
         &kParametricEqBlockDescriptor,
+        &kAcousticBlockDescriptor,
         &kChorusBlockDescriptor,
         &kFlangerBlockDescriptor,
         &kPhaserBlockDescriptor,
@@ -97,12 +105,15 @@ const BlockRegistry& BlockRegistry::builtin()
         &kRingModBlockDescriptor,
         &kWarbleBlockDescriptor,
         &kSlicerBlockDescriptor,
+        &kSwarmBlockDescriptor,
+        &kChaosModBlockDescriptor,
         &kReverbBlockDescriptor,
         &kSpringReverbBlockDescriptor,
         &kShimmerBlockDescriptor,
         &kFreezeBlockDescriptor,
         &kBloomReverbBlockDescriptor,
         &kGatedReverbBlockDescriptor,
+        &kSympatheticBlockDescriptor,
         &kDelayBlockDescriptor,
         &kDoppelgangerBlockDescriptor,
         &kTapeEchoBlockDescriptor,
@@ -110,12 +121,18 @@ const BlockRegistry& BlockRegistry::builtin()
         &kReverseDelayBlockDescriptor,
         &kPitchDelayBlockDescriptor,
         &kBeatRepeatBlockDescriptor,
+        &kGrainCloudBlockDescriptor,
+        &kTapeStopBlockDescriptor,
+        &kBounceDelayBlockDescriptor,
+        &kPatternDelayBlockDescriptor,
         &kLooperBlockDescriptor,
         &kOctaveBlockDescriptor,
         &kPolyOctaveBlockDescriptor,
         &kPitchShifterBlockDescriptor,
         &kWhammyBlockDescriptor,
         &kHarmonizerBlockDescriptor,
+        &kStrumBlockDescriptor,
+        &kHardTuneBlockDescriptor,
         &kDetuneBlockDescriptor,
         &kCapoBlockDescriptor,
         &kSustainerBlockDescriptor,
@@ -129,6 +146,11 @@ const BlockRegistry& BlockRegistry::builtin()
         &kStringSynthBlockDescriptor,
         &kChipSynthBlockDescriptor,
         &kPolyChipBlockDescriptor,
+        &kTrumpetBlockDescriptor,
+        &kViolinBlockDescriptor,
+        &kPianoBlockDescriptor,
+        &kDrumTriggerBlockDescriptor,
+        &kFartBlockDescriptor,
         &kFilterBlockDescriptor,
         &kRobotFilterBlockDescriptor,
         &kWahBlockDescriptor,

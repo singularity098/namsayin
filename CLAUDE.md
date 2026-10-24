@@ -8,7 +8,7 @@ NAMsayin is a guitar rig plugin (VST3 + LV2) in C++20, built with DPF (plugin fr
 
 - **Requirements**: `docs/Requirements.md` — the owner's feature list plus agreed decisions. Treat it as the source of truth; record new decisions there.
 - **Architecture and milestones**: `docs/Architecture.md` — design, v1 milestones (M0–M10) and decisions log.
-- **Current milestone**: M1, M2 (minus resampling), M3 (delay, reverb, compressor), M5 (library, settings), M6 (split/merge), M7 (presets, undo/redo, MIDI learn), M8 (tuner) and M9 (metronome) are done, and M4 is done (the owner prefers the neon placeholder art, with a unique symbol per pedal, to images: the Doubler's photo was removed, 2026-10-23). The IR loader (local .wav cab IRs) and the Doppelganger Delay (echoes alternate flanger/chorus; `docs/Architecture.md` 4.7b) are also done, at the owner's request, and so is the pedal set, including the second set of 18, six more synths, the Poly Chip (polyphonic chip synth) and the Modulation Sweeper (sweeps between 2-3 of chorus/flanger/phaser/vibrato; `docs/Requirements.md` "Pedals", Architecture 4.11; owner's call: no rush to v1). Next: M10 (v1.0 release: performance, DAW testing, docs).
+- **Current milestone**: M1, M2 (minus resampling), M3 (delay, reverb, compressor), M5 (library, settings), M6 (split/merge), M7 (presets, undo/redo, MIDI learn), M8 (tuner) and M9 (metronome) are done, and M4 is done (the owner prefers the neon placeholder art, with a unique symbol per pedal, to images: the Doubler's photo was removed, 2026-10-23). The IR loader (local .wav cab IRs) and the Doppelganger Delay (echoes alternate flanger/chorus; `docs/Architecture.md` 4.7b) are also done, at the owner's request, and so is the pedal set, including the second set of 18, six more synths, the Poly Chip (polyphonic chip synth), the third set of 16 (2026-10-23: Sympathetic Strings to Piano, and a Fart pedal), better note tracking (NoteTracker, Track From, Lookahead) and the Modulation Sweeper (sweeps between 2-3 of chorus/flanger/phaser/vibrato; `docs/Requirements.md` "Pedals", Architecture 4.11; owner's call: no rush to v1). Next: M10 (v1.0 release: performance, DAW testing, docs).
 
 ## Fixed decisions (don't revisit without the owner)
 
@@ -60,7 +60,11 @@ src/engine/           Audio engine, independent of DPF (static library `namsayin
                       envelope drive, kill switch, barber pole, warble, slicer, bloom and gated reverb, reverse and pitch
                       delay, beat repeat, detune, capo, arpeggiator, organ, sustainer, robot filter, talk box;
                       SynthBlocks: super saw, FM, fold, acid, string machine and chip synths;
-                      PolyChipBlock: polyphonic chip synth from a semitone filter bank)
+                      PolyChipBlock: polyphonic chip synth from a semitone filter bank; third set: ResonatorBlocks
+                      (sympathetic strings, jawari), CloudBlocks (grain cloud, swarm), TimeFxBlocks (tape stop,
+                      bouncing ball, pattern delay), TextureBlocks (chaos mod, acoustic sim), PlayedBlocks (strum
+                      machine, hard tune, drum trigger), InstrumentBlocks (fart, trumpet, violin, piano))
+  blocks/TrackedSynth.hpp  the mono synths' shared base (note tracking, glide, octave, amplitude)
 src/state/            Plain data shared by DSP and UI, no DPF:
   ChainState          the chain (JSON; the split is a block range + per-block branch tag)
   ChainExchange       chain file route for hosts that drop UI state messages
@@ -138,7 +142,7 @@ The file browser opens in the host's working directory. Final checks happen in R
 - Tempo sync is generic: a descriptor's `syncParam`/`syncedParam`/`syncedIsRate` make the UI show note values (`TempoSync.hpp`); the block maps the knob itself. While the host plays, `Block::setSongPosition()` gives the position in quarter notes; synced LFOs lock to it (`Lfo::syncTo`), so they land on the beat.
 - A `Choice` parameter's list must never grow or shrink once released: its normalized values would map to other choices in saved projects. Add a new block type instead.
 - Every control needs a hover help text in `src/ui/ParamHelp.cpp` (plain English: what it does and how to use it), and so does every block type (`blockTypeHelp()`: what it is, what it's for, where it goes in the chain; shown when hovering a tile or a block in Add Block); `tests/ParamHelpTests.cpp` fails for a block type, block control or global control without one. Help is keyed by typeId and control name, so renaming a control means renaming its help entry.
-- `tests/BlockSanityTests.cpp` runs every registered block at default, extreme and random settings (finite, bounded, no allocation, silent for silence). New blocks get behaviour tests too (`tests/PedalTests.cpp`, `tests/MorePedalTests.cpp` for the second set, `tests/SynthTests.cpp` for the synths). Every pedal also needs its own face symbol in `src/ui/BlockGlyphs.cpp` (`tests/BlockGlyphTests.cpp`).
+- `tests/BlockSanityTests.cpp` runs every registered block at default, extreme and random settings (finite, bounded, no allocation, silent for silence). New blocks get behaviour tests too (`tests/PedalTests.cpp`, `tests/MorePedalTests.cpp` for the second set, `tests/SynthTests.cpp` for the synths, `tests/ThirdSetTests.cpp` for the third set). Every pedal also needs its own face symbol in `src/ui/BlockGlyphs.cpp` (`tests/BlockGlyphTests.cpp`).
 - Block `typeId`s are stored in presets and plugin state — never rename one.
 - Parameter values live in the host. `ChainState.params`/`bypass` are only for presets and undo; the UI pushes them to the host.
 - The chain reaches the DSP as the `chain` state string (JSON). `setState()` runs off the audio thread and builds the new graph there.

@@ -57,6 +57,10 @@ struct BlockHelp {
     "compressor: the clean guitar is much easier to follow, so notes come out cleaner. Pick Block In to follow "     \
     "what an earlier pedal made, like an octave down."
 
+#define PATTERN_TAP_HELP(when)                                                                                        \
+    "How loud the echo " when " after your note is. 0% leaves that step silent; together the eight taps make the "   \
+    "rhythm the echoes play."
+
 #define SYNTH_MIX_HELP                                                                                                \
     "Blends the synth with your guitar. 100% is the synth only; lower values layer it with your dry playing."
 
@@ -1317,12 +1321,284 @@ constexpr BlockHelp kBlockHelp[] = {
       "Keeps the click of your pick from turning into short, squeaky high notes. A new note has to last this long "
       "before it sounds. Raise it if you hear chirps at the start of notes; lower it for a faster response. Around "
       "10-20 ms suits most playing; 0 is off." },
+    // Third set
+    { "sympathetic", "Key", "The key the strings are tuned to. Set it to your song's key, so the notes you play most set them ringing." },
+    { "sympathetic", "Tuning",
+      "How the twelve strings are tuned in that key. Drone: the root and fifth over four octaves, like a sitar's "
+      "drone strings. Major and Minor: the chord's notes. Sitar: a raga's scale, so most notes find a string. "
+      "Open: a guitar's open strings, twice (with the key as the low string)." },
+    { "sympathetic", "Decay",
+      "How long the strings ring once something has set them going. Long decays build a big, harp-like halo; short "
+      "ones a subtle shimmer that follows your playing." },
+    { "sympathetic", "Damping",
+      "How quickly the strings' highs die away. Low damping rings bright and metallic; high damping is soft and "
+      "warm, like strings with old, dull wire." },
+    { "sympathetic", "Excite", "How strongly your playing sets the strings ringing. Raise it for a louder, faster bloom." },
+    { "sympathetic", "Width", WIDTH_HELP("strings") },
+    { "sympathetic", "Level",
+      "How loud the ringing strings are, added to your guitar (which stays at full level). Start low and bring it "
+      "up until you hear the halo." },
+    { "jawari", "Buzz",
+      "How much the string buzzes against the curved bridge. A little adds a bright, sitar-like sizzle; a lot "
+      "gives the full twang." },
+    { "jawari", "Bloom",
+      "Makes the buzz grow as each note fades, the way a sitar's buzz opens up as the string settles onto the "
+      "bridge. 0% keeps the buzz the same all the way through." },
+    { "jawari", "Color", "The pitch of the resonance the buzz rings through: lower is nasal and hollow, higher is bright and fizzy." },
+    { "jawari", "Mix", MIX_HELP("buzzing sound") },
+    { "jawari", "Level",
+      "The output level. Use it to match the volume with the pedal switched on and off, or to drive the next "
+      "pedal." },
+    { "graincloud", "Size",
+      "The length of each grain. Short grains sound grainy and glittery; long ones blur into smooth, overlapping "
+      "washes." },
+    { "graincloud", "Density",
+      "How many grains play per second. Low densities give scattered sparkles; high densities a thick, continuous "
+      "cloud." },
+    { "graincloud", "Delay", "How far back in time the grains start. Raise it to let the cloud trail behind your playing." },
+    { "graincloud", "Spray",
+      "How widely the grains are scattered in time on top of Delay. Higher spray mixes moments from further back, "
+      "for a more diffuse, smeared cloud." },
+    { "graincloud", "Pitch",
+      "Shifts the grains: up an octave, down one, either at random, up a fifth, a mix of unison, fifth and octave, "
+      "or a random choice of fifths and octaves for each grain. 0 keeps them at your pitch." },
+    { "graincloud", "Reverse", "The share of grains played backwards. Backwards grains swell in, for a dreamier cloud." },
+    { "graincloud", "Feedback",
+      "Feeds the cloud back into what the grains read, so it builds on itself into dense, evolving textures. High "
+      "settings grow long tails." },
+    { "graincloud", "Width", WIDTH_HELP("grains") },
+    { "graincloud", "Freeze",
+      "Stops recording: the grains keep playing what's already in the buffer, so you can hold a cloud and play "
+      "over it." },
+    { "graincloud", "Mix", MIX_HELP("grain cloud") },
+    { "swarm", "Voices",
+      "How many voices the swarm has. More voices make a thicker, busier sound; fewer sound like a few players." },
+    { "swarm", "Spread",
+      "The range of the voices' short delays. Small spreads sound like a doubled or 12-string guitar; larger ones "
+      "come apart into a crowd." },
+    { "swarm", "Drift",
+      "How far each voice wanders in pitch. A little gives a lush chorus; a lot sounds out of tune and alive, like "
+      "a swarm." },
+    { "swarm", "Speed", "How fast the voices wander. Slow drift is a gentle shimmer; fast drift a nervous, buzzing swirl." },
+    { "swarm", "Buzz",
+      "A fast flutter in each voice's level, like beating wings. Raise it all the way, with high Drift, for a "
+      "beehive." },
+    { "swarm", "Tone",
+      "Rolls off the swarm's highs. Lower it for a softer, darker swarm that sits behind your playing." },
+    { "swarm", "Width", WIDTH_HELP("voices") },
+    { "swarm", "Mix", MIX_HELP("swarm") },
+    { "tapestop", "Stop",
+      "Hold to slow the sound to a halt, like a turntable losing power; let go and it spins back up. Map it to a "
+      "footswitch or MIDI button. With Latch, a press stops it and the next press starts it again." },
+    { "tapestop", "Latch",
+      "Makes Stop switch on and off with each press, instead of only while held: one press stops, the next "
+      "starts." },
+    { "tapestop", "Stop Time",
+      "How long the slowdown takes, from full speed to a stop. Short times give a quick 'record scratch' drop." },
+    { "tapestop", "Start Time",
+      "How long the spin back up takes when you let go. 0 jumps straight back to your playing; longer times give "
+      "a slow, warping start that lands back in time." },
+    { "tapestop", "Curve",
+      "The shape of the slowdown and spin-up. 0% is a steady slope; higher settings drop quickly at first and "
+      "then crawl, like a heavy platter coasting to a stop." },
+    { "bouncedelay", "Time",
+      "The first gap between echoes (with Fall) or the last (with Rise), in milliseconds (or a note value with "
+      "Sync)." },
+    { "bouncedelay", "Sync", SYNC_HELP("bounce time") },
+    { "bouncedelay", "Gravity",
+      "How quickly the bounces speed up: each gap is this much shorter than the last. Low gravity is a light ball "
+      "bouncing on; high gravity settles fast into a quick rattle." },
+    { "bouncedelay", "Direction",
+      "Fall: the echoes come faster and faster, like a ball bouncing to rest. Rise: the other way round, starting "
+      "with a fast rattle and spreading out." },
+    { "bouncedelay", "Bounces",
+      "How many echoes the ball makes before it comes to rest. More bounces give a longer, finer rattle at the "
+      "end." },
+    { "bouncedelay", "Bounce",
+      "How loud each bounce is compared with the one before. 100% keeps them all equal; lower values let them die "
+      "away." },
+    { "bouncedelay", "Tone", "How bright the bounces are. Each bounce is a little darker than the last, like a ball losing energy." },
+    { "bouncedelay", "Spread",
+      "Bounces the echoes alternately left and right, so the ball seems to hop across the stereo field. Stereo "
+      "mode only." },
+    { "bouncedelay", "Mix", MIX_HELP("echoes") },
+    { "patterndelay", "Tap 1", PATTERN_TAP_HELP("one step") },
+    { "patterndelay", "Tap 2", PATTERN_TAP_HELP("two steps") },
+    { "patterndelay", "Tap 3", PATTERN_TAP_HELP("three steps") },
+    { "patterndelay", "Tap 4", PATTERN_TAP_HELP("four steps") },
+    { "patterndelay", "Tap 5", PATTERN_TAP_HELP("five steps") },
+    { "patterndelay", "Tap 6", PATTERN_TAP_HELP("six steps") },
+    { "patterndelay", "Tap 7", PATTERN_TAP_HELP("seven steps") },
+    { "patterndelay", "Tap 8", PATTERN_TAP_HELP("eight steps") },
+    { "patterndelay", "Time",
+      "The length of one step of the pattern, in milliseconds (or a note value with Sync). A 16th note gives the "
+      "classic rhythmic delay patterns." },
+    { "patterndelay", "Sync", SYNC_HELP("step time") },
+    { "patterndelay", "Feedback", "Plays the whole pattern again after its eighth step, quieter each time. 0% plays it once." },
+    { "patterndelay", "Pitch",
+      "Shifts every other echo: an octave up, an octave down or a fifth up; Up + Down sends alternate echoes up "
+      "and down an octave, for cascading arpeggios." },
+    { "patterndelay", "Spread",
+      "Bounces the echoes alternately left and right, for a wide, ping-pong rhythm. Only works in Stereo mode." },
+    { "patterndelay", "Tone",
+      "How bright the echoes are. Lower it for darker, more distant repeats that sit behind your playing." },
+    { "patterndelay", "Mix", MIX_HELP("echoes") },
+    { "chaosmod", "Speed", "How fast the chaos moves. Low speeds drift slowly; high speeds wobble and churn." },
+    { "chaosmod", "Chaos",
+      "How wild the motion is. Low settings swing in fairly regular loops; high settings jump unpredictably "
+      "between them." },
+    { "chaosmod", "Filter",
+      "How far the chaos sweeps the filter, up to three octaves either side of Cutoff. 0% leaves the filter off." },
+    { "chaosmod", "Cutoff",
+      "The filter's centre point. The chaos sweeps it up and down from here; set it high to leave only the "
+      "volume and pitch." },
+    { "chaosmod", "Resonance",
+      "Adds a peak at the filter's cutoff, so its movement sings and whistles. High settings sound vocal and "
+      "squelchy." },
+    { "chaosmod", "Volume",
+      "How much the chaos moves the volume, for an unpredictable tremolo that swells and dips on its own." },
+    { "chaosmod", "Pitch",
+      "How much the chaos bends the pitch, for a wobbly, seasick vibrato that never settles into a pattern." },
+    { "chaosmod", "Width",
+      "Lets the right channel follow its own chaos, which drifts away from the left's, for a wide, moving stereo "
+      "image. 0% moves both sides together." },
+    { "chaosmod", "Mix", MIX_HELP("chaos-moved sound") },
+    { "acoustic", "Body",
+      "The kind of acoustic guitar: Dreadnought (big and deep), Jumbo (boomier still), Parlor (small, focused "
+      "mids) or Classical (warm nylon strings)." },
+    { "acoustic", "Pickup",
+      "The pickup you're playing through, so its colour can be undone: Single Coil, Humbucker, or Neutral (for "
+      "piezo or an already-flat signal)." },
+    { "acoustic", "Resonance", "How strongly the body resonates. Raise it for a bigger, boxier acoustic; lower it for a subtler effect." },
+    { "acoustic", "Top", "The strings' sparkle: the bright top end of an acoustic. Lower it if it sounds harsh." },
+    { "acoustic", "Bass",
+      "Adds or takes away low end, for a fuller, boomier acoustic or a tighter one that sits better in a band "
+      "mix." },
+    { "acoustic", "Width", "Adds a little room around the guitar, spread across the stereo field. Only works in Stereo mode." },
+    { "acoustic", "Mix", MIX_HELP("acoustic sound") },
+    { "acoustic", "Level",
+      "The output level. Use it to match the volume with the pedal switched on and off, or to drive the next "
+      "pedal." },
+    { "strum", "Chord",
+      "Which chord each note becomes. Diatonic builds it from Key and Scale, so every note gets the chord that "
+      "belongs in the key. The others are fixed shapes on top of your note: major, minor, power chord, sus4, "
+      "dominant 7th, major 7th, minor 7th, or octaves." },
+    { "strum", "Key",
+      "The key for Diatonic chords. Set it to your song's key, so each note gets the chord that belongs to it." },
+    { "strum", "Scale",
+      "Major or minor key, for Diatonic chords: it decides which notes are major, minor or diminished chords." },
+    { "strum", "Notes", "How many notes are added to the one you play: 2 for a triad, 3 or 4 for fuller chords." },
+    { "strum", "Strum",
+      "The time between strings in the strum. Short times sound like a fast, crisp strum; long ones like slowly "
+      "rolling a chord. 0 plays them all at once." },
+    { "strum", "Direction", "Down strums from low to high, Up from high to low, Alternate switches each time you pick." },
+    { "strum", "Level",
+      "How loud the added notes of the chord are, against the note you play (Dry). Lower it for a subtler "
+      "chord." },
+    { "strum", "Dry",
+      "How loud the note you play is, under the strummed notes. Turn it down to hear only the added chord "
+      "notes." },
+    { "strum", "Window", WINDOW_HELP },
+    { "strum", "Track", TRACK_HELP },
+    { "hardtune", "Key",
+      "The key the notes are pulled into. Set it to your song's key, so every note lands on one that belongs." },
+    { "hardtune", "Scale",
+      "Which notes are allowed. Chromatic pulls to the nearest semitone; the others only to the notes of that scale "
+      "in the key." },
+    { "hardtune", "Speed",
+      "How quickly the pitch is corrected. 0 snaps at once, for the robotic hard-tune effect; longer times glide "
+      "gently into the note, for subtle correction that keeps your bends and vibrato." },
+    { "hardtune", "Amount", "How far the pitch is pulled: 100% all the way to the note, less for only part of the way." },
+    { "hardtune", "Mix", MIX_HELP("corrected sound") },
+    { "hardtune", "Window", WINDOW_HELP },
+    { "hardtune", "Track", TRACK_HELP },
+    { "drumtrigger", "Mode",
+      "Which drum each hit plays. Auto picks by how bright the hit is: low thumps play the kick, brighter hits "
+      "the snare, the brightest the hi-hat. Kick, Snare and Hi-Hat play only that drum; Alternate switches between "
+      "kick and snare." },
+    { "drumtrigger", "Split",
+      "Where Auto draws the line between kick and snare. Raise it if too many hits play the snare; lower it if "
+      "too many play the kick." },
+    { "drumtrigger", "Sensitivity", "How soft a hit can be and still play a drum. Lower it if noise or ringing strings trigger drums." },
+    { "drumtrigger", "Kick",
+      "The kick drum's level. Low, thumpy hits play it in Auto mode; turn it up for a bigger bottom end." },
+    { "drumtrigger", "Snare",
+      "The snare drum's level. Brighter hits play it in Auto mode, like a slap or a scratch near the bridge." },
+    { "drumtrigger", "Hi-Hat",
+      "The hi-hat's level. The brightest hits play it in Auto mode; turn it down to keep only kick and snare." },
+    { "drumtrigger", "Tune",
+      "Tunes all the drums down (lower, fatter) or up (higher, tighter). 50% is as designed." },
+    { "drumtrigger", "Decay", "How long the drums ring: lower for tight, dead drums, higher for boomy ones. 50% is as designed." },
+    { "drumtrigger", "Dynamics", "How much the drums follow how hard you hit. 0% plays every drum at the same level." },
+    { "drumtrigger", "Dry",
+      "How loud your guitar is under the drums. 0% plays the drums only; raise it to hear your strings as well." },
+    { "fart", "Type",
+      "Which fart. Random picks a different one for every note; or choose your favourite, from a tiny Squeaker to "
+      "a long Motorboat." },
+    { "fart", "Length",
+      "Stretches or shortens every fart, from a quick toot to a long, drawn-out performance." },
+    { "fart", "Wetness",
+      "Adds the airy noise and the gurgles. Low settings are dry and buzzy; high settings, well, you know." },
+    { "fart", "Tone", "Moves the fart's resonance down (a deep, round rumble) or up (a thin, reedy squeak). 50% is as designed." },
+    { "fart", "Octave", SYNTH_OCTAVE_HELP },
+    { "fart", "Mix", SYNTH_MIX_HELP },
+    { "fart", "Pick Filter", SYNTH_PICK_FILTER_HELP },
+    { "fart", "Track", TRACK_HELP },
+    { "trumpet", "Bright", "How much brighter the trumpet gets as you play harder. Low settings stay mellow, like a flugelhorn." },
+    { "trumpet", "Growl",
+      "Adds a brassy growl to hard attacks, like a player pushing air through the horn. 0% keeps it smooth." },
+    { "trumpet", "Scoop", "Each note starts this far below its pitch and slides up into it, like a player lipping up into the note. 0 is off." },
+    { "trumpet", "Vibrato",
+      "A vibrato that comes in once a note has held for a moment, like a trumpeter's. 0% is off." },
+    { "trumpet", "Mute", "Open, or a mute in the bell: Harmon (thin and buzzy, the jazz ballad sound) or Cup (soft and round)." },
+    { "trumpet", "Attack", SYNTH_ATTACK_HELP },
+    { "trumpet", "Release", SYNTH_RELEASE_HELP },
+    { "trumpet", "Octave", SYNTH_OCTAVE_HELP },
+    { "trumpet", "Glide", SYNTH_GLIDE_HELP },
+    { "trumpet", "Mix", SYNTH_MIX_HELP },
+    { "trumpet", "Pick Filter", SYNTH_PICK_FILTER_HELP },
+    { "trumpet", "Track", TRACK_HELP },
+    { "violin", "Body", "The size of the instrument: Violin, Viola (a little deeper) or Cello (deep and woody). Use Octave to play it in its range." },
+    { "violin", "Vibrato", "How deep the vibrato is. It fades in after the start of each note, the way string players add it." },
+    { "violin", "Rate",
+      "How fast the vibrato is. Around 5-6 Hz sounds like a classical player; slower is lazier, faster more "
+      "nervous." },
+    { "violin", "Bow",
+      "The sound of the bow's hair on the string: a breathy rasp under the note. Turn it up for a rougher, "
+      "folky bow." },
+    { "violin", "Ensemble", "Turns one player into a small section of three, each a little apart in pitch and vibrato." },
+    { "violin", "Attack", SYNTH_ATTACK_HELP },
+    { "violin", "Release", SYNTH_RELEASE_HELP },
+    { "violin", "Octave", SYNTH_OCTAVE_HELP },
+    { "violin", "Glide", SYNTH_GLIDE_HELP },
+    { "violin", "Mix", SYNTH_MIX_HELP },
+    { "violin", "Pick Filter", SYNTH_PICK_FILTER_HELP },
+    { "violin", "Track", TRACK_HELP },
+    { "piano", "Bright", "How bright the hammers are. The harder you pick, the brighter each note, as on a real piano." },
+    { "piano", "Decay", "How long the notes ring. Low notes ring longer than high ones, as on a real piano." },
+    { "piano", "Sustain",
+      "The sustain pedal: notes keep ringing after you let go of them. Off, each note is damped when your guitar "
+      "note ends." },
+    { "piano", "Detune",
+      "How far apart the strings of each note are tuned. A little gives a piano's lively beating; more sounds like "
+      "an old honky-tonk upright." },
+    { "piano", "Hammer",
+      "The thump of the felt hammer hitting the strings, at the start of each note. Turn it up for a percussive "
+      "attack." },
+    { "piano", "Tone",
+      "Rolls off the highs, for a softer, felted sound, like closing the piano's lid. Higher settings are "
+      "bright and open." },
+    { "piano", "Octave", SYNTH_OCTAVE_HELP },
+    { "piano", "Mix", SYNTH_MIX_HELP },
+    { "piano", "Pick Filter", SYNTH_PICK_FILTER_HELP },
+    { "piano", "Track", TRACK_HELP },
 };
 
 #undef MIX_HELP
 #undef SYNC_HELP
 #undef WINDOW_HELP
 #undef WIDTH_HELP
+#undef PATTERN_TAP_HELP
 
 struct TypeHelp {
     const char* typeId;
@@ -1587,6 +1863,60 @@ constexpr TypeHelp kTypeHelp[] = {
       "A polyphonic 8-bit synth: it hears every note you play, chords included, and plays each one as a pulse or "
       "triangle voice snapped to the semitone, or arpeggiates the chord. Low notes take a moment longer to speak "
       "than in the mono synths. Play cleanly and put it first in the chain." },
+    { "sympathetic",
+      "Twelve strings tuned to a key, which ring along when you play their notes, like the drone strings of a "
+      "sitar or a harp left undamped: a shimmering halo that follows the harmony. Put it after drive and before "
+      "delay or reverb." },
+    { "jawari",
+      "The buzzing bridge of a sitar: each note's top is folded back as the string grazes the bridge, for the "
+      "bright, twangy sitar buzz that blooms as the note fades. Best on a clean or lightly driven sound, early in "
+      "the chain." },
+    { "graincloud",
+      "Turns your playing into a cloud of tiny grains, scattered in time, some shifted in pitch, some backwards: "
+      "single notes become shimmering, ambient textures. Freeze holds the cloud. Put it near the end of the chain, "
+      "before reverb." },
+    { "swarm",
+      "A dozen short delays, each drifting in pitch and fluttering in level. A little gives a lush 12-string or "
+      "choir shimmer; all the way up it sounds like a swarm of bees. Put it after drive, with the modulation "
+      "pedals." },
+    { "tapestop",
+      "Hold its Stop button and the sound slows to a halt like a turntable losing power; let go and it spins back "
+      "up, landing back in time. A performance effect: map Stop to a footswitch. Put it at the end of the chain." },
+    { "bouncedelay",
+      "Echoes that come faster and faster, like a ball bouncing to rest (or slower and slower with Rise). Great "
+      "on single hits and chord stabs. Put it after drive and modulation, with the delays." },
+    { "patterndelay",
+      "Eight echoes on a rhythmic grid, each with its own level, so the echoes play a rhythm; every other echo can "
+      "be pitch-shifted for cascading arpeggios. Sync it to your DAW for rhythmic delay parts." },
+    { "chaosmod",
+      "Modulation from chaos: a Lorenz attractor sweeps a filter, the volume and the pitch in smooth motion that "
+      "never repeats, somewhere between an LFO and random. Put it after drive." },
+    { "acoustic",
+      "Makes an electric guitar sound acoustic: it undoes the pickup's colour, adds the resonances of an acoustic "
+      "body and the strings' sparkle. Use it on a clean signal, with no amp after it (or a clean one)." },
+    { "strum",
+      "Turns each note you pick into a strummed chord: the chord's notes come in one after another, like a hand "
+      "sweeping across the strings, and fit the key with Diatonic. Play single notes; put it early in the chain, "
+      "before drive." },
+    { "hardtune",
+      "Pitch correction for guitar: pulls your notes to the nearest note of a key and scale. Set Speed to 0 for "
+      "the robotic hard-tune sound, or higher to just tidy up your intonation. Play single notes; put it early in "
+      "the chain." },
+    { "drumtrigger",
+      "Plays drums when you hit muted strings: low thumps play a kick, brighter hits a snare, the brightest a "
+      "hi-hat, all made in code. Tap out beats on your muted strings. Put it first in the chain." },
+    { "trumpet",
+      "A trumpet played from your notes: brighter as you dig in, scooping up into notes, with a vibrato and mutes. "
+      "Play single notes, with Track on Rig In if it comes after an amp." },
+    { "violin",
+      "A bowed violin, viola or cello played from your notes, with bow noise and vibrato, or a small string "
+      "section with Ensemble. Play single notes, slowly and expressively." },
+    { "piano",
+      "A piano played from your notes: each note you pick strikes a piano note that rings and decays on its own, "
+      "brighter the harder you pick. Play single notes, or arpeggios with Sustain on." },
+    { "fart",
+      "Plays a fart at the pitch of every note you pick: thirteen kinds, from a tiny squeak to a motorboat, or a "
+      "random one each time. Because why not. Play single notes; an octave down sounds best." },
 };
 
 struct GlobalHelp {

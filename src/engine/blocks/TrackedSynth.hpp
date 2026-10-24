@@ -49,6 +49,7 @@ public:
             note.onset = tracked.onset;
             fHz += (fTargetHz - fHz) * fGlideCoef;
             note.hz = std::min(fHz * fOctaveRatio, 0.45 * fSampleRate);
+            note.target = std::min(fTargetHz * fOctaveRatio, 0.45 * fSampleRate);
             note.dt = note.hz / fSampleRate;
             note.envelope = tracked.envelope;
             note.on = tracked.on;
@@ -86,6 +87,7 @@ public:
 protected:
     struct Note {
         double hz = 110.0;   // with glide and octave
+        double target = 110.0; // the tracked note (with the octave), without glide
         double dt = 0.0;     // phase step per sample
         float envelope = 0.0f; // the guitar's level
         float amp = 0.0f;    // the amplitude to play at (0..1)

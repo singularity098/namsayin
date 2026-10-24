@@ -322,8 +322,8 @@ void dryOnly(const BlockDescriptor& type, Block& block)
     for (int p = 0; p < type.numParams; ++p)
     {
         const std::string name = type.params[static_cast<size_t>(p)].name;
-        if (name == "Mix" || name == "Level 1" || name == "Level 2" || name == "Sub 1" || name == "Sub 2"
-            || name == "Up")
+        if (name == "Mix" || name == "Level" || name == "Level 1" || name == "Level 2" || name == "Sub 1"
+            || name == "Sub 2" || name == "Up")
             block.setParam(p, 0.0f);
         if (name == "Dry")
             block.setParam(p, 100.0f);
@@ -364,7 +364,7 @@ TEST_CASE("pitch-following blocks: lookahead delays the dry signal by the latenc
         REQUIRE(block->configure({ { "lookahead", 0.0 } }));
         CHECK(block->latency() == 0);
     }
-    CHECK(count == 10);
+    CHECK(count == 16);
 }
 
 TEST_CASE("with lookahead, a synth's notes start with the pick")

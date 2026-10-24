@@ -555,6 +555,160 @@ const std::map<std::string, Draw>& drawings()
                         true);
              b.plot(40, 84, [](float u) { return 93.0f - 6.0f * sine(u, 2.0f); }, 32);
          } },
+
+        // Added in the third set
+        { "jawari", [](Builder& b) { // a string buzzing on a curved bridge
+             b.arc(62, 128, 26, 220, 320);
+             b.move(28, 104);
+             b.line(50, 104);
+             for (int k = 0; k < 6; ++k)
+                 b.line(52.0f + 4.0f * k, k % 2 ? 104.0f : 98.0f);
+             b.line(96, 104);
+         } },
+        { "acoustic", [](Builder& b) { // an acoustic guitar's body and sound hole
+             b.circle(62, 108, 13);
+             b.circle(62, 86, 9);
+             b.circle(62, 104, 4);
+         } },
+        { "swarm", [](Builder& b) { // a bee
+             b.circle(62, 102, 10);
+             b.polyline({ { 56, 94 }, { 56, 110 } });
+             b.polyline({ { 64, 92 }, { 64, 112 } });
+             b.circle(54, 86, 6);
+             b.circle(70, 86, 6);
+         } },
+        { "chaosmod", [](Builder& b) { // the Lorenz butterfly
+             for (int k = 0; k <= 64; ++k)
+             {
+                 // a lemniscate: two lobes around the attractor's two eyes
+                 const float t = 2.0f * kPi * k / 64.0f;
+                 const float d = 1.0f + std::cos(t) * std::cos(t);
+                 const float x = 62.0f + 30.0f * std::sin(t) / d, y = 98.0f + 16.0f * std::sin(t) * std::cos(t) / d;
+                 if (k == 0)
+                     b.move(x, y);
+                 else
+                     b.line(x, y);
+             }
+             b.dot(48, 98, 2.5f);
+             b.dot(76, 98, 2.5f);
+         } },
+        { "sympathetic", [](Builder& b) { // a harp: strings under a curved neck
+             b.move(32, 80);
+             b.curve(50, 72, 70, 92, 92, 84);
+             for (int k = 0; k < 7; ++k)
+             {
+                 const float x = 36.0f + 9.0f * k;
+                 const float u = (x - 32.0f) / 60.0f;
+                 const float top = 80.0f + 4.0f * u + 4.0f * std::sin(kPi * u);
+                 b.polyline({ { x, top }, { x, 120 } });
+             }
+         } },
+        { "graincloud", [](Builder& b) { // a cloud of grains
+             static constexpr float grains[][3] = { { 36, 92, 2.5f }, { 46, 84, 3.5f }, { 50, 102, 2.0f },
+                                                    { 60, 92, 4.5f }, { 66, 108, 2.5f }, { 72, 82, 2.0f },
+                                                    { 78, 98, 3.5f }, { 88, 90, 2.0f }, { 86, 110, 3.0f },
+                                                    { 40, 112, 3.0f } };
+             for (const auto& g : grains)
+                 b.dot(g[0], g[1], g[2]);
+             b.arc(62, 140, 40, 235, 305); // the sound they rise from
+         } },
+        { "tapestop", [](Builder& b) { // a reel winding down
+             b.circle(52, 96, 16);
+             for (const float a : { 0.0f, 120.0f, 240.0f })
+                 b.polyline({ { 52, 96 }, { 52.0f + 13.0f * std::cos(rad(a)), 96.0f + 13.0f * std::sin(rad(a)) } });
+             b.move(72, 82);
+             b.curve(84, 82, 90, 100, 94, 116);
+             b.arrowhead(94, 116, 0.3f, 1.0f, 7);
+         } },
+        { "bouncedelay", [](Builder& b) { // a ball bouncing lower each time
+             b.dot(32, 82, 4);
+             b.move(32, 86);
+             float x = 32.0f, w = 26.0f, h = 30.0f;
+             for (int k = 0; k < 4; ++k)
+             {
+                 b.curve(x + w * 0.25f, 120, x + w * 0.5f, 120, x + w * 0.5f, 118);
+                 b.curve(x + w * 0.5f, 118 - h, x + w, 118 - h, x + w, 118);
+                 x += w;
+                 w *= 0.6f;
+                 h *= 0.55f;
+             }
+         } },
+        { "patterndelay", [](Builder& b) { // a step pattern: some steps sound, some don't
+             static constexpr bool steps[8] = { true, false, true, true, false, true, false, true };
+             for (int k = 0; k < 8; ++k)
+             {
+                 const float x = 32.0f + 8.5f * k;
+                 if (steps[k])
+                     b.dot(x, 98, 3.5f);
+                 else
+                     b.polyline({ { x - 2.5f, 98 }, { x + 2.5f, 98 } });
+             }
+             b.polyline({ { 28, 112 }, { 96, 112 } });
+         } },
+        { "strum", [](Builder& b) { // a strum across the strings
+             for (int k = 0; k < 5; ++k)
+                 b.polyline({ { 30, 82.0f + 8.0f * k }, { 94, 82.0f + 8.0f * k } });
+             b.polyline({ { 50, 76 }, { 74, 120 } });
+             b.arrowhead(74, 120, 24, 44);
+         } },
+        { "hardtune", [](Builder& b) { // a gliding note snapped into steps
+             b.plot(28, 96, [](float u) { return 98.0f - 14.0f * sine(u, 1.0f); }, 24);
+             b.move(28, 98);
+             for (int k = 0; k < 8; ++k)
+             {
+                 const float x = 28.0f + 8.5f * k;
+                 const float y = 98.0f - 7.0f * std::round(2.0f * sine((k + 0.5f) / 8.0f, 1.0f));
+                 b.line(x, y + 14.0f);
+                 b.line(x + 8.5f, y + 14.0f);
+             }
+         } },
+        { "trumpet", [](Builder& b) { // a trumpet
+             b.polyline({ { 28, 100 }, { 70, 100 } });
+             b.polyline({ { 28, 106 }, { 70, 106 } });
+             b.polyline({ { 70, 100 }, { 94, 86 }, { 94, 120 }, { 70, 106 } });
+             for (const float x : { 42.0f, 50.0f, 58.0f })
+                 b.polyline({ { x, 100 }, { x, 88 } });
+         } },
+        { "violin", [](Builder& b) { // a violin's f-hole and its bow
+             b.move(58, 80);
+             b.curve(70, 78, 70, 92, 62, 98);
+             b.curve(54, 104, 54, 118, 66, 116);
+             b.dot(58, 80, 2.5f);
+             b.dot(66, 116, 2.5f);
+             b.polyline({ { 30, 118 }, { 94, 80 } });
+         } },
+        { "piano", [](Builder& b) { // piano keys
+             b.rect(30, 82, 94, 118);
+             for (int k = 1; k < 6; ++k)
+                 b.polyline({ { 30.0f + 64.0f * k / 6.0f, 82 }, { 30.0f + 64.0f * k / 6.0f, 118 } });
+             for (const int k : { 1, 2, 4, 5 })
+                 b.rect(30.0f + 64.0f * k / 6.0f - 3.0f, 82, 30.0f + 64.0f * k / 6.0f + 3.0f, 102);
+         } },
+        { "drumtrigger", [](Builder& b) { // a drum and its sticks
+             // the head (an ellipse), the shell and the bottom rim
+             for (int k = 0; k <= 32; ++k)
+             {
+                 const float t = 2.0f * kPi * k / 32.0f;
+                 const float x = 62.0f + 20.0f * std::cos(t), y = 98.0f + 6.0f * std::sin(t);
+                 if (k == 0)
+                     b.move(x, y);
+                 else
+                     b.line(x, y);
+             }
+             b.polyline({ { 42, 98 }, { 42, 114 } });
+             b.polyline({ { 82, 98 }, { 82, 114 } });
+             b.plot(42, 82, [](float u) { return 114.0f + 6.0f * std::sin(kPi * u); }, 16);
+             b.polyline({ { 44, 76 }, { 64, 94 } });
+             b.polyline({ { 80, 76 }, { 60, 94 } });
+         } },
+        { "fart", [](Builder& b) { // a puff of wind
+             b.arc(52, 104, 10, 90, 300);
+             b.arc(66, 96, 10, 200, 380);
+             b.arc(74, 110, 9, 260, 450);
+             b.polyline({ { 30, 82 }, { 40, 86 } });
+             b.polyline({ { 28, 96 }, { 38, 97 } });
+             b.polyline({ { 30, 112 }, { 40, 109 } });
+         } },
     };
     return map;
 }
