@@ -364,7 +364,7 @@ TEST_CASE("pitch-following blocks: lookahead delays the dry signal by the latenc
         REQUIRE(block->configure({ { "lookahead", 0.0 } }));
         CHECK(block->latency() == 0);
     }
-    CHECK(count == 16);
+    CHECK(count == 17);
 }
 
 TEST_CASE("with lookahead, a synth's notes start with the pick")

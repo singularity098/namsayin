@@ -7,6 +7,7 @@
 #include "state/ChainExchange.hpp"
 #include "state/Settings.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -191,7 +192,17 @@ protected:
                              time.bbt.tick / time.bbt.ticksPerBeat;
         }
 
+        const int64_t start = fEngine.midiTime();
         fEngine.process(inputs, outputs, frames, &transport);
+
+        // the MIDI Out block's notes, at their frames in this buffer
+        fEngine.drainMidi(start + frames, [&](const MidiMessage& message) {
+            MidiEvent event {};
+            event.frame = static_cast<uint32_t>(std::clamp<int64_t>(message.time - start, 0, frames - 1));
+            event.size = message.size;
+            std::memcpy(event.data, message.data, message.size);
+            writeMidiEvent(event);
+        });
 
         const uint32_t latency = fEngine.latency();
         if (latency != fReportedLatency)

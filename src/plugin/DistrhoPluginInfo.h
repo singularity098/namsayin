@@ -20,6 +20,7 @@
 #define DISTRHO_PLUGIN_WANT_LATENCY 1
 #define DISTRHO_PLUGIN_WANT_TIMEPOS 1
 #define DISTRHO_PLUGIN_WANT_MIDI_INPUT 1
+#define DISTRHO_PLUGIN_WANT_MIDI_OUTPUT 1 // the MIDI Out block's notes, for synths after the plugin
 // MIDI-mapped parameter changes are reported back to the host (VST3; LV2 hosts with ctrlInPortChangeRequest)
 #define DISTRHO_PLUGIN_WANT_PARAMETER_VALUE_CHANGE_REQUEST 1
 

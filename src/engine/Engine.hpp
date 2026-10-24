@@ -4,6 +4,7 @@
 #pragma once
 
 #include "engine/BlockRegistry.hpp"
+#include "engine/MidiOutput.hpp"
 #include "engine/Params.hpp"
 #include "engine/ParallelWorker.hpp"
 #include "engine/SpscQueue.hpp"
@@ -71,6 +72,22 @@ public:
     // Total latency of the active chain, in samples
     uint32_t latency() const { return fLatency.load(std::memory_order_relaxed); }
 
+    // RT. MIDI the blocks sent (MIDI Out), timed in samples since prepare(): midiTime() is the time of the next
+    // process() call's first sample. After process(), drainMidi() hands over (in time order) every message before
+    // `end`; later ones wait for their buffer (a block's MIDI is delayed by the latency of the blocks after it).
+    int64_t midiTime() const { return fTime; }
+
+    template <typename F>
+    void drainMidi(int64_t end, F&& f)
+    {
+        int n = 0;
+        while (n < fMidiQueued && fMidiQueue[static_cast<size_t>(n)].time < end)
+            f(fMidiQueue[static_cast<size_t>(n++)]);
+        for (int k = n; k < fMidiQueued; ++k)
+            fMidiQueue[static_cast<size_t>(k - n)] = fMidiQueue[static_cast<size_t>(k)];
+        fMidiQueued -= n;
+    }
+
     // Non-RT, any one thread. Runs the tuner's analysis on the latest input and publishes the result in the
     // tuner output parameters. Call it every 20 ms or so while the tuner is on.
     void analyzeTuner();
@@ -86,6 +103,8 @@ private:
         int slot;
         // for a block with latency: delays the signal while it's bypassed, so the chain's latency stays the same
         mutable AlignmentDelay bypassDelay;
+        // the latency of the blocks after it: its MIDI is delayed as much, to stay with its audio
+        uint32_t midiDelay = 0;
     };
 
     // The chain in four sections: before the split, the two branches, and after the merge. Without a split,
@@ -131,7 +150,8 @@ private:
     Metronome::Settings metronomeSettings() const;
     void processChain(uint32_t numChannels, uint32_t frames);
     void processNodes(const std::vector<Node>& nodes, float* const* work, float* const* scratch,
-                      uint32_t numChannels, uint32_t frames);
+                      uint32_t numChannels, uint32_t frames, MidiOutput& midi);
+    void collectMidi(const MidiOutput& midi);
     void merge(uint32_t numChannels, uint32_t frames);
     float mergeGain(int branch, int channel, bool stereo) const;
     static void runBranchB(void* engine);
@@ -160,6 +180,13 @@ private:
     std::unique_ptr<ParallelWorker> fWorker; // started when a chain first needs it
 
     // audio thread side
+    static constexpr int kMidiQueue = 2048;
+    MidiOutput fMidiOut[2];               // what the blocks send in a chunk: the main thread's, and branch B's
+    MidiSounding fMidiSounding {};        // the notes each slot has sounding
+    std::array<MidiMessage, kMidiQueue> fMidiQueue {}; // waiting for the host, in time order
+    int fMidiQueued = 0;
+    int64_t fTime = 0, fChunkTime = 0;    // samples since prepare(): the next buffer's start, the chunk's
+    bool fMidiEndAll = false;             // end every sounding note (after prepare())
     Graph* fActive = nullptr;
     Graph* fNext = nullptr;
     Fade fFade = Fade::Idle;

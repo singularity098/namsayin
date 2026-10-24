@@ -701,6 +701,12 @@ const std::map<std::string, Draw>& drawings()
              b.polyline({ { 44, 76 }, { 64, 94 } });
              b.polyline({ { 80, 76 }, { 60, 94 } });
          } },
+        { "midiout", [](Builder& b) { // a MIDI socket: five pins in a ring, and the key
+             b.circle(62, 100, 20);
+             for (const float a : { 180.0f, 225.0f, 270.0f, 315.0f, 360.0f })
+                 b.dot(62.0f + 12.0f * std::cos(rad(a)), 103.0f + 12.0f * std::sin(rad(a)), 2.5f);
+             b.rect(58, 116, 66, 120);
+         } },
         { "fart", [](Builder& b) { // a puff of wind
              b.arc(52, 104, 10, 90, 300);
              b.arc(66, 96, 10, 200, 380);

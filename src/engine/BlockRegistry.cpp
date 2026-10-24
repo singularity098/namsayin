@@ -22,6 +22,7 @@
 #include "engine/blocks/InstrumentBlocks.hpp"
 #include "engine/blocks/IrBlock.hpp"
 #include "engine/blocks/LooperBlock.hpp"
+#include "engine/blocks/MidiOutBlock.hpp"
 #include "engine/blocks/ModSweeperBlock.hpp"
 #include "engine/blocks/NamBlock.hpp"
 #include "engine/blocks/OctaveBlock.hpp"
@@ -151,6 +152,7 @@ const BlockRegistry& BlockRegistry::builtin()
         &kPianoBlockDescriptor,
         &kDrumTriggerBlockDescriptor,
         &kFartBlockDescriptor,
+        &kMidiOutBlockDescriptor,
         &kFilterBlockDescriptor,
         &kRobotFilterBlockDescriptor,
         &kWahBlockDescriptor,

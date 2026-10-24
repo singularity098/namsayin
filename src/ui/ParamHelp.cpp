@@ -1592,6 +1592,31 @@ constexpr BlockHelp kBlockHelp[] = {
     { "piano", "Mix", SYNTH_MIX_HELP },
     { "piano", "Pick Filter", SYNTH_PICK_FILTER_HELP },
     { "piano", "Track", TRACK_HELP },
+    { "midiout", "Mode",
+      "Mono follows single notes and sends pitch bend for your bends and vibrato. Poly finds the notes of chords "
+      "and sends them all, without bend; it makes more mistakes than Mono, so use Mono for lines and solos." },
+    { "midiout", "Channel",
+      "The MIDI channel the notes go out on. Set your synth to listen on the same channel (or on all of them)." },
+    { "midiout", "Octave",
+      "Shifts the notes sent by whole octaves, for a synth bass an octave down or a lead an octave up. Your guitar's "
+      "sound isn't changed." },
+    { "midiout", "Transpose",
+      "Shifts the notes sent by semitones, to play in another key than you're fingering, or to send harmonies with "
+      "a second MIDI Out." },
+    { "midiout", "Bend",
+      "Mono only: sends your bends and vibrato as pitch bend. Set it to your synth's bend range (2 semitones is the "
+      "usual default; 12 or 24 for wide bends and slides). Off sends plain notes, for synths that ignore bend." },
+    { "midiout", "Dynamics",
+      "How much the notes' velocity follows how hard you pick. 0% sends every note at velocity 100; 100% follows "
+      "your picking from very soft to full." },
+    { "midiout", "Focus",
+      "Poly only: how readily a note is dropped as another note's overtone. Lower it if octaves in your chords go "
+      "missing; raise it if extra high notes appear." },
+    { "midiout", "Audio",
+      "Through passes your guitar on to the rest of the chain, so you hear it with the synth. Mute silences it, so "
+      "only the synth the MIDI drives is heard." },
+    { "midiout", "Pick Filter", SYNTH_PICK_FILTER_HELP },
+    { "midiout", "Track", TRACK_HELP },
 };
 
 #undef MIX_HELP
@@ -1914,6 +1939,10 @@ constexpr TypeHelp kTypeHelp[] = {
     { "piano",
       "A piano played from your notes: each note you pick strikes a piano note that rings and decays on its own, "
       "brighter the harder you pick. Play single notes, or arpeggios with Sustain on." },
+    { "midiout",
+      "Turns your playing into MIDI notes, to play a synth or sampler plugin from your guitar. In Reaper, put the "
+      "synth after NAMsayin in the same FX chain (it receives the notes), or send the track's MIDI to another track. "
+      "Mono follows single notes with pitch bend; Poly sends chords. Lookahead makes the notes start on time." },
     { "fart",
       "Plays a fart at the pitch of every note you pick: thirteen kinds, from a tiny squeak to a motorboat, or a "
       "random one each time. Because why not. Play single notes; an octave down sounds best." },

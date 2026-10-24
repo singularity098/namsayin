@@ -73,6 +73,9 @@ void Engine::prepare(double sampleRate, uint32_t maxFrames)
     }
     fFade = Fade::Idle;
     fFadeGain = 1.0f;
+    // the host restarts audio: what was waiting goes, and every sounding note ends at the next buffer
+    fMidiQueued = 0;
+    fMidiEndAll = true;
 
     std::unordered_set<Block*> blocks;
     fActive->forEachNode([&](const Node& node) { blocks.insert(node.block.get()); });
@@ -183,7 +186,7 @@ bool Engine::setChain(const ChainState& chain, std::string* error, std::vector<i
         case Section::B: section = &graph->branchB; break;
         case Section::Post: section = &graph->post; break;
         }
-        section->push_back({ block, type, state.slot });
+        section->push_back(Node { block, type, state.slot, AlignmentDelay {}, 0 });
         cache[state.slot] = { std::move(block), state.typeId, std::move(config) };
     }
 
@@ -252,7 +255,9 @@ void Engine::process(const float* const* inputs, float* const* outputs, uint32_t
         const uint32_t n = std::min(frames - done, fMaxFrames);
         const float* in[2] = { inputs[0] + done, inputs[1] + done };
         float* out[2] = { outputs[0] + done, outputs[1] + done };
+        fChunkTime = fTime;
         processChunk(in, out, n, transport, done);
+        fTime += n;
         done += n;
     }
 
@@ -356,6 +361,19 @@ void Engine::processChunk(const float* const* inputs, float* const* outputs, uin
     for (uint32_t ch = 0; ch < numChannels; ++ch)
         std::memcpy(fRigInput[ch].data(), fWork[ch].data(), sizeof(float) * frames);
 
+    // MIDI the blocks send in this chunk
+    for (MidiOutput& midi : fMidiOut)
+    {
+        midi.clear();
+        midi.setNode(fChunkTime, 0, &fMidiSounding);
+    }
+    if (fMidiEndAll)
+    {
+        fMidiEndAll = false;
+        for (int slot = 0; slot < kMaxBlocks; ++slot)
+            fMidiOut[0].endSlot(slot, fChunkTime);
+    }
+
     // Chain, with a fade out/in around graph swaps
     if (fFade == Fade::Idle)
     {
@@ -391,6 +409,8 @@ void Engine::processChunk(const float* const* inputs, float* const* outputs, uin
             fFade = Fade::In;
         }
     }
+    collectMidi(fMidiOut[0]);
+    collectMidi(fMidiOut[1]);
 
     // Output stage
     float* work[2] = { fWork[0].data(), fWork[1].data() };
@@ -465,7 +485,7 @@ void Engine::processChain(uint32_t numChannels, uint32_t frames)
     float* scratch[2] = { fScratch[0].data(), fScratch[1].data() };
     Graph& graph = *fActive;
 
-    processNodes(graph.pre, work, scratch, numChannels, frames);
+    processNodes(graph.pre, work, scratch, numChannels, frames, fMidiOut[0]);
     if (graph.split)
     {
         for (uint32_t ch = 0; ch < numChannels; ++ch)
@@ -477,7 +497,7 @@ void Engine::processChain(uint32_t numChannels, uint32_t frames)
         const bool parallel = graph.worker && !graph.branchB.empty() && fParallel.load(std::memory_order_relaxed);
         if (parallel)
             graph.worker->start(&Engine::runBranchB, this);
-        processNodes(graph.branchA, work, scratch, numChannels, frames);
+        processNodes(graph.branchA, work, scratch, numChannels, frames, fMidiOut[0]);
         graph.alignA.process(work, numChannels, frames);
         if (parallel)
             graph.worker->wait();
@@ -486,7 +506,7 @@ void Engine::processChain(uint32_t numChannels, uint32_t frames)
 
         merge(numChannels, frames);
     }
-    processNodes(graph.post, work, scratch, numChannels, frames);
+    processNodes(graph.post, work, scratch, numChannels, frames, fMidiOut[0]);
 }
 
 void Engine::runBranchB(void* context)
@@ -494,7 +514,8 @@ void Engine::runBranchB(void* context)
     Engine& engine = *static_cast<Engine*>(context);
     float* branch[2] = { engine.fBranch[0].data(), engine.fBranch[1].data() };
     float* scratch[2] = { engine.fBranchScratch[0].data(), engine.fBranchScratch[1].data() };
-    engine.processNodes(engine.fActive->branchB, branch, scratch, engine.fJobChannels, engine.fJobFrames);
+    engine.processNodes(engine.fActive->branchB, branch, scratch, engine.fJobChannels, engine.fJobFrames,
+                        engine.fMidiOut[1]);
     engine.fActive->alignB.process(branch, engine.fJobChannels, engine.fJobFrames);
 }
 
@@ -546,10 +567,25 @@ void Engine::updateLatency(Graph& graph)
     graph.alignA.prepare(graph.split ? branches - a : 0);
     graph.alignB.prepare(graph.split ? branches - b : 0);
     graph.latency = sectionLatency(graph.pre) + branches + sectionLatency(graph.post);
+
+    // each block's MIDI waits for the latency after it: the rest of its section, then what follows the section
+    auto delays = [](std::vector<Node>& nodes, uint32_t after) {
+        uint32_t later = after;
+        for (auto it = nodes.rbegin(); it != nodes.rend(); ++it)
+        {
+            it->midiDelay = later;
+            later += it->block->latency();
+        }
+    };
+    const uint32_t post = sectionLatency(graph.post);
+    delays(graph.post, 0);
+    delays(graph.branchA, post + graph.alignA.delay());
+    delays(graph.branchB, post + graph.alignB.delay());
+    delays(graph.pre, post + (graph.split ? branches : 0));
 }
 
 void Engine::processNodes(const std::vector<Node>& nodes, float* const* work, float* const* scratch,
-                          uint32_t numChannels, uint32_t frames)
+                          uint32_t numChannels, uint32_t frames, MidiOutput& midi)
 {
     for (const Node& node : nodes)
     {
@@ -571,6 +607,8 @@ void Engine::processNodes(const std::vector<Node>& nodes, float* const* work, fl
             block.setSongPosition(fSongBeat);
         const float* rig[2] = { fRigInput[0].data(), fRigInput[1].data() };
         block.setRigInput(rig, numChannels);
+        midi.setNode(fChunkTime + node.midiDelay, node.slot, &fMidiSounding);
+        block.setMidiOutput(&midi);
 
         const float bypassTarget = param(slotBypassParam(node.slot)) >= 0.5f ? 1.0f : 0.0f;
         if (node.bypassDelay.delay() > 0)
@@ -583,6 +621,7 @@ void Engine::processNodes(const std::vector<Node>& nodes, float* const* work, fl
             {
                 for (uint32_t ch = 0; ch < numChannels; ++ch)
                     std::memcpy(work[ch], scratch[ch], sizeof(float) * frames);
+                midi.endSlot(node.slot, fChunkTime + node.midiDelay); // nothing hangs while it's bypassed
                 continue;
             }
             block.process(work, numChannels, frames);
@@ -603,6 +642,8 @@ void Engine::processNodes(const std::vector<Node>& nodes, float* const* work, fl
         {
             if (bypassTarget == 0.0f)
                 block.process(work, numChannels, frames);
+            else
+                midi.endSlot(node.slot, fChunkTime + node.midiDelay); // nothing hangs while it's bypassed
             continue;
         }
 
@@ -629,6 +670,15 @@ void Engine::swapGraph()
     fActive = fNext;
     fNext = nullptr;
 
+    // a block that is gone (or rebuilt) ends its notes
+    std::array<bool, kMaxBlocks> kept {};
+    fActive->forEachNode([&](const Node& node) {
+        kept[static_cast<size_t>(node.slot)] = fSlots[node.slot].block == node.block.get();
+    });
+    for (int slot = 0; slot < kMaxBlocks; ++slot)
+        if (!kept[static_cast<size_t>(slot)])
+            fMidiOut[0].endSlot(slot, fChunkTime);
+
     fActive->forEachNode([this](const Node& node) {
         SlotState& slot = fSlots[node.slot];
         if (slot.block != node.block.get())
@@ -645,6 +695,22 @@ void Engine::swapGraph()
     // Freed on a non-RT thread. The queue can't fill up in practice (each swap follows one setChain(), which
     // drains it); if it ever does, leaking is better than freeing on the audio thread.
     fRetired.push(old);
+}
+
+void Engine::collectMidi(const MidiOutput& midi)
+{
+    // into the queue, in time order (each block's messages are already in order; blocks interleave)
+    for (int i = 0; i < midi.count() && fMidiQueued < kMidiQueue; ++i)
+    {
+        const MidiMessage& m = midi.at(i);
+        int k = fMidiQueued++;
+        while (k > 0 && fMidiQueue[static_cast<size_t>(k - 1)].time > m.time)
+        {
+            fMidiQueue[static_cast<size_t>(k)] = fMidiQueue[static_cast<size_t>(k - 1)];
+            --k;
+        }
+        fMidiQueue[static_cast<size_t>(k)] = m;
+    }
 }
 
 void Engine::drainRetired()

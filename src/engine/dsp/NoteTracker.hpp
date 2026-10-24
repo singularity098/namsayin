@@ -22,7 +22,8 @@ namespace namsayin {
 //   less clear estimates near its pitch still follow it (bends, vibrato, the decay). It ends when the level falls
 //   back to the noise floor (followed, so hum doesn't hold notes on) or well below the note's peak, or when no
 //   clear pitch has been found for 35 ms (palm mutes, scrapes).
-// - A new pick (OnsetDetector) ends the note before it, so the old pitch doesn't run into the new note; a pitch
+// - A new pick (OnsetDetector, confirmed by the level rising after it: a mute clicks too) ends the note before it,
+//   so the old pitch doesn't run into the new note; a pitch
 //   change without a pick (hammer-ons, slides) moves the note once its new pitch is confirmed.
 // - The Pick Filter: a new note must also hold its pitch for that long before it sounds.
 // - Lookahead (optional, up to kMaxLookaheadMs): the output is that much behind the input, and the block delays
@@ -53,6 +54,8 @@ public:
         fFloorFall = 1.0f - EnvelopeFollower::coef(sampleRate, 20.0);
         fFloorRise = static_cast<float>(std::pow(10.0, 6.0 / 20.0 / sampleRate)); // 6 dB/s
         fUnvoicedLimit = static_cast<int64_t>(0.035 * sampleRate);
+        fPickHoldUp = static_cast<int64_t>(0.012 * sampleRate);
+        fAverageCoef = 1.0f - EnvelopeFollower::coef(sampleRate, 3.0);
         fClickFilter.setHighPass(sampleRate, 2000.0);
         fClickDetector.prepare(sampleRate);
         fClickDetector.setThreshold(0.002f);
@@ -88,6 +91,8 @@ public:
         fClickDetector.reset();
         fMisses = 0;
         fEstimates = 0;
+        fClickTime = -1;
+        fAverage = 0.0f;
         std::fill(fRing.begin(), fRing.end(), Note {});
         fTime = 0;
         fEnvelope = 0.0f;
@@ -114,8 +119,34 @@ public:
         followLevel(in);
         // a pick: a jump in the level, or in the level of the pick's click (high-passed), which stands out even
         // while a loud note rings
-        bool picked = fOnsetDetector.process(std::fabs(in));
-        picked = fClickDetector.process(std::fabs(fClickFilter.process(in))) || picked;
+        bool clicked = fOnsetDetector.process(std::fabs(in));
+        clicked = fClickDetector.process(std::fabs(fClickFilter.process(in))) || clicked;
+        // A click ends the note at once, but it's only a pick (that may start one) once the level rises after it,
+        // or holds up: a mute clicks too, and then the level falls (and its tail mustn't start a note)
+        if (clicked && fClickTime < 0)
+        {
+            fClickTime = fTime;
+            fClickLevel = fAverage;
+            if (fOn)
+                end(fTime, EndReason::Pick);
+            fCandidate = Candidate {};
+        }
+        bool picked = false;
+        if (fClickTime >= 0)
+        {
+            const int64_t since = fTime - fClickTime;
+            // (the average level, which a spike barely moves: the peak follower holds a mute's click for a while)
+            if (fAverage > kPickRise * fClickLevel || (since >= fPickHoldUp && fAverage >= kPickHold * fClickLevel))
+            {
+                picked = true;
+            }
+            else if (since >= fPickHoldUp)
+            {
+                fClickTime = -1; // the level fell: a mute
+                fMuted = true;
+            fMuteLevel = fAverage;
+            }
+        }
         fTracker.process(in);
         const bool estimated = fTracker.estimates() != fEstimates;
         fEstimates = fTracker.estimates();
@@ -128,11 +159,9 @@ public:
         if (picked)
         {
             fPickPending = true;
-            fPickTime = fTime;
-            fPickPeak = fEnvelope;
-            if (fOn)
-                end(fTime, EndReason::Pick);
-            fCandidate = Candidate {};
+            fPickTime = fClickTime;
+            fClickTime = -1;
+            fPickPeak = std::max(fClickLevel, fEnvelope);
             fMuted = false;
         }
         if (fOn && fEnvelope < kMuteDrop * fRecent)
@@ -140,8 +169,9 @@ public:
             // falling far faster than a ringing string does: muted. Its tail mustn't start a note again.
             end(fTime, EndReason::Mute);
             fMuted = true;
+            fMuteLevel = fAverage;
         }
-        else if (fMuted && fEnvelope > 0.5f * fRecent)
+        else if (fMuted && fAverage > 2.0f * fMuteLevel)
         {
             fMuted = false; // swelling back (a volume swell, a note from another string)
         }
@@ -185,6 +215,8 @@ private:
     static constexpr float kPeakGate = 0.003f; // and ends 50 dB under its peak
     static constexpr float kMuteDrop = 0.1f;   // or 20 dB under the recent level (a mute)
     static constexpr int kMaxMisses = 2;       // estimates in a row that don't find the note end it
+    static constexpr float kPickRise = 1.25f;  // a click is a pick once the level rises this much,
+    static constexpr float kPickHold = 0.3f;   // or once it has held over this share of its level for 12 ms
 
     Note& at(int64_t time)
     {
@@ -197,6 +229,7 @@ private:
     void followLevel(float in)
     {
         const float a = std::fabs(in);
+        fAverage += (a - fAverage) * fAverageCoef;
         if (a > fEnvelope)
         {
             fEnvelope += (a - fEnvelope) * fAttack;
@@ -263,7 +296,7 @@ private:
         {
             fCandidate = Candidate { hz, 1, fTime };
         }
-        if (fCandidate.count >= 2 && fTime - fCandidate.start >= fPickHold)
+        if (fCandidate.count >= 2 && fTime - fCandidate.start >= fPickHold && fClickTime < 0)
             start();
     }
 
@@ -332,6 +365,10 @@ private:
     int fMisses = 0;
     int64_t fFirstMiss = 0;
     uint32_t fEstimates = 0;
+    int64_t fClickTime = -1, fPickHoldUp = 384;
+    float fClickLevel = 0.0f;
+    float fAverage = 0.0f, fAverageCoef = 0.007f;
+    float fMuteLevel = 0.0f; // the average level when it was muted: a swell back over twice it unmutes
     Note fOut;
     EndReason fEndReason = EndReason::None;
 };

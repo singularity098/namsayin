@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "engine/MidiOutput.hpp"
 #include "engine/Params.hpp"
 
 #include <nlohmann/json.hpp>
@@ -124,6 +125,9 @@ public:
     // RT. The rig's input (after the input level, before the chain), called before every process() with the same
     // frame count; for blocks that listen to it, like a noise gate keyed from the guitar. numChannels is 1 or 2.
     virtual void setRigInput(const float* const* /*input*/, uint32_t /*numChannels*/) {}
+
+    // RT. Where the block sends MIDI (MIDI Out), called before every process(); its frames are the buffer's.
+    virtual void setMidiOutput(MidiOutput* /*output*/) {}
 };
 
 enum class MeterStyle {

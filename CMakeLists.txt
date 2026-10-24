@@ -112,6 +112,7 @@ add_library(namsayin-engine STATIC
   src/engine/blocks/InstrumentBlocks.cpp
   src/engine/blocks/IrBlock.cpp
   src/engine/blocks/LooperBlock.cpp
+  src/engine/blocks/MidiOutBlock.cpp
   src/engine/blocks/ModSweeperBlock.cpp
   src/engine/blocks/NamBlock.cpp
   src/engine/blocks/OctaveBlock.cpp
@@ -208,6 +209,7 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/IrBlockTests.cpp
     tests/LibraryTests.cpp
     tests/MetronomeTests.cpp
+    tests/MidiOutTests.cpp
     tests/MorePedalTests.cpp
     tests/NamBlockTests.cpp
     tests/ParamHelpTests.cpp

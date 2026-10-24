@@ -8,7 +8,7 @@ NAMsayin is a guitar rig plugin (VST3 + LV2) in C++20, built with DPF (plugin fr
 
 - **Requirements**: `docs/Requirements.md` — the owner's feature list plus agreed decisions. Treat it as the source of truth; record new decisions there.
 - **Architecture and milestones**: `docs/Architecture.md` — design, v1 milestones (M0–M10) and decisions log.
-- **Current milestone**: M1, M2 (minus resampling), M3 (delay, reverb, compressor), M5 (library, settings), M6 (split/merge), M7 (presets, undo/redo, MIDI learn), M8 (tuner) and M9 (metronome) are done, and M4 is done (the owner prefers the neon placeholder art, with a unique symbol per pedal, to images: the Doubler's photo was removed, 2026-10-23). The IR loader (local .wav cab IRs) and the Doppelganger Delay (echoes alternate flanger/chorus; `docs/Architecture.md` 4.7b) are also done, at the owner's request, and so is the pedal set, including the second set of 18, six more synths, the Poly Chip (polyphonic chip synth), the third set of 16 (2026-10-23: Sympathetic Strings to Piano, and a Fart pedal), better note tracking (NoteTracker, Track From, Lookahead) and the Modulation Sweeper (sweeps between 2-3 of chorus/flanger/phaser/vibrato; `docs/Requirements.md` "Pedals", Architecture 4.11; owner's call: no rush to v1). Next: M10 (v1.0 release: performance, DAW testing, docs).
+- **Current milestone**: M1, M2 (minus resampling), M3 (delay, reverb, compressor), M5 (library, settings), M6 (split/merge), M7 (presets, undo/redo, MIDI learn), M8 (tuner) and M9 (metronome) are done, and M4 is done (the owner prefers the neon placeholder art, with a unique symbol per pedal, to images: the Doubler's photo was removed, 2026-10-23). The IR loader (local .wav cab IRs) and the Doppelganger Delay (echoes alternate flanger/chorus; `docs/Architecture.md` 4.7b) are also done, at the owner's request, and so is the pedal set, including the second set of 18, six more synths, the Poly Chip (polyphonic chip synth), the third set of 16 (2026-10-23: Sympathetic Strings to Piano, and a Fart pedal), better note tracking (NoteTracker, Track From, Lookahead; the poly finder too), MIDI Out (2026-10-24) and the Modulation Sweeper (sweeps between 2-3 of chorus/flanger/phaser/vibrato; `docs/Requirements.md` "Pedals", Architecture 4.11; owner's call: no rush to v1). Next: M10 (v1.0 release: performance, DAW testing, docs).
 
 ## Fixed decisions (don't revisit without the owner)
 
@@ -38,13 +38,16 @@ src/engine/           Audio engine, independent of DPF (static library `namsayin
   Block.hpp           Block base class, ParamSpec, BlockDescriptor, Category
   BlockRegistry.*     The list of built-in block types — add new effects here
   TempoSync.*         Note values for tempo-synced knobs (delay time, LFO rates)
-  Engine.*            Input stage, chain (with split/merge), tone stack, output, limiter, meters; lock-free chain swaps
+  Engine.*            Input stage, chain (with split/merge), tone stack, output, limiter, meters; lock-free chain swaps;
+                      the MIDI path (blocks' MIDI timed past later blocks' latency, queued, note-offs when a block goes)
+  MidiOutput.hpp      What blocks write MIDI into (fixed buffer), and the per-slot record of sounding notes
   ParallelWorker.*    Thread that runs split branch B on a second core
   SpscQueue.hpp       Lock-free queue (retired graphs go back to the non-RT side through it)
   dsp/                Smoother, Biquad, ToneStack, Limiter, Meter, Lfo (+ RandomLfo), Svf (+ OnePole, EnvelopeFollower),
                       Waveshapers (clipping curves), PitchShifter (delay-line voices), Fdn (8-line reverb tank),
-                      PitchTracker (YIN, real time), NoteTracker (notes from it: starts, ends, pick filter, lookahead;
-                      synths, harmonizer, octave), PickFilter (old pick filter, kept for its tests and the benchmark),
+                      PitchTracker (YIN, real time), NoteTracker (notes from it: starts, ends, velocity, pick filter,
+                      lookahead; synths, harmonizer, octave, MIDI Out), PolyNoteFinder (chords: semitone filter bank;
+                      Poly Chip, MIDI Out Poly), PickFilter (old pick filter, kept for its tests and the benchmark),
                       PeriodFinder (autocorrelation; pitch-synchronous splices for the pitch shifter, chords included)
                       Oversampler (polyphase IIR half-band, 4x, zero latency), OnsetDetector (new pick attacks),
                       Oscillator (PolyBLEP saw and pulse for the synths)
@@ -63,7 +66,8 @@ src/engine/           Audio engine, independent of DPF (static library `namsayin
                       PolyChipBlock: polyphonic chip synth from a semitone filter bank; third set: ResonatorBlocks
                       (sympathetic strings, jawari), CloudBlocks (grain cloud, swarm), TimeFxBlocks (tape stop,
                       bouncing ball, pattern delay), TextureBlocks (chaos mod, acoustic sim), PlayedBlocks (strum
-                      machine, hard tune, drum trigger), InstrumentBlocks (fart, trumpet, violin, piano))
+                      machine, hard tune, drum trigger), InstrumentBlocks (fart, trumpet, violin, piano); MidiOutBlock
+                      (MIDI notes from your playing, mono with bend or poly))
   blocks/TrackedSynth.hpp  the mono synths' shared base (note tracking, glide, octave, amplitude)
 src/state/            Plain data shared by DSP and UI, no DPF:
   ChainState          the chain (JSON; the split is a block range + per-block branch tag)
@@ -83,7 +87,8 @@ src/ui/               UI side (UI subclass, NanoVG). FolderPicker: the system fo
                       selection and word editing (no DPF, tested)
 tests/                doctest unit tests; TestSupport.hpp has a test block and an allocation counter; GuitarSignals.hpp a
                       synthetic guitar with ground truth for TrackingTests.cpp (the note tracking benchmark:
-                      NAMSAYIN_TRACKING_BENCH=1 ./build/namsayin-tests -tc="tracking benchmark")
+                      NAMSAYIN_TRACKING_BENCH=1 ./build/namsayin-tests -tc="*tracking benchmark"; PolyTrackingTests.cpp
+                      is the chords' benchmark)
 docs/                 Requirements and architecture
 resources/fonts/      Jost (variable TTF + OFL.txt); tools/embed_font.py makes the Light and Regular instances into src/ui/FontData.cpp
 resources/background/ The window background image (the owner's, generated with Krea-2 in ComfyUI); tools/embed_background.py makes it src/ui/BackgroundImage.cpp (JPEG)
@@ -138,6 +143,7 @@ The file browser opens in the host's working directory. Final checks happen in R
 - **Host parameter indices are DAW automation IDs — never reorder or remove them.** Globals come first, then 32 slots × 17 (bypass + 16; was 8, raised before release for the Doppelganger Delay — fixed from v1.0 on). Parameters added later go after the slots (`kFirstLaterParam` in `src/engine/Params.hpp`).
 - Slot parameters are normalized 0..1 for the host; each block's `ParamSpec` maps them to real values. `Choice` params list their labels in `ParamSpec::choices`; the UI draws them as a button that steps through the choices. `Momentary` params are footswitch actions (the looper's buttons): 1 while held (the UI holds a quick click for 80 ms so the DSP sees it), and the block acts on the 0 -> 1 edge, which also suits MIDI footswitches.
 - Pitch-following blocks use `TrackedInput` (Track as their last parameter, the `"lookahead"` config, `BlockDescriptor::lookahead` for the UI's Lookahead button). Lookahead stays off by default (owner, 2026-10-23). When touching the note tracking, run the benchmark before and after.
+- Blocks send MIDI through `Block::setMidiOutput()` (`MidiOutput`: frames are the block's buffer's; the engine handles the timing and ends a block's notes when it's bypassed, removed or rebuilt). The plugin has a MIDI output (`DISTRHO_PLUGIN_WANT_MIDI_OUTPUT`); in Reaper the next plugin in the FX chain receives it.
 - Blocks get the host tempo through `Block::setTempo()` and can show a level in the UI through `Block::meter()` (one hidden output parameter per slot, `slotMeterParam()`; the descriptor's `meterName` makes the panel show it). `Block::setRigInput()` gives blocks the chain's input (the noise gate's "Rig In" key).
 - Tempo sync is generic: a descriptor's `syncParam`/`syncedParam`/`syncedIsRate` make the UI show note values (`TempoSync.hpp`); the block maps the knob itself. While the host plays, `Block::setSongPosition()` gives the position in quarter notes; synced LFOs lock to it (`Lfo::syncTo`), so they land on the beat.
 - A `Choice` parameter's list must never grow or shrink once released: its normalized values would map to other choices in saved projects. Add a new block type instead.
