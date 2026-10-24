@@ -65,20 +65,21 @@ std::vector<float> digitalClick(double frequency, double rate)
 
 } // namespace
 
-const std::vector<double>& Metronome::subdivisionOffsets(MetroSubdivision subdivision)
+const Metronome::Offsets& Metronome::subdivisionOffsets(MetroSubdivision subdivision)
 {
-    static const std::vector<double> offsets[] = {
-        { 0.0 },
-        { 0.0, 1.0 / 2 },
-        { 0.0, 1.0 / 3, 2.0 / 3 },
-        { 0.0, 1.0 / 4, 2.0 / 4, 3.0 / 4 },
-        { 0.0, 1.0 / 5, 2.0 / 5, 3.0 / 5, 4.0 / 5 },
-        { 0.0, 1.0 / 6, 2.0 / 6, 3.0 / 6, 4.0 / 6, 5.0 / 6 },
-        { 0.0, 2.0 / 3 },
-        { 0.0, 3.0 / 4 },
-        { 0.0, 1.0 / 2, 3.0 / 4 },
-        { 0.0, 1.0 / 4, 1.0 / 2 },
-        { 0.0, 1.0 / 4, 3.0 / 4 },
+    // (constant: a table of vectors was built on the first click, allocating on the audio thread)
+    static constexpr Offsets offsets[] = {
+        { { 0.0 }, 1 },
+        { { 0.0, 1.0 / 2 }, 2 },
+        { { 0.0, 1.0 / 3, 2.0 / 3 }, 3 },
+        { { 0.0, 1.0 / 4, 2.0 / 4, 3.0 / 4 }, 4 },
+        { { 0.0, 1.0 / 5, 2.0 / 5, 3.0 / 5, 4.0 / 5 }, 5 },
+        { { 0.0, 1.0 / 6, 2.0 / 6, 3.0 / 6, 4.0 / 6, 5.0 / 6 }, 6 },
+        { { 0.0, 2.0 / 3 }, 2 },
+        { { 0.0, 3.0 / 4 }, 2 },
+        { { 0.0, 1.0 / 2, 3.0 / 4 }, 3 },
+        { { 0.0, 1.0 / 4, 1.0 / 2 }, 3 },
+        { { 0.0, 1.0 / 4, 3.0 / 4 }, 3 },
     };
     const int index = std::clamp(static_cast<int>(subdivision), 0, static_cast<int>(MetroSubdivision::Count) - 1);
     return offsets[index];
@@ -167,7 +168,7 @@ void Metronome::processFree(float* out, uint32_t frames, const Settings& setting
         fLiveBpm = std::clamp(fTrainer != MetroTrainer::Off ? settings.trainerStart : settings.bpm, kMinBpm, kMaxBpm);
     }
 
-    const std::vector<double>& offsets = subdivisionOffsets(settings.subdivision);
+    const Offsets& offsets = subdivisionOffsets(settings.subdivision);
     uint32_t cursor = 0;
     for (;;)
     {
@@ -210,7 +211,7 @@ void Metronome::processSync(float* out, uint32_t frames, const Settings& setting
     fSyncWasPlaying = true;
     fLastSyncBeat = end;
 
-    const std::vector<double>& offsets = subdivisionOffsets(settings.subdivision);
+    const Offsets& offsets = subdivisionOffsets(settings.subdivision);
     const int beatsPerBar = std::clamp(transport.beatsPerBar, 1, kMaxBeats);
     uint32_t cursor = 0;
     // From the beat before, as its subdivisions may fall in this buffer. A click just before `start` (by less

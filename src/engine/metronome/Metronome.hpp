@@ -75,8 +75,14 @@ public:
         bool silent = false;    // the gap trainer is muting
     };
 
-    // Onsets of each subdivision within a beat, as fractions of the beat
-    static const std::vector<double>& subdivisionOffsets(MetroSubdivision subdivision);
+    // Onsets of each subdivision within a beat, as fractions of the beat (a fixed table: the audio thread reads it)
+    struct Offsets {
+        double values[6];
+        size_t count;
+        size_t size() const { return count; }
+        double operator[](size_t i) const { return values[i]; }
+    };
+    static const Offsets& subdivisionOffsets(MetroSubdivision subdivision);
 
     // Non-RT. Renders the sounds at this rate.
     void prepare(double sampleRate);
