@@ -448,3 +448,20 @@ TEST_CASE("the poly note finder on the owner's recordings")
     CHECK(plain.back().stray <= 200);
     CHECK(plain.back().strayMs <= 6500.0);
 }
+
+TEST_CASE("the note tracker on the owner's recordings")
+{
+    if (clips().empty())
+    {
+        MESSAGE("no decoded recordings (tools/decode_recordings.sh): skipped");
+        return;
+    }
+    // before the check for a chord's octave below its root (2026-10-24): 19.8 s missing, 146 stray notes (15.6 s,
+    // 13.0 s of it an octave or a fifth below a note)
+    const auto mono = realBench("note tracker (mono)", monoTracker(0.0f, 0.0), true, false);
+    CHECK(mono.back().missed == 0);
+    CHECK(mono.back().missingMs <= 14000.0);
+    CHECK(mono.back().stray <= 130);
+    CHECK(mono.back().strayMs <= 7000.0);
+    CHECK(mono.back().straySubMs <= 4500.0);
+}

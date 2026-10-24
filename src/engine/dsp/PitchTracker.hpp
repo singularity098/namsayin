@@ -20,7 +20,8 @@ namespace namsayin {
 // periods, and is relative to the windows' energy, so fast swells and decays don't blur it. YIN's cumulative-mean
 // normalized difference and absolute threshold keep it on the fundamental of a plucked string, whose harmonics are
 // often stronger. A note is reported from about 10 ms after it starts; no latency is added to the audio. Chords
-// confuse it (it reports no pitch, or one of the notes).
+// confuse it (it reports no pitch, or one of the notes); a chord whose notes repeat together an octave below its root
+// (power chords, major chords) reports the root, not that octave.
 class PitchTracker {
 public:
     static constexpr double kMinHz = 60.0;
@@ -100,6 +101,9 @@ private:
     static constexpr float kThreshold = 0.15f;  // YIN's absolute threshold
     static constexpr float kVoicedLimit = 0.35f; // above this at the best lag: no clear pitch
     static constexpr float kGateLevel = 0.002f;
+    static constexpr double kSubCheckHz = 200.0; // pitches under this are checked for a chord's octave below
+    static constexpr float kSubBoth = 0.2f;        // ... its 2nd and 3rd harmonics within 14 dB of each other
+    static constexpr float kSubFundamental = 0.05f; // ... and its 1st 26 dB under them
 
     float at(int age) const { return fHistory[static_cast<size_t>((fWrite - 1 - age + 2 * kHistory) % kHistory)]; }
     float fullAt(int age) const
@@ -208,8 +212,37 @@ private:
             if (denom > 0.0f)
                 lag += std::clamp(0.5 * (a - c) / denom, -0.5, 0.5);
         }
+        // a chord's notes (a power chord's root and fifth, an open chord's root, fifth and third) repeat together
+        // every two root periods, an octave below the root, with nothing there: then it's the root (owner's
+        // recordings: B1 under a B5, D2 under an open D)
+        if (fSampleRate / (lag * fDecimation) < kSubCheckHz && 2 * lag + 2 < kHistory && octaveBelowChord(lag))
+            lag *= 0.5;
         fHz = fSampleRate / refine(lag);
         return true;
+    }
+
+    // Over the last two periods (Hann window, so the harmonics land on whole bins without leaking into each other):
+    // the 2nd and 3rd harmonics both strong and the 1st nearly absent. A low string's own fundamental can be weak too,
+    // but rarely this weak (a synthetic pluck in PedalTests has its 23-26 dB under; on the owner's recordings 20 dB
+    // took a few more of the chords' octave-below notes away than 26 dB does).
+    bool octaveBelowChord(double lag) const
+    {
+        const int n = static_cast<int>(std::lround(2.0 * lag));
+        std::array<float, 3> mag {};
+        for (int h = 0; h < 3; ++h)
+        {
+            double re = 0.0, im = 0.0;
+            const double w = 2.0 * M_PI * 2 * (h + 1) / n; // harmonic h + 1 is bin 2 (h + 1)
+            for (int j = 0; j < n; ++j)
+            {
+                const double v = (0.5 - 0.5 * std::cos(2.0 * M_PI * j / n)) * at(n - 1 - j);
+                re += v * std::cos(w * j);
+                im -= v * std::sin(w * j);
+            }
+            mag[static_cast<size_t>(h)] = static_cast<float>(std::sqrt(re * re + im * im));
+        }
+        const float strong = std::max(mag[1], mag[2]);
+        return std::min(mag[1], mag[2]) > kSubBoth * strong && mag[0] < kSubFundamental * strong;
     }
 
     double fSampleRate = 48000.0;
