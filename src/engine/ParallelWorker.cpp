@@ -32,7 +32,7 @@ void ParallelWorker::start(Job job, void* context)
     {
         fPriorityRequested = true;
 #ifndef _WIN32
-        fAudioThread = static_cast<unsigned long>(pthread_self());
+        fAudioThread = pthread_self();
 #endif
         fTakePriority.store(true, std::memory_order_relaxed);
     }
@@ -80,7 +80,7 @@ void ParallelWorker::takeAudioThreadPriority()
 #else
     int policy = 0;
     sched_param param {};
-    if (pthread_getschedparam(static_cast<pthread_t>(fAudioThread), &policy, &param) == 0)
+    if (pthread_getschedparam(fAudioThread, &policy, &param) == 0)
         pthread_setschedparam(pthread_self(), policy, &param);
 #endif
 }

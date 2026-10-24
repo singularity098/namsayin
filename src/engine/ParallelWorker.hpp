@@ -7,6 +7,10 @@
 #include <cstdint>
 #include <thread>
 
+#ifndef _WIN32
+#include <pthread.h>
+#endif
+
 namespace namsayin {
 
 // A thread that runs one job at a time for the audio thread: branch B of a split runs here while the audio thread
@@ -45,7 +49,7 @@ private:
     bool fPriorityRequested = false; // audio thread side
     std::atomic<bool> fTakePriority { false };
 #ifndef _WIN32
-    unsigned long fAudioThread = 0;  // pthread_t of the audio thread
+    pthread_t fAudioThread {}; // the audio thread (an integer on Linux, a pointer on macOS)
 #endif
 };
 
