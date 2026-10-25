@@ -18,15 +18,17 @@ namespace namsayin {
 // The logos, shared by amps and cabs
 enum Badge { BadgeNone, BadgeCircle, BadgeDiamond, BadgeBolt, BadgeStar, BadgePlate, BadgeTriangle, kBadges };
 
+// Amps are always a wide head (owner, 2026-10-25; combos were dropped), in reds and oranges
 struct AmpLook {
     enum Grille { Slats, Bars, Crosshatch, Perforated, Waves, Zigzag, kGrilles };
-    enum Body { Head, Combo, kBodies };
+
+    static constexpr float kMinHue = -6.0f; // a crimson red
+    static constexpr float kMaxHue = 32.0f; // an orange
 
     int knobs = 6;           // along the top panel, 3..7
     Grille grille = Slats;   // the pattern of the grille
     Badge badge = BadgeNone; // the logo on the grille
-    Body body = Head;        // a landscape head, or a taller combo
-    float hue = 0.0f;        // shift of the amp colour, in degrees
+    float hue = 0.0f;        // the amp's colour, in degrees on the colour wheel (0 red, 30 orange); mostly red
     std::array<float, 7> turns { 0.55f, 0.4f, 0.65f, 0.5f, 0.35f, 0.6f, 0.45f }; // knob positions, 0..1
 };
 

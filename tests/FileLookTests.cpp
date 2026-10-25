@@ -16,7 +16,7 @@ namespace {
 // File paths like a library's, different for each n
 std::string fakePath(int n) { return "/home/me/Guitar/Models/Amp " + std::to_string(n) + ".nam"; }
 
-auto ampKey(const AmpLook& look) { return std::tuple(look.knobs, look.grille, look.badge, look.body); }
+auto ampKey(const AmpLook& look) { return std::tuple(look.knobs, look.grille, look.badge); }
 auto cabKey(const CabLook& look)
 {
     return std::tuple(look.cone, look.cloth, look.badge, look.corners);
@@ -45,8 +45,7 @@ TEST_CASE("a file always gets the same look")
     CHECK(amp.knobs == 5);
     CHECK(amp.grille == AmpLook::Crosshatch);
     CHECK(amp.badge == BadgeStar);
-    CHECK(amp.body == AmpLook::Head);
-    CHECK(amp.hue == doctest::Approx(-3.9805f).epsilon(1e-4));
+    CHECK(amp.hue == doctest::Approx(0.99096f).epsilon(1e-4));
     const CabLook cab = cabLook(path);
     CHECK(cab.cone == CabLook::BigCap);
     CHECK(cab.cloth == CabLook::Vertical);
@@ -58,14 +57,18 @@ TEST_CASE("a file always gets the same look")
 
 TEST_CASE("looks stay in range and use every option")
 {
-    std::set<int> knobs, grilles, badges, bodies, cones, cloths, cabBadges, corners;
+    std::set<int> knobs, grilles, badges, cones, cloths, cabBadges, corners;
+    int reds = 0, oranges = 0;
     for (int n = 0; n < 500; ++n)
     {
         const AmpLook amp = ampLook(fakePath(n));
         CHECK(amp.knobs >= 3);
         CHECK(amp.knobs <= 7);
-        CHECK(amp.hue >= -28.0f);
-        CHECK(amp.hue <= 28.0f);
+        // reds and oranges, mostly red
+        CHECK(amp.hue >= AmpLook::kMinHue);
+        CHECK(amp.hue <= AmpLook::kMaxHue);
+        reds += amp.hue < 15.0f ? 1 : 0;
+        oranges += amp.hue >= 22.0f ? 1 : 0;
         for (const float turn : amp.turns)
         {
             CHECK(turn >= 0.0f);
@@ -74,7 +77,6 @@ TEST_CASE("looks stay in range and use every option")
         knobs.insert(amp.knobs);
         grilles.insert(amp.grille);
         badges.insert(amp.badge);
-        bodies.insert(amp.body);
 
         const CabLook cab = cabLook(fakePath(n));
         CHECK(cab.hue >= -60.0f);
@@ -87,7 +89,8 @@ TEST_CASE("looks stay in range and use every option")
     CHECK(knobs.size() == 5);
     CHECK(grilles.size() == AmpLook::kGrilles);
     CHECK(badges.size() == kBadges);
-    CHECK(bodies.size() == AmpLook::kBodies);
+    CHECK(reds > 300);
+    CHECK(oranges > 50);
     CHECK(cones.size() == CabLook::kCones);
     CHECK(cloths.size() == CabLook::kCloths);
     CHECK(cabBadges.size() == kBadges);
@@ -96,7 +99,7 @@ TEST_CASE("looks stay in range and use every option")
 
 TEST_CASE("files in a library mostly look different")
 {
-    // 420 amp shapes and 168 cab shapes (before colour and knob positions): among 40 files few should share one
+    // 210 amp shapes and 168 cab shapes (before colour and knob positions): among 40 files few should share one
     std::set<decltype(ampKey(AmpLook()))> amps;
     std::set<decltype(cabKey(CabLook()))> cabs;
     for (int n = 0; n < 40; ++n)

@@ -80,7 +80,7 @@ constexpr int accentCount = sizeof(accents) / sizeof(accents[0]);
 constexpr int accentOrder[accentCount] = { 1, 0, 2, 3, 4, 5, 6 };
 Color accent = accents[1];
 const Color neonBody(0x0a, 0x0a, 0x0d);
-const Color amp(0xb4, 0x78, 0x4c);
+const Color amp(0xd8, 0x30, 0x24);
 const Color cab(0x7e, 0x86, 0x96);
 const Color pedalDelay(0x2f, 0x9e, 0x91);
 const Color pedalReverb(0x4c, 0x7c, 0xe0);
@@ -3602,22 +3602,24 @@ private:
 
         if (type->category == Category::Nam)
         {
-            // amp: knobs along the top, a glowing grille; the body, knobs, grille, logo and colour from the file
-            // (ampLook())
+            // amp: a wide head, knobs along the top, a glowing grille; the knobs, grille, logo and colour (a red or
+            // an orange) from the file (ampLook())
             const AmpLook look = ampLook(key);
-            color = shiftHue(color, look.hue);
-            const float ratio = look.body == AmpLook::Combo ? 1.2f : 1.7f;
+            color = Color::fromHSL(look.hue / 360.0f + (look.hue < 0.0f ? 1.0f : 0.0f), 0.78f, 0.52f);
+            color.interpolate(Color(1.0f, 1.0f, 1.0f), 0.2f); // lit
+            constexpr float ratio = 2.4f;
             float aw = w, ah = w / ratio;
             if (ah > h)
             {
                 ah = h;
                 aw = h * ratio;
             }
-            const float unit = aw / 1.7f; // the head's height, which sizes the details
+            const float unit = ah; // the head's height, which sizes the details
             const float ax = cx - aw / 2, ay = cy - ah / 2;
-            fillRect(ax, ay, aw, ah, theme::neonBody, aw * 0.05f);
+            const float inset = unit * 0.017f;
+            fillRect(ax, ay, aw, ah, theme::neonBody, unit * 0.085f);
             beginPath();
-            roundedRect(ax + aw * 0.01f, ay + aw * 0.01f, aw * 0.98f, ah - aw * 0.02f, aw * 0.045f);
+            roundedRect(ax + inset, ay + inset, aw - 2 * inset, ah - 2 * inset, unit * 0.075f);
             glowStroke(color, unit * 0.012f * line);
             float gy = ay + ah * 0.16f, gh = ah * 0.68f;
             if (detailed)
@@ -3653,9 +3655,9 @@ private:
                 gy = ay + ah * 0.26f;
                 gh = ah * 0.62f;
             }
-            const float gx = ax + aw * 0.07f, gw = aw * 0.86f;
+            const float gx = ax + unit * 0.12f, gw = aw - unit * 0.24f;
             beginPath();
-            roundedRect(gx, gy, gw, gh, aw * 0.025f);
+            roundedRect(gx, gy, gw, gh, unit * 0.042f);
             glowStroke(color, unit * 0.012f * line);
             drawGrille(look.grille, gx, gy, gw, gh, detailed, color, unit * 0.012f * line);
             drawBadge(look.badge, gx + gw / 2, gy + gh / 2, std::min(gh * 0.2f, gw * 0.09f), color,

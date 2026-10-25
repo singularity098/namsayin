@@ -47,8 +47,10 @@ AmpLook ampLook(std::string_view key)
     look.knobs = 3 + dice.below(5);
     look.grille = static_cast<AmpLook::Grille>(dice.below(AmpLook::kGrilles));
     look.badge = static_cast<Badge>(dice.below(kBadges));
-    look.body = static_cast<AmpLook::Body>(dice.below(AmpLook::kBodies));
-    look.hue = dice.between(-28.0f, 28.0f);
+    dice.next(); // was the body (head or combo); still drawn, so the other choices stay as they were
+    // reds mostly, oranges now and then
+    const float u = dice.unit();
+    look.hue = AmpLook::kMinHue + (AmpLook::kMaxHue - AmpLook::kMinHue) * u * u;
     for (float& turn : look.turns)
         turn = dice.between(0.2f, 0.8f);
     return look;
