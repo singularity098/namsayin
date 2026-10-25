@@ -32,10 +32,15 @@ namespace namsayin {
 //
 // Like the single-note tracker (NoteTracker.hpp), it also follows the input's own level (a peak follower that holds
 // for the lowest note's period, then falls fast) and its noise floor: a band louder than the input itself is only
-// ringing on in its filters (after a mute), so its note ends at once, and notes need to stand over the noise floor.
-// A playing note keeps a head start over its neighbours (no flicker), a playing note that falls away fast just
-// after a pick was muted for the new one, and a note picked
-// again (a pick, then its band's level jumping) starts afresh (Frame::start without a gap, for MIDI).
+// ringing on in its filters (after a mute), so its note ends at once. Each band also has a noise floor of its own
+// (learnt in the first 250 ms while the input is quiet, then down quickly and up slowly), and a note needs to stand
+// 12 dB over its band's, so the hiss and hum of a live input don't cut short notes well over them (the input's own
+// floor only gates at half).
+// A playing note keeps a head start over its neighbours, and one that is briefly not found (a harmonic of another
+// note outscoring it for a moment) keeps sounding for up to 40 ms unless its level falls meanwhile, a pick comes or
+// a neighbour takes over (a bend or slide), so it doesn't flicker. A playing note that falls away fast just after a
+// pick was muted for the new one, and a note picked again (a pick, then its band's level jumping) starts afresh
+// (Frame::start without a gap, for MIDI).
 //
 // Each hop's result is a Frame. With lookahead the frames are played that many whole hops later, and a new note is
 // written back over its pick-filter wait and its band's ring-up, so it starts on time.
@@ -96,6 +101,12 @@ public:
         fEnvHold = static_cast<int>(sampleRate / 60.0);
         fFloorFall = 1.0f - EnvelopeFollower::coef(sampleRate, 20.0);
         fFloorRise = static_cast<float>(std::pow(10.0, 6.0 / 20.0 / sampleRate));
+        fBandFloorFall = 1.0f - static_cast<float>(std::exp(-fHopMs / kBandFloorFallMs));
+        for (int r = 0; r < 3; ++r)
+            fBandFloorRise[r] = static_cast<float>(std::pow(10.0, kBandFloorRiseDb[r] / 20.0 * fHopMs / 1000.0));
+        fLearnHops = static_cast<int>(std::lround(kLearnMs / fHopMs));
+        fLearnCoef = 1.0f - static_cast<float>(std::exp(-fHopMs / 30.0));
+        fLostHops = static_cast<int>(std::lround(kLostMs / fHopMs));
         fRepickHops = static_cast<int>(std::lround(kRepickMs / fHopMs));
         fMutedHops = static_cast<int>(std::lround(kMutedMs / fHopMs));
         setLookahead(fLookaheadMs);
@@ -137,7 +148,10 @@ public:
             band.on = band.sounding = false;
             band.waited = 0;
             band.recent = 0;
+            band.lost = 0;
+            band.lostLevel = 0.0f;
             band.atPick = 0.0f;
+            band.floor = kStartFloor;
         }
         fOnset.reset();
         fClick.reset();
@@ -151,6 +165,7 @@ public:
         std::fill(fFrames.begin(), fFrames.end(), Frame {});
         fHopCount = 0;
         fSinceHop = 0;
+        fLearning = true;
     }
 
     // One input sample; true when a new frame is ready to play (playFrame())
@@ -200,6 +215,9 @@ private:
         int waited = 0;        // hops it has been found while the Pick Filter holds it
         float pending = 0.0f;  // its peak level meanwhile
         int recent = 0;        // hops it keeps measuring its pitch after it stops (the voice's release)
+        int lost = 0;          // hops a sounding note hasn't been found
+        float lostLevel = 0.0f; // its level when it was lost
+        float floor = 0.0f;    // its noise floor
         float atPick = 0.0f;   // its level at the last pick (a jump from it: picked again)
     };
 
@@ -242,7 +260,16 @@ private:
     static constexpr double kMutedMs = 40.0;   // after a pick, a note falling under kMutedFall of its level within
     static constexpr float kMutedFall = 0.7f;  // this long was muted
     static constexpr float kStale = 1.5f;      // a band this much louder than the input is ringing on by itself
-    static constexpr float kFloorGate = 4.0f;  // notes stand 12 dB over the noise floor
+    static constexpr float kFloorGate = 4.0f;  // notes stand 12 dB over their band's noise floor
+    static constexpr float kInputFloorGate = 0.5f; // ... and over half the input's
+    static constexpr float kStartFloor = 0.0001f;
+    static constexpr double kLearnMs = 250.0;  // the bands' floors are learnt this long after a reset (no notes)
+    static constexpr float kLearnLevel = 0.005f; // ... while the input stays under this (-46 dBFS): playing
+    static constexpr double kBandFloorFallMs = 300.0;
+    // how fast a band's floor rises (dB/s): while nothing sounds, while other notes sound, and while it sounds
+    static constexpr double kBandFloorRiseDb[3] = { 20.0, 3.0, 1.0 };
+    static constexpr double kLostMs = 40.0;    // a playing note not found keeps sounding this long
+    static constexpr float kLostFall = 0.7f;   // ... unless it falls under this share of its level meanwhile
     // Semitones from a note up to its 1st..8th harmonics (the 7th, 33.7, rounds to 34)
     static constexpr int kPartials = 8;
     static constexpr int kPartialSteps[kPartials] = { 0, 12, 19, 24, 28, 31, 34, 36 };
@@ -311,9 +338,58 @@ private:
         band.measured = std::clamp(band.measured, band.dt / up, band.dt * up);
     }
 
+    // Each band's noise floor: learnt after a reset, then down quickly to the band's level and up slowly (fastest
+    // while nothing sounds; slowly under a note, so a steady hum that starts later is found out too)
+    void followBandFloors(const std::array<float, kMeasured>& level)
+    {
+        if (fLearning && (fHopCount >= fLearnHops || fEnvelope > kLearnLevel))
+            fLearning = false;
+        for (int b = 0; b < kBands; ++b)
+        {
+            Band& band = fBands[b];
+            if (fLearning)
+                band.floor += (level[b] - band.floor) * fLearnCoef;
+            else if (level[b] < band.floor)
+                band.floor += (level[b] - band.floor) * fBandFloorFall;
+            else
+                band.floor = std::min(0.03f, band.floor * fBandFloorRise[fSounding == 0 ? 0 : band.sounding ? 2 : 1]);
+        }
+    }
+
+    // A playing note not found this hop keeps sounding a little longer, so it doesn't flicker; not when its level
+    // falls (a mute), a pick comes, or a neighbour is louder or a note starts next to it (a bend, a slide, the next
+    // note)
+    void holdLostNotes(const std::array<float, kMeasured>& level, int count)
+    {
+        for (int b = 0; b < kBands; ++b)
+        {
+            Band& band = fBands[b];
+            if (band.on || !band.sounding)
+            {
+                band.lost = 0;
+                continue;
+            }
+            if (band.lost == 0)
+                band.lostLevel = level[b];
+            // (a louder neighbour: the note moved there)
+            bool moved = fSincePick == 0 || (b > 0 && level[b - 1] > level[b]) || level[b + 1] > level[b];
+            for (int d = -2; d <= 2; ++d)
+                if (d != 0 && b + d >= 0 && b + d < kBands && fBands[b + d].on && !fBands[b + d].sounding)
+                    moved = true;
+            if (!moved && count < fVoices && ++band.lost <= fLostHops && !stale(level[b])
+                && level[b] >= kLostFall * band.lostLevel && level[b] > gate(b))
+            {
+                band.on = true;
+                ++count;
+            }
+        }
+    }
+
+    // The level a note in band b must be over
+    float gate(int b) const { return std::max({ kFloor, kFloorGate * fBands[b].floor, kInputFloorGate * fFloor }); }
+
     void pickNotes()
     {
-        const float floor = std::max(kFloor, kFloorGate * fFloor);
         // at the band's note the band-pass and low-pass outputs have equal size and are a quarter cycle apart, so
         // together they give the amplitude without ripple; k makes the peak gain 1
         std::array<float, kMeasured> level {};
@@ -322,6 +398,7 @@ private:
             const Filter& filter = fFilters[m];
             level[m] = filter.stages[1].k() * std::sqrt(filter.bp * filter.bp + filter.lp * filter.lp);
         }
+        followBandFloors(level);
 
         // Find the notes one at a time: each candidate scores the weighted sum of its harmonics' levels; the best
         // is a note, and what it explains (its harmonics, and what of them the neighbouring bands let through) is
@@ -335,7 +412,7 @@ private:
         float first = 0.0f;
         for (int b = 0; b < kBands; ++b)
             fBands[b].level = level[b];
-        while (count < fVoices)
+        while (count < fVoices && !fLearning)
         {
             std::array<float, kBands> scores {};
             int best = -1;
@@ -347,7 +424,7 @@ private:
                 const float self = level[b] * (fBands[b].sounding ? kHold : 1.0f);
                 // (the lowest band has no neighbour below: it must stand clearly over the one above, or a palm
                 // mute's thump is a C2)
-                if (!(self > (b > 0 ? level[b - 1] : level[b + 1]) && self >= level[b + 1]) || level[b] * hold <= floor
+                if (!(self > (b > 0 ? level[b - 1] : level[b + 1]) && self >= level[b + 1]) || level[b] * hold <= gate(b)
                     || stale(level[b]) || rest[b] * hold < kOwnShare * level[b])
                     continue;
                 float score = 0.0f, strongest = 0.0f, low = 0.0f;
@@ -403,6 +480,7 @@ private:
             band.on = false;
         for (int v = 0; v < count; ++v)
             fBands[chosen[v]].on = true;
+        holdLostNotes(level, count);
 
         // a pick: remember each sounding note's level, to tell a fresh pick of it from its ringing on
         // (the strings of a strum are several picks a few ms apart: the levels are the first one's)
@@ -518,6 +596,10 @@ private:
     int fSincePick = 1 << 20;
     int64_t fPickHop = 0;
     int fRepickHops = 22, fMutedHops = 45;
+    int fLearnHops = 375, fLostHops = 60;
+    bool fLearning = true;
+    float fLearnCoef = 0.02f, fBandFloorFall = 0.002f;
+    std::array<float, 3> fBandFloorRise { 1.0f, 1.0f, 1.0f };
     float fEnvelope = 0.0f, fFloor = 0.0003f;
     float fEnvAttack = 1.0f, fEnvRelease = 0.99f, fFloorFall = 0.001f, fFloorRise = 1.0f;
     int fHold = 0, fEnvHold = 800;

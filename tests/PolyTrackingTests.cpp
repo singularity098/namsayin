@@ -246,14 +246,61 @@ TEST_CASE("the poly note finder plays chords with few extra notes and no flicker
     // missed, 143 extra (2.7 s), 1.3 s of dropouts. The owner's recordings (RealTrackingTests.cpp) led to finding the
     // notes by their harmonics (2026-10-24): fewer missed and far fewer dropouts here, somewhat more extra time (the
     // synthetic guitar's strong fundamentals don't need it; real DI does), and on the recordings a third fewer strays.
+    // Holding a note briefly not found for up to 40 ms (2026-10-25: the owner heard notes cut short) adds extra time
+    // here (4.0 to 6.4 s; 5.8 to 8.1 s with lookahead), mostly notes ending up to 40 ms late, which the Poly Chip's
+    // release covers anyway; on the recordings a fifth less missing time.
     const auto plain = polyBench("poly note finder", finderTracker(0.0), false);
     CHECK(plain.back().missed <= 38);
     CHECK(plain.back().extra <= 140);
-    CHECK(plain.back().extraMs <= 4500.0);
+    CHECK(plain.back().extraMs <= 7000.0);
     CHECK(plain.back().dropoutMs <= 400.0);
     CHECK(plain[0].dropoutMs <= 300.0); // strummed chords: the thirds don't flicker
     const auto ahead = polyBench("poly note finder, lookahead 20 ms", finderTracker(20.0), false);
     CHECK(ahead.back().missed <= 21);
-    CHECK(ahead.back().extraMs <= 6500.0);
+    CHECK(ahead.back().extraMs <= 8800.0);
     CHECK(ahead[2].medianDelayMs <= 10.0); // single notes start nearly on time
+}
+
+TEST_CASE("the poly note finder plays notes over a live input's hiss and hum to the end, and not the hum")
+{
+    // 400 ms of hiss and mains hum (60 Hz and 180 Hz, -60 dB), then an A3 with its harmonics at -30 dB, fading
+    // 12 dB a second, over it. Gated over the input's own noise floor (before 2026-10-25), it stopped 2.6 s in,
+    // still clearly over the noise in its band.
+    constexpr double rate = 48000.0;
+    PolyNoteFinder finder;
+    finder.prepare(rate);
+    finder.setVoices(4);
+    finder.setFocus(std::exp2(6.0f * 0.7f - 3.0f));
+    finder.setPickFilter(15.0f);
+    uint32_t seed = 1;
+    const size_t start = static_cast<size_t>(0.4 * rate), length = static_cast<size_t>(3.4 * rate);
+    const int a3 = 57 - PolyNoteFinder::kFirstNote;
+    int humNotes = 0;
+    double lastA3 = 0.0;
+    testing::AllocationGuard guard;
+    for (size_t t = 0; t < length; ++t)
+    {
+        seed = seed * 1664525u + 1013904223u;
+        const double s = static_cast<double>(t) / rate;
+        float x = 0.001f * ((static_cast<float>(seed >> 8) / 8388608.0f - 1.0f) * 1.732f
+                            + static_cast<float>(std::sin(2.0 * M_PI * 60.0 * s) + 0.5 * std::sin(2.0 * M_PI * 180.0 * s)));
+        if (t >= start)
+        {
+            const double since = static_cast<double>(t - start) / rate;
+            const double amp = 0.03 * std::pow(10.0, -12.0 * since / 20.0);
+            for (int h = 1; h <= 4; ++h)
+                x += static_cast<float>(amp / h * std::sin(2.0 * M_PI * 220.0 * h * since));
+        }
+        if (!finder.process(x))
+            continue;
+        const PolyNoteFinder::Frame& f = finder.playFrame();
+        for (int b = 0; b < PolyNoteFinder::kBands; ++b)
+            if (f.sounding[b] && b != a3 && b != a3 + 12 && b != a3 + 19)
+                ++humNotes;
+        if (f.sounding[a3])
+            lastA3 = s;
+    }
+    CHECK(guard.count() == 0);
+    CHECK(humNotes == 0);
+    CHECK(lastA3 > 3.3); // to the end: 3 s on, 36 dB down
 }
