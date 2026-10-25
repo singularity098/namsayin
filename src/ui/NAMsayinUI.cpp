@@ -63,6 +63,7 @@ const Color overlay(0, 0, 0, 0.7f);
 const Color border(255, 255, 255, 0.10f);
 const Color text(0xe6, 0xe6, 0xea);
 const Color textDim(0x8a, 0x8a, 0x94);
+const Color textFaint(0x5c, 0x5c, 0x64); // the category under each tile
 const Color good(0x4c, 0xc9, 0x7a);
 const Color warn(0xf0, 0xc0, 0x40);
 const Color bad(0xe5, 0x48, 0x4d);
@@ -116,6 +117,7 @@ constexpr float kKnobRadius = 22.0f;
 constexpr float kCellWidth = 96.0f;
 constexpr float kCellHeight = 128.0f;
 constexpr float kPanelMargin = 16.0f;
+constexpr float kListBarWidth = 14.0f; // a dialog list's scroll bar, at its right edge
 constexpr uint kDoubleClickMs = 350;
 constexpr auto kTunerHold = std::chrono::milliseconds(1000); // the tuner keeps showing the last note this long
 
@@ -154,6 +156,7 @@ enum class Hit {
     Split,        // add an empty split; index = position in the chain
     Insert,       // add a block at a gap; index = drop point in the layout
     ChainScroll,  // the chain's scroll bar
+    ListScroll,   // a dialog list's scroll bar
     Merge,        // select the merge
     MergeRemove,  // remove the split
     SetValue,     // index = host parameter, set to `value` (real units)
@@ -840,6 +843,18 @@ protected:
             return true;
         }
 
+        case Hit::ListScroll: {
+            const float thumbY = listThumbY();
+            if (y < thumbY || y > thumbY + fListThumbH)
+                fListScroll = std::clamp((y - fListThumbH / 2 - fListTrack.y) / (fListTrack.h - fListThumbH)
+                                             * fListMaxScroll, 0.0f, fListMaxScroll);
+            fListScrollDragging = true;
+            fListGrabY = y;
+            fListGrabValue = fListScroll;
+            repaint();
+            return true;
+        }
+
         case Hit::Merge:
             fMergeSelected = true;
             repaint();
@@ -1160,6 +1175,14 @@ protected:
         if (fSelectingText && fFocusedField >= 0)
         {
             focusedEdit().setCursor(fieldPosAt(fFocusedField, x), true);
+            repaint();
+            return true;
+        }
+        if (fListScrollDragging)
+        {
+            if (fListTrack.h > fListThumbH)
+                fListScroll = std::clamp(fListGrabValue + (y - fListGrabY) * fListMaxScroll / (fListTrack.h - fListThumbH),
+                                         0.0f, fListMaxScroll);
             repaint();
             return true;
         }
@@ -2716,9 +2739,9 @@ private:
             fSelectingText = false;
             return true;
         }
-        if (fScrollDragging)
+        if (fScrollDragging || fListScrollDragging)
         {
-            fScrollDragging = false;
+            fScrollDragging = fListScrollDragging = false;
             repaint();
             return true;
         }
@@ -4600,6 +4623,36 @@ private:
         fHits.push_back({ grab, Hit::ChainScroll, 0 });
     }
 
+    float listThumbY() const
+    {
+        return fListTrack.y + (fListTrack.h - fListThumbH) * (fListMaxScroll > 0.0f ? fListScroll / fListMaxScroll : 0.0f);
+    }
+
+    // The scroll bar of a dialog's list (fListScroll), in the kListBarWidth strip at x, when the content is taller than
+    // the list: drag it, or click beside the thumb to jump there, for those without a scroll wheel
+    void drawListScrollBar(float x, float y, float h, float contentH)
+    {
+        fListMaxScroll = std::max(0.0f, contentH - h);
+        if (fListMaxScroll <= 0.0f || h <= 0.0f)
+        {
+            fListTrack = Rect {};
+            return;
+        }
+        fListTrack = { x + (kListBarWidth - 6.0f) / 2, y, 6.0f, h };
+        fListThumbH = std::min(h, std::max(30.0f, h * h / contentH));
+        const Rect grab { x, y, kListBarWidth, h };
+        const bool hot = fListScrollDragging || grab.contains(fMouseX, fMouseY);
+        fillRect(fListTrack.x, fListTrack.y, fListTrack.w, fListTrack.h, theme::inset, 3.0f);
+        beginPath();
+        roundedRect(fListTrack.x + 0.5f, fListTrack.y + 0.5f, fListTrack.w - 1.0f, fListTrack.h - 1.0f, 3.0f);
+        strokeColor(theme::border);
+        strokeWidth(1.0f);
+        stroke();
+        fillRect(fListTrack.x, listThumbY(), fListTrack.w, fListThumbH, hot ? theme::accent : theme::textDim.withAlpha(0.5f),
+                 3.0f);
+        fHits.push_back({ grab, Hit::ListScroll, 0 });
+    }
+
     void drawMergeTile()
     {
         const Rect& r = fLayout.merge;
@@ -4671,9 +4724,8 @@ private:
               ALIGN_CENTER | ALIGN_MIDDLE);
         globalAlpha(1.0f);
 
-        char slotText[16];
-        std::snprintf(slotText, sizeof(slotText), "S%02d", block.slot + 1);
-        label(kTileSize / 2, 109, slotText, theme::textDim, 9.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        label(kTileSize / 2, 109, type ? categoryName(type->category) : "", theme::textFaint, 9.0f,
+              ALIGN_CENTER | ALIGN_MIDDLE);
 
         // bypass (top left) and remove (top right)
         beginPath();
@@ -4733,48 +4785,60 @@ private:
             controls.push_back({ Cell::Meter, 0 });
         const int count = static_cast<int>(controls.size());
 
-        // Layout: the block image on the left, the controls right-justified in rows. Use fewer columns (more
-        // rows) when one row would leave the image small and there's height for it; in a small window, narrow
-        // the cells instead.
-        constexpr float kHeaderHeight = 64.0f;
-        const float imageMax = height - 2 * kPanelMargin;
+        // Layout: the block image on the left, the controls right-justified in rows. The image should fill the
+        // panel's height, so use fewer columns (more rows) while one row would leave it too narrow for that and
+        // there's height for the rows; in a small window, shrink the image, then narrow the cells.
+        constexpr float kHeaderHeight = 64.0f, kImagePad = 8.0f;
+        NanoImage* const img = blockImage(block);
+        float aspect = 1.0f; // the image's width / height (the drawn art is square)
+        if (img && img->getSize().getHeight() > 0)
+            aspect = std::clamp(static_cast<float>(img->getSize().getWidth()) / img->getSize().getHeight(), 0.4f, 2.0f);
+        const float imageMaxH = height - 2 * kPanelMargin;
+        const float imageMaxW = (imageMaxH - 2 * kImagePad) * aspect + 2 * kImagePad;
         const float rowsSpace = height - kHeaderHeight - kPanelMargin;
         const int rowsAvailable = std::max(1, static_cast<int>(rowsSpace / kCellHeight));
         const int minColumns = (count + rowsAvailable - 1) / rowsAvailable;
         const float freeWidth = width - 3 * kPanelMargin;
         int columns = std::max(count, 1);
-        while (columns > minColumns && freeWidth - columns * kCellWidth < std::min(imageMax, 240.0f))
+        while (columns > minColumns && freeWidth - columns * kCellWidth < imageMaxW)
             --columns;
         const int rows = (count + columns - 1) / columns;
         float cellWidth = kCellWidth;
-        const float imageWanted = std::min(imageMax, 140.0f);
+        const float imageWanted = std::min(imageMaxW, 140.0f);
         if (freeWidth - columns * cellWidth < imageWanted)
             cellWidth = std::max(76.0f, (freeWidth - imageWanted) / columns);
-        const float imageSize = std::clamp(freeWidth - columns * cellWidth, 0.0f, imageMax);
+        const float imageW = std::clamp(freeWidth - columns * cellWidth, 0.0f, imageMaxW);
+        const float imageH = imageW >= imageMaxW ? imageMaxH
+                                                 : std::max(0.0f, (imageW - 2 * kImagePad) / aspect + 2 * kImagePad);
 
-        // Image area (placeholder art for now; real pedal/amp/cab images go here)
-        const float imageX = left + kPanelMargin, imageY = top + kPanelMargin;
-        if (imageSize >= 60.0f)
+        // Image area: the block's image, or the drawn art; centred in the panel's height when it can't fill it
+        const float imageX = left + kPanelMargin, imageY = top + (height - imageH) / 2;
+        const bool showImage = imageW >= 60.0f && imageH >= 60.0f;
+        if (showImage)
         {
-            surface(imageX, imageY, imageSize, imageSize, 8.0f, Surface::Inset);
+            surface(imageX, imageY, imageW, imageH, 8.0f, Surface::Inset);
             const bool bypassed = fParams[slotBypassParam(block.slot)] >= 0.5f;
             globalAlpha(bypassed ? 0.35f : 1.0f);
-            if (NanoImage* img = blockImage(block))
-                drawBlockImage(*img, type, static_cast<int>(block.slot), imageX + 8.0f, imageY + 8.0f,
-                               imageSize - 16.0f, imageSize - 16.0f, 6.0f, true);
+            if (img)
+                drawBlockImage(*img, type, static_cast<int>(block.slot), imageX + kImagePad, imageY + kImagePad,
+                               imageW - 2 * kImagePad, imageH - 2 * kImagePad, 6.0f, true);
             else
-                drawBlockArt(type, imageX + imageSize * 0.1f, imageY + imageSize * 0.1f, imageSize * 0.8f,
-                             imageSize * 0.8f, true, fileLookKey(block));
+                drawBlockArt(type, imageX + imageW * 0.1f, imageY + imageH * 0.1f, imageW * 0.8f, imageH * 0.8f, true,
+                             fileLookKey(block));
             globalAlpha(1.0f);
         }
 
         // Header: name and file, above the controls
-        const float textX = imageSize >= 60.0f ? imageX + imageSize + kPanelMargin : left + kPanelMargin;
+        const float textX = showImage ? imageX + imageW + kPanelMargin : left + kPanelMargin;
         const std::string path = block.config.value("path", std::string());
         label(textX, top + 28.0f, path.empty() ? type->displayName : fileStem(path).c_str(), theme::text, 16.0f,
               ALIGN_LEFT | ALIGN_MIDDLE);
-        label(textX, top + 54.0f, path.empty() ? categoryName(type->category) : path.c_str(), theme::textDim, 11.0f,
-              ALIGN_LEFT | ALIGN_MIDDLE);
+        // the slot names the block's parameters in the DAW ("Slot 05 P2")
+        char slotText[32];
+        std::snprintf(slotText, sizeof(slotText), "Slot %02d", block.slot + 1);
+        const std::string detail = path.empty() ? categoryName(type->category) + std::string("  ·  ") + slotText
+                                                : slotText + std::string("  ·  ") + path;
+        label(textX, top + 54.0f, detail.c_str(), theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
 
         if (!path.empty() && !fileExists(path))
         {
@@ -4900,25 +4964,45 @@ private:
                   ALIGN_LEFT | ALIGN_MIDDLE);
             return;
         }
-        // one column of tall rows while they fit; then two columns, and shorter rows if needed
+        // one column of rows while they fit, then two, in reading order; rows keep their height (big enough to see
+        // the art) and the list scrolls
+        constexpr float itemH = 112.0f, gap = 8.0f, thumbW = 92.0f;
         const float itemsH = y + h - 12.0f - listTop;
         const int count = static_cast<int>(items.size());
-        const int columns = count * 72.0f > itemsH ? 2 : 1;
+        const int columns = count * (itemH + gap) - gap > itemsH ? 2 : 1;
         const int rows = (count + columns - 1) / columns;
-        const float itemH = std::clamp((itemsH + 8.0f) / rows - 8.0f, 30.0f, 64.0f);
-        const float itemW = (itemsW - (columns - 1) * 8.0f) / columns;
-        for (size_t i = 0; i < items.size(); ++i)
+        const float contentH = rows * (itemH + gap) - gap;
+        float gridW = itemsW;
+        fListScroll = std::clamp(fListScroll, 0.0f, std::max(0.0f, contentH - itemsH));
+        if (contentH > itemsH)
         {
-            const int col = static_cast<int>(i) / rows, row = static_cast<int>(i) % rows;
-            const Rect r { itemsX + col * (itemW + 8.0f), listTop + row * (itemH + 8.0f), itemW, itemH };
-            surface(r.x, r.y, r.w, r.h, 8.0f, Surface::Tile, r.contains(fMouseX, fMouseY));
-            if (NanoImage* img = items[i].type ? builtinImage(items[i].type->typeId) : nullptr)
-                drawBlockImage(*img, items[i].type, -1, r.x + 10.0f, r.y + 8.0f, 60.0f, r.h - 16.0f, 3.0f, false);
-            else
-                drawBlockArt(items[i].type, r.x + 10.0f, r.y + 8.0f, 60.0f, r.h - 16.0f, false);
-            label(r.x + 84.0f, r.y + r.h / 2, items[i].label.c_str(), theme::text, 14.0f, ALIGN_LEFT | ALIGN_MIDDLE);
-            fHits.push_back({ r, Hit::DialogItem, static_cast<int>(i) });
+            gridW -= kListBarWidth + 4.0f;
+            drawListScrollBar(itemsX + gridW + 4.0f, listTop, itemsH, contentH);
         }
+        const float itemW = (gridW - (columns - 1) * gap) / columns;
+        const float listBottom = listTop + itemsH;
+        save();
+        scissor(itemsX, listTop, gridW, itemsH);
+        for (int i = 0; i < count; ++i)
+        {
+            const int col = i % columns, row = i / columns;
+            const Rect r { itemsX + col * (itemW + gap), listTop + row * (itemH + gap) - fListScroll, itemW, itemH };
+            if (r.y + r.h < listTop || r.y > listBottom)
+                continue;
+            const bool inside = fMouseY >= listTop && fMouseY < listBottom;
+            surface(r.x, r.y, r.w, r.h, 8.0f, Surface::Tile, inside && r.contains(fMouseX, fMouseY));
+            if (NanoImage* img = items[i].type ? builtinImage(items[i].type->typeId) : nullptr)
+                drawBlockImage(*img, items[i].type, -1, r.x + 10.0f, r.y + 6.0f, thumbW, r.h - 12.0f, 3.0f, false);
+            else
+                drawBlockArt(items[i].type, r.x + 10.0f, r.y + 8.0f, thumbW, r.h - 16.0f, false);
+            fontSize(14.0f);
+            const std::string name = fitText(items[i].label, r.w - thumbW - 30.0f);
+            label(r.x + thumbW + 22.0f, r.y + r.h / 2, name.c_str(), theme::text, 14.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+            const float top = std::max(r.y, listTop), bottom = std::min(r.y + r.h, listBottom);
+            if (bottom > top)
+                fHits.push_back({ { r.x, top, r.w, bottom - top }, Hit::DialogItem, i });
+        }
+        restore();
     }
 
     // A single-line text field. Click to edit; Enter or clicking elsewhere ends editing. A clearable field shows an ×
@@ -5253,11 +5337,16 @@ private:
     // Draws fRows as a scrolling list: headings, and rows to click (library files with a favorite star)
     void drawRows(float x, float listY, float w, float listH)
     {
-        constexpr float rowH = 52.0f, headingH = 28.0f;
+        constexpr float rowH = 76.0f, headingH = 28.0f, thumbW = 96.0f, textX = thumbW + 20.0f;
         float contentH = 0.0f;
         for (const AddRow& row : fRows)
             contentH += row.heading ? headingH : rowH;
         fListScroll = std::clamp(fListScroll, 0.0f, std::max(0.0f, contentH - listH));
+        if (contentH > listH)
+        {
+            w -= kListBarWidth + 4.0f;
+            drawListScrollBar(x + w + 4.0f, listY, listH, contentH);
+        }
 
         save();
         scissor(x, listY, w, listH);
@@ -5283,13 +5372,13 @@ private:
 
             if (!row.folder.empty())
             {
-                drawFolderIcon(r.x + 6.0f, r.y + 6.0f, 52.0f, r.h - 12.0f, hover ? theme::accent : theme::textDim);
+                drawFolderIcon(r.x + 8.0f, r.y + 10.0f, thumbW, r.h - 20.0f, hover ? theme::accent : theme::textDim);
                 const size_t slash = row.folder.rfind('/');
                 const std::string name = slash == std::string::npos ? row.folder : row.folder.substr(slash + 1);
-                label(r.x + 68.0f, r.y + 17.0f, name.c_str(), theme::text, 13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+                label(r.x + textX, r.y + r.h / 2 - 9.0f, name.c_str(), theme::text, 13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
                 char detail[48];
                 std::snprintf(detail, sizeof(detail), "%zu file%s", row.files, row.files == 1 ? "" : "s");
-                label(r.x + 68.0f, r.y + 34.0f, detail, theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+                label(r.x + textX, r.y + r.h / 2 + 9.0f, detail, theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
                 label(r.x + r.w - 20.0f, r.y + r.h / 2, "›", theme::textDim, 18.0f, ALIGN_CENTER | ALIGN_MIDDLE);
                 if (bottom > top)
                     fHits.push_back({ { r.x, top, r.w, bottom - top }, Hit::ListRow, i });
@@ -5298,9 +5387,9 @@ private:
 
             NanoImage* img = row.entry ? image(row.entry->image) : builtinImage(row.type->typeId);
             if (img)
-                drawBlockImage(*img, row.type, -1, r.x + 6.0f, r.y + 4.0f, 52.0f, r.h - 8.0f, 3.0f, false);
+                drawBlockImage(*img, row.type, -1, r.x + 8.0f, r.y + 4.0f, thumbW, r.h - 8.0f, 3.0f, false);
             else
-                drawBlockArt(row.type, r.x + 6.0f, r.y + 6.0f, 52.0f, r.h - 12.0f, false,
+                drawBlockArt(row.type, r.x + 8.0f, r.y + 6.0f, thumbW, r.h - 12.0f, false,
                              row.entry ? row.entry->path : std::string());
 
             std::string detail;
@@ -5315,9 +5404,9 @@ private:
             {
                 detail = categoryName(row.type->category);
             }
-            label(r.x + 68.0f, r.y + 17.0f, row.entry ? row.entry->name.c_str() : row.type->displayName, theme::text,
-                  13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
-            label(r.x + 68.0f, r.y + 34.0f, detail.c_str(), theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+            label(r.x + textX, r.y + r.h / 2 - 9.0f, row.entry ? row.entry->name.c_str() : row.type->displayName,
+                  theme::text, 13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+            label(r.x + textX, r.y + r.h / 2 + 9.0f, detail.c_str(), theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
 
             // only rows inside the list area are clickable
             if (!row.entry)
@@ -5351,13 +5440,16 @@ private:
         fListScroll = std::clamp(fListScroll, 0.0f, contentH - h);
         surface(x, y, menuW, h, 8.0f, Surface::Dialog);
         fHits.push_back({ { x, y, menuW, h }, Hit::DialogPanel, 0 });
+        const float itemsW = contentH > h ? menuW - kListBarWidth - 2.0f : menuW;
+        if (contentH > h)
+            drawListScrollBar(x + itemsW - 2.0f, y + 6.0f, h - 12.0f, contentH - 12.0f);
 
         save();
         scissor(x, y + 2.0f, menuW, h - 4.0f);
         for (size_t i = 0; i < fMenu.size(); ++i)
         {
             const MenuEntry& entry = fMenu[i];
-            const Rect r { x + 4.0f, y + 4.0f + i * itemH - fListScroll, menuW - 8.0f, itemH };
+            const Rect r { x + 4.0f, y + 4.0f + i * itemH - fListScroll, itemsW - 8.0f, itemH };
             if (r.y + r.h < y || r.y > y + h)
                 continue;
             const bool heading = entry.action == MenuAction::None;
@@ -5437,15 +5529,18 @@ private:
         const float listY = row, listH = y + h - 92.0f - row;
         const float contentH = (fPresetFolders.size() + 1) * folderH;
         fListScroll = std::clamp(fListScroll, 0.0f, std::max(0.0f, contentH - listH));
+        const float folderW = contentH > listH ? controlW - kListBarWidth - 4.0f : controlW;
+        if (contentH > listH)
+            drawListScrollBar(controlX + folderW + 4.0f, listY, listH, contentH);
         save();
-        scissor(controlX, listY, controlW, listH);
+        scissor(controlX, listY, folderW, listH);
         for (int i = -1; i < static_cast<int>(fPresetFolders.size()); ++i)
         {
             const float ry = listY + (i + 1) * folderH - fListScroll;
             if (ry + folderH < listY || ry > listY + listH)
                 continue;
             const std::string& folder = i < 0 ? std::string() : fPresetFolders[i];
-            const Rect r { controlX, ry, controlW, folderH - 2.0f };
+            const Rect r { controlX, ry, folderW, folderH - 2.0f };
             const bool selected = fFields[kFieldPresetFolder] == folder;
             const bool hover = r.contains(fMouseX, fMouseY) && fMouseY >= listY && fMouseY < listY + listH;
             if (selected)
@@ -5527,7 +5622,8 @@ private:
             fPresetRows.push_back({ entry.folder, entry.path, entry.name });
         }
 
-        const float listX = x + 16.0f, listW = w - 32.0f, listY = y + 66.0f, listH = h - 66.0f - 40.0f;
+        const float listX = x + 16.0f, listY = y + 66.0f, listH = h - 66.0f - 40.0f;
+        float listW = w - 32.0f;
         if (fPresetRows.empty())
         {
             label(listX + 4.0f, listY + 16.0f, "No saved presets yet. Choose Save in the preset menu to keep a sound here.",
@@ -5539,6 +5635,11 @@ private:
         for (const PresetRow& row : fPresetRows)
             contentH += row.path.empty() ? headingH : rowH;
         fListScroll = std::clamp(fListScroll, 0.0f, std::max(0.0f, contentH - listH));
+        if (contentH > listH)
+        {
+            listW -= kListBarWidth + 4.0f;
+            drawListScrollBar(listX + listW + 4.0f, listY, listH, contentH);
+        }
 
         save();
         scissor(listX, listY, listW, listH);
@@ -5761,6 +5862,10 @@ private:
     bool fScrollDragging = false; // dragging the scroll bar's thumb
     bool fPanning = false;        // middle-dragging the chain
     float fScrollGrabX = 0.0f, fScrollGrabValue = 0.0f;
+    Rect fListTrack;              // the open dialog's list scroll bar, as last drawn (fListScroll scrolls it)
+    float fListThumbH = 0.0f, fListMaxScroll = 0.0f;
+    bool fListScrollDragging = false;
+    float fListGrabY = 0.0f, fListGrabValue = 0.0f;
 
     int fDragParam = -1;
     int fMomentaryParam = -1; // a momentary button being held
