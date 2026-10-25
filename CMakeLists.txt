@@ -198,9 +198,11 @@ dpf_add_plugin(namsayin
     src/ui/FileLooks.cpp
     src/ui/FolderPicker.cpp
     src/ui/FontData.cpp
+    src/ui/KnobImages.cpp
     src/ui/ParamHelp.cpp
     src/ui/NAMsayinUI.cpp
     src/ui/OpenUrl.cpp
+    src/ui/PedalFaces.cpp
     src/ui/TextEdit.cpp
     src/ui/Vsync.cpp)
 
@@ -241,6 +243,7 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/MorePedalTests.cpp
     tests/NamBlockTests.cpp
     tests/ParamHelpTests.cpp
+    tests/PedalFaceTests.cpp
     tests/PedalTests.cpp
     tests/PolyTrackingTests.cpp
     tests/PresetTests.cpp
@@ -256,6 +259,7 @@ if(NAMSAYIN_BUILD_TESTS)
     src/ui/BlockGlyphs.cpp
     src/ui/FileLooks.cpp
     src/ui/ParamHelp.cpp
+    src/ui/PedalFaces.cpp
     src/ui/TextEdit.cpp)
   target_include_directories(namsayin-tests PRIVATE tests deps/doctest src)
   if(APPLE)

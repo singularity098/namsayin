@@ -10,8 +10,10 @@
 #include "FileLooks.hpp"
 #include "FontData.hpp"
 #include "FolderPicker.hpp"
+#include "KnobImages.hpp"
 #include "OpenUrl.hpp"
 #include "ParamHelp.hpp"
+#include "PedalFaces.hpp"
 #include "TextEdit.hpp"
 #include "Vsync.hpp"
 #include "engine/BlockRegistry.hpp"
@@ -79,6 +81,7 @@ constexpr int accentCount = sizeof(accents) / sizeof(accents[0]);
 // list keeps its order.
 constexpr int accentOrder[accentCount] = { 1, 0, 2, 3, 4, 5, 6 };
 Color accent = accents[1];
+const Color faceLabel(255, 255, 255, 0.55f); // knob names on pedal images
 const Color neonBody(0x0a, 0x0a, 0x0d);
 const Color amp(0xd8, 0x30, 0x24);
 const Color cab(0x7e, 0x86, 0x96);
@@ -2482,12 +2485,12 @@ private:
         return it->second->isValid() ? it->second.get() : nullptr;
     }
 
-    // Draws an image scaled to fit the rect, centred, keeping its aspect ratio
-    void drawImageFit(NanoImage& img, float x, float y, float w, float h, float radius)
+    // Draws an image scaled to fit the rect, centred, keeping its aspect ratio; returns where it went
+    Rect drawImageFit(NanoImage& img, float x, float y, float w, float h, float radius)
     {
         const Size<uint> size = img.getSize();
         if (size.getWidth() == 0 || size.getHeight() == 0)
-            return;
+            return {};
         const float scale = std::min(w / size.getWidth(), h / size.getHeight());
         const float dw = size.getWidth() * scale, dh = size.getHeight() * scale;
         const float dx = x + (w - dw) / 2, dy = y + (h - dh) / 2;
@@ -2495,6 +2498,101 @@ private:
         roundedRect(dx, dy, dw, dh, radius);
         fillPaint(imagePattern(dx, dy, dw, dh, 0.0f, img, 1.0f));
         fill();
+        return { dx, dy, dw, dh };
+    }
+
+    // Draws a block's image, and if it's its type's built-in one, the knobs on its face (PedalFaces.cpp), turned to
+    // the slot's values (slot < 0: the defaults). Interactive ones (the block panel's) turn the same host parameters
+    // as the panel's knobs, so either turns both.
+    void drawBlockImage(NanoImage& img, const BlockDescriptor* type, int slot, float x, float y, float w, float h,
+                        float radius, bool interactive)
+    {
+        const Rect r = drawImageFit(img, x, y, w, h, radius);
+        const PedalFace* face = type ? pedalFace(type->typeId) : nullptr;
+        if (face == nullptr || r.w <= 0.0f || &img != builtinImage(type->typeId))
+            return;
+        for (const FaceKnob& knob : face->knobs)
+        {
+            int param = -1;
+            for (int p = 0; p < type->numParams; ++p)
+                if (std::strcmp(type->params[p].name, knob.param) == 0)
+                    param = p;
+            if (param < 0)
+                continue;
+            const ParamSpec& spec = type->params[param];
+            const uint32_t index = slot >= 0 ? slotParam(slot, param) : 0;
+            const float n = slot >= 0 ? normalized(index) : spec.toNormalized(spec.def);
+            const float cx = r.x + knob.x * r.w, cy = r.y + knob.y * r.h, kr = knob.radius * r.w;
+            drawFaceKnob(cx, cy, kr, n);
+            if (!interactive || slot < 0)
+                continue;
+            if (fLearnParam == static_cast<int>(index))
+            {
+                beginPath();
+                circle(cx, cy, kr + 4.0f);
+                strokeColor(theme::accent);
+                strokeWidth(1.5f);
+                stroke();
+            }
+            // the knob's name engraved under it, its value while it's turned
+            if (kr >= 12.0f)
+            {
+                const bool turning = fDragParam == static_cast<int>(index);
+                label(cx, cy + kr + 12.0f, turning ? valueText(index).c_str() : spec.name, theme::faceLabel, 11.0f,
+                      ALIGN_CENTER | ALIGN_MIDDLE);
+            }
+            fHits.push_back({ { cx - kr, cy - kr, 2 * kr, 2 * kr }, Hit::Knob, static_cast<int>(index) });
+        }
+    }
+
+    // A knob on a pedal's face: the knob image turned to the value (pointing up at the middle of the range, like the
+    // panel's knobs), its sheen over it unturned so the light stays put, on a soft shadow
+    void drawFaceKnob(float cx, float cy, float r, float n)
+    {
+        if (!fKnobImagesTried)
+        {
+            fKnobImagesTried = true;
+            const BuiltinImage knob = knobImage(), sheen = knobSheenImage();
+            fKnobImage = createImageFromMemory(knob.data, knob.size, IMAGE_GENERATE_MIPMAPS);
+            fKnobSheen = createImageFromMemory(sheen.data, sheen.size, IMAGE_GENERATE_MIPMAPS);
+        }
+        constexpr float kSheenStrength = 0.2f;
+        const float drop = r * 0.08f;
+        beginPath();
+        circle(cx, cy + drop, r * 1.25f);
+        fillPaint(radialGradient(cx, cy + drop, r * 0.9f, r * 1.25f, Color(0.0f, 0.0f, 0.0f, 0.6f),
+                                 Color(0.0f, 0.0f, 0.0f, 0.0f)));
+        fill();
+
+        const float angle = (std::clamp(n, 0.0f, 1.0f) - 0.5f) * 1.5f * static_cast<float>(M_PI);
+        save();
+        translate(cx, cy);
+        rotate(angle);
+        beginPath();
+        circle(0.0f, 0.0f, r);
+        if (fKnobImage.isValid())
+            fillPaint(imagePattern(-r, -r, 2 * r, 2 * r, 0.0f, fKnobImage, 1.0f));
+        else
+            fillColor(theme::background);
+        fill();
+        if (!fKnobImage.isValid())
+        {
+            beginPath();
+            moveTo(0.0f, -r * 0.8f);
+            lineTo(0.0f, -r * 0.45f);
+            strokeColor(theme::text);
+            strokeWidth(std::max(1.0f, r * 0.08f));
+            stroke();
+        }
+        restore();
+
+        if (fKnobSheen.isValid())
+        {
+            beginPath();
+            circle(cx, cy, r);
+            fillPaint(imagePattern(cx - r, cy - r, 2 * r, 2 * r, 0.0f, fKnobSheen, kSheenStrength));
+            fill();
+        }
     }
 
     // Whether a block's file exists (for a file inside a zip: whether the zip does)
@@ -4560,7 +4658,7 @@ private:
         const BlockDescriptor* type = BlockRegistry::builtin().find(block.typeId);
         globalAlpha(bypassed || missing || notRunning ? 0.35f : 1.0f);
         if (NanoImage* img = blockImage(block))
-            drawImageFit(*img, 16, 24, kTileSize - 32, 58, 4.0f);
+            drawBlockImage(*img, type, static_cast<int>(block.slot), 16, 24, kTileSize - 32, 58, 4.0f, false);
         else
             drawBlockArt(type, 16, 24, kTileSize - 32, 58, false, fileLookKey(block));
         std::string name = missing ? "Missing file"
@@ -4662,7 +4760,8 @@ private:
             const bool bypassed = fParams[slotBypassParam(block.slot)] >= 0.5f;
             globalAlpha(bypassed ? 0.35f : 1.0f);
             if (NanoImage* img = blockImage(block))
-                drawImageFit(*img, imageX + 8.0f, imageY + 8.0f, imageSize - 16.0f, imageSize - 16.0f, 6.0f);
+                drawBlockImage(*img, type, static_cast<int>(block.slot), imageX + 8.0f, imageY + 8.0f,
+                               imageSize - 16.0f, imageSize - 16.0f, 6.0f, true);
             else
                 drawBlockArt(type, imageX + imageSize * 0.1f, imageY + imageSize * 0.1f, imageSize * 0.8f,
                              imageSize * 0.8f, true, fileLookKey(block));
@@ -4814,7 +4913,7 @@ private:
             const Rect r { itemsX + col * (itemW + 8.0f), listTop + row * (itemH + 8.0f), itemW, itemH };
             surface(r.x, r.y, r.w, r.h, 8.0f, Surface::Tile, r.contains(fMouseX, fMouseY));
             if (NanoImage* img = items[i].type ? builtinImage(items[i].type->typeId) : nullptr)
-                drawImageFit(*img, r.x + 10.0f, r.y + 8.0f, 60.0f, r.h - 16.0f, 3.0f);
+                drawBlockImage(*img, items[i].type, -1, r.x + 10.0f, r.y + 8.0f, 60.0f, r.h - 16.0f, 3.0f, false);
             else
                 drawBlockArt(items[i].type, r.x + 10.0f, r.y + 8.0f, 60.0f, r.h - 16.0f, false);
             label(r.x + 84.0f, r.y + r.h / 2, items[i].label.c_str(), theme::text, 14.0f, ALIGN_LEFT | ALIGN_MIDDLE);
@@ -5199,7 +5298,7 @@ private:
 
             NanoImage* img = row.entry ? image(row.entry->image) : builtinImage(row.type->typeId);
             if (img)
-                drawImageFit(*img, r.x + 6.0f, r.y + 4.0f, 52.0f, r.h - 8.0f, 3.0f);
+                drawBlockImage(*img, row.type, -1, r.x + 6.0f, r.y + 4.0f, 52.0f, r.h - 8.0f, 3.0f, false);
             else
                 drawBlockArt(row.type, r.x + 6.0f, r.y + 6.0f, 52.0f, r.h - 12.0f, false,
                              row.entry ? row.entry->path : std::string());
@@ -5731,6 +5830,8 @@ private:
     std::map<std::string, std::unique_ptr<NanoImage>> fImages;        // by image path
     std::map<std::string, std::unique_ptr<NanoImage>> fBuiltinImages; // by block typeId
     std::map<std::string, std::string> fSidecars;             // block file path -> its image path
+    NanoImage fKnobImage, fKnobSheen; // the pedal faces' knob and its lighting (KnobImages.cpp)
+    bool fKnobImagesTried = false;
 
     // metronome
     bool fMetroPanel = false;
