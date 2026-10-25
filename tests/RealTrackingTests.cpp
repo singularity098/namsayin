@@ -36,6 +36,15 @@ namespace {
 
 using Notes = std::bitset<128>; // by MIDI note
 
+// The lowest note in a set (std::bitset has no portable find-first)
+int lowestNote(const Notes& notes)
+{
+    for (size_t n = 0; n < notes.size(); ++n)
+        if (notes[n])
+            return static_cast<int>(n);
+    return 0;
+}
+
 constexpr double kRate = 48000.0;
 
 struct Segment {
@@ -239,7 +248,7 @@ RealScore score(const Clip& clip, const std::vector<Notes>& out, size_t latency,
                 {
                     ++s.missed;
                     if (debug)
-                        std::printf("    missed %s at %.3f s\n", noteName(static_cast<int>(want._Find_first())).c_str(),
+                        std::printf("    missed %s at %.3f s\n", noteName(lowestNote(want)).c_str(),
                                     seg.start);
                 }
                 else
@@ -260,7 +269,7 @@ RealScore score(const Clip& clip, const std::vector<Notes>& out, size_t latency,
             }
             if (debug && gapMs >= 20.0)
                 std::printf("    %s missing %.0f ms in %.2f-%.2f s\n",
-                            noteName(static_cast<int>(want._Find_first())).c_str(), gapMs, seg.start, seg.end);
+                            noteName(lowestNote(want)).c_str(), gapMs, seg.start, seg.end);
             s.missingMs += gapMs;
         }
     }
@@ -321,9 +330,20 @@ using RealTracker = std::function<size_t(const std::vector<float>&, std::vector<
 constexpr float kAudible = 0.01f; // a voice's level (band level x 5, as the Poly Chip plays it)
 constexpr float kRealGate = 0.03f; // the recordings are DI, about 30 dB quieter than the synthetic guitar
 
-RealTracker polyFinder(double lookaheadMs)
+// Hiss and mains hum (60 Hz and its 3rd harmonic), each at `level` (RMS of the hiss, peak of the hum), as a live
+// input might have under the guitar
+float liveNoise(size_t t, float level, uint32_t& seed)
 {
-    return [lookaheadMs](const std::vector<float>& x, std::vector<Notes>& out) {
+    seed = seed * 1664525u + 1013904223u;
+    const float hiss = (static_cast<float>(seed >> 8) / 8388608.0f - 1.0f) * 1.732f;
+    const double s = static_cast<double>(t) / kRate;
+    const float hum = static_cast<float>(std::sin(2.0 * M_PI * 60.0 * s) + 0.5 * std::sin(2.0 * M_PI * 180.0 * s));
+    return level * (hiss + hum);
+}
+
+RealTracker polyFinder(double lookaheadMs, float noise = 0.0f)
+{
+    return [lookaheadMs, noise](const std::vector<float>& x, std::vector<Notes>& out) {
         PolyNoteFinder finder;
         finder.prepare(kRate);
         finder.setLookahead(lookaheadMs);
@@ -332,9 +352,10 @@ RealTracker polyFinder(double lookaheadMs)
         finder.setPickFilter(15.0f);
         out.assign(x.size(), Notes {});
         Notes now;
+        uint32_t seed = 1;
         for (size_t t = 0; t < x.size(); ++t)
         {
-            if (finder.process(x[t]))
+            if (finder.process(x[t] + (noise > 0.0f ? liveNoise(t, noise, seed) : 0.0f)))
             {
                 const PolyNoteFinder::Frame& f = finder.playFrame();
                 now.reset();
@@ -428,6 +449,7 @@ TEST_CASE("tracking benchmark on real recordings" * doctest::skip(std::getenv("N
     }
     realBench("poly note finder", polyFinder(0.0), false);
     realBench("poly note finder, lookahead 20 ms", polyFinder(20.0), false);
+    realBench("poly note finder, with hiss and hum at -66 dB", polyFinder(0.0, 0.0005f), false);
     realBench("note tracker (mono)", monoTracker(0.0f, 0.0), true);
     realBench("note tracker (mono), lookahead 15 ms", monoTracker(0.0f, 15.0), true);
 }
@@ -440,13 +462,21 @@ TEST_CASE("the poly note finder on the owner's recordings")
         return;
     }
     // before finding notes by their harmonics (2026-10-24): 7 missed, 30.1 s of missing note time (7.3 s in no
-    // octave), 255 stray notes (9.7 s)
+    // octave), 255 stray notes (9.7 s). Before the bands' own noise floors and holding notes briefly not found
+    // (2026-10-25): 5 missed, 19.5 s missing (5.8 s in no octave), 187 stray (6.1 s); with hiss and hum at -66 dB
+    // (the input's noise floor gated the notes 12 dB over it): 8 missed, 25.6 s missing (10.2 s in no octave)
     const auto plain = realBench("poly note finder", polyFinder(0.0), false, false);
-    CHECK(plain.back().missed <= 6);
-    CHECK(plain.back().missingMs <= 21000.0);
-    CHECK(plain.back().missingClassMs <= 6500.0);
+    CHECK(plain.back().missed <= 5);
+    CHECK(plain.back().missingMs <= 16500.0);
+    CHECK(plain.back().missingClassMs <= 5500.0);
     CHECK(plain.back().stray <= 200);
-    CHECK(plain.back().strayMs <= 6500.0);
+    CHECK(plain.back().strayMs <= 8000.0);
+    // a live input's hiss and hum don't cut the notes short
+    const auto noisy = realBench("poly note finder, with hiss and hum", polyFinder(0.0, 0.0005f), false, false);
+    CHECK(noisy.back().missed <= 5);
+    CHECK(noisy.back().missingMs <= 16500.0);
+    CHECK(noisy.back().missingClassMs <= 5500.0);
+    CHECK(noisy.back().strayMs <= 8000.0);
 }
 
 TEST_CASE("the note tracker on the owner's recordings")
