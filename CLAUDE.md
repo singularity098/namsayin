@@ -94,6 +94,7 @@ tests/                doctest unit tests; TestSupport.hpp has a test block and a
 tests/recordings/     The owner's guitar recordings (MP3) and their note lists (<clip>.notes); decode them with
                       tools/decode_recordings.sh (ffmpeg) before NAMSAYIN_TRACKING_BENCH=1 ./build/namsayin-tests -tc="*real recordings*"
 docs/                 Requirements and architecture
+docs/image-prompts/   Image-generation prompts, one per line (ir-cabinets.txt: 200 cab images for IR blocks, from tools/gen_cab_prompts.py)
 resources/fonts/      Jost (variable TTF + OFL.txt); tools/embed_font.py makes the Light and Regular instances into src/ui/FontData.cpp
 resources/blocks/     Built-in block images, named <typeId>.<ext>; tools/embed_block_images.py turns them into BlockImages.cpp
 resources/knobs/      The face knob (knob.png, pointing up) and its lighting layer (sheen.png); tools/embed_knob_images.py makes KnobImages.cpp
