@@ -5,7 +5,7 @@
 - Natively runs on Linux and Windows, x86-64 only, and requires a CPU with AVX2/FMA. macOS too (owner, 2026-10-24): macOS 11 or later, a universal binary for Apple Silicon and Intel (Intel Macs need AVX2/FMA, 2013 or newer), in VST3, LV2 and AU. Signed ad hoc until there's an Apple Developer ID, so macOS needs the quarantine flag cleared after downloading. Status: built, checked by CI; needs testing on a Mac
 - Beautiful interface with a very dark theme, drawn with NanoVG: the window is plain black (owner, 2026-10-26; was the owner's dark wood image), boxes (bars, panels, tiles, buttons) are black inside with an ultra-thin gray outline (no gradient), and dialogs and menus drawn over the window are slightly off black (#070707). Font: Jost Light. Knobs: a black body with a hairline edge, a scale of ticks lit up to the value, and a dot marking the position (owner's choice from drafted options, 2026-10-22)
     - The highlight colour is configurable in Settings; white by default (owner, 2026-10-26; was blue, before that purple)
-    - Pedals have a power LED: lit while the block is on, dark while it's bypassed (owner, 2026-10-26)
+    - Pedals have a power LED: lit while the block is on, dark while it's bypassed (owner, 2026-10-26); on image faces it is a photographed LED (Krea-2) tinted to the pedal's colour (owner, 2026-10-26)
 - The interface can be resized and scales for high DPI displays
 - Free, open source software under the MIT license
 - Supports NAM A1 and A2

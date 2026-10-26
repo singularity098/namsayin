@@ -10,6 +10,7 @@
 #include "FontData.hpp"
 #include "FolderPicker.hpp"
 #include "KnobImages.hpp"
+#include "LedImages.hpp"
 #include "OpenUrl.hpp"
 #include "ParamHelp.hpp"
 #include "PedalFaces.hpp"
@@ -2556,19 +2557,7 @@ private:
             for (const FaceLed& faceLed : face->leds)
             {
                 const float cx = r.x + faceLed.x * r.w, cy = r.y + faceLed.y * r.h, lr = faceLed.radius * r.w;
-                if (led == Led::Off)
-                {
-                    // hide the image's own (lit) LED and its glow, at full opacity even when the image is dimmed
-                    save();
-                    globalAlpha(1.0f);
-                    beginPath();
-                    circle(cx, cy, lr * 1.7f);
-                    fillPaint(radialGradient(cx, cy, lr * 1.12f, lr * 1.7f, Color(0x0e, 0x0c, 0x0d),
-                                             Color(0x0e, 0x0c, 0x0d, 0.0f)));
-                    fill();
-                    restore();
-                }
-                drawLed(cx, cy, lr, Color(faceLed.r, faceLed.g, faceLed.b), led == Led::On);
+                drawFaceLed(cx, cy, lr, Color(faceLed.r, faceLed.g, faceLed.b), led == Led::On);
             }
         }
         for (const FaceKnob& knob : face->knobs)
@@ -2637,6 +2626,83 @@ private:
         circle(cx - r * 0.35f, cy - r * 0.35f, r * 0.28f);
         fillColor(Color(1.0f, 1.0f, 1.0f, lit ? 0.45f : 0.18f));
         fill();
+    }
+
+    // An LED on a pedal's face, over the image's own (radius r): the photographed LED (LedImages.cpp) in its chrome
+    // bezel, and while lit its lens, bloom and glass added over it. The photos are hot pink; their colour parts are
+    // tinted with `color`, so any colour works. Falls back to drawLed() if the images don't load.
+    void drawFaceLed(float cx, float cy, float r, const Color& color, bool lit)
+    {
+        if (!fLedImagesTried)
+        {
+            fLedImagesTried = true;
+            const BuiltinImage images[kLedLayers] = { ledOffImage(),  ledOffColourImage(),   ledLensImage(),
+                                                      ledLensColourImage(), ledBloomImage(), ledBloomColourImage(),
+                                                      ledGlassImage() };
+            for (int i = 0; i < kLedLayers; ++i)
+                fLedImages[i] = createImageFromMemory(images[i].data, images[i].size, IMAGE_GENERATE_MIPMAPS);
+        }
+        for (const NanoImage& img : fLedImages)
+            if (!img.isValid())
+                return drawLed(cx, cy, r, color, lit);
+
+        // the bezel is larger than the image's LED, so the lens (kLensFraction of it) covers that
+        constexpr float kBezelScale = 1.45f, kLensFraction = 0.70f;
+        constexpr float kLensWhite = 0.25f, kLensColour = 1.2f, kBloom = 1.0f, kGlass = 0.3f;
+        const float br = r * kBezelScale, lensR = br * kLensFraction;
+
+        // the colour parts' tint: the colour's hue at its saturation, white where it's grey
+        const float hi = std::max({ color.red, color.green, color.blue });
+        const float lo = std::min({ color.red, color.green, color.blue });
+        Color tint(1.0f, 1.0f, 1.0f);
+        if (hi - lo > 1e-4f)
+        {
+            const float sat = (hi - lo) / hi;
+            tint = Color((color.red - lo) / (hi - lo) * sat + 1.0f - sat, (color.green - lo) / (hi - lo) * sat + 1.0f - sat,
+                         (color.blue - lo) / (hi - lo) * sat + 1.0f - sat);
+        }
+
+        const auto layer = [&](int index, float half, const Color& paint, bool add) {
+            Paint p = imagePattern(cx - half, cy - half, half * 2.0f, half * 2.0f, 0.0f, fLedImages[index], 1.0f);
+            p.innerColor = p.outerColor = paint;
+            if (add)
+                nvgGlobalCompositeBlendFuncSeparate(getContext(), NVG_ONE, NVG_ONE, NVG_ZERO, NVG_ONE);
+            beginPath();
+            rect(cx - half, cy - half, half * 2.0f, half * 2.0f);
+            fillPaint(p);
+            fill();
+            if (add)
+                nvgGlobalCompositeOperation(getContext(), NVG_SOURCE_OVER);
+        };
+        const auto scaled = [](const Color& c, float k) { return Color(c.red * k, c.green * k, c.blue * k, 1.0f); };
+
+        // hide the image's own (lit) LED at full opacity, even when the image is dimmed, on a soft shadow
+        save();
+        globalAlpha(1.0f);
+        beginPath();
+        circle(cx, cy + br * 0.08f, br * 1.3f);
+        fillPaint(radialGradient(cx, cy + br * 0.08f, br * 0.9f, br * 1.3f, Color(0.0f, 0.0f, 0.0f, 0.6f),
+                                 Color(0.0f, 0.0f, 0.0f, 0.0f)));
+        fill();
+        beginPath();
+        circle(cx, cy, br * 0.98f);
+        fillColor(Color(0x05, 0x05, 0x05));
+        fill();
+        restore();
+
+        save();
+        layer(0, br, Color(1.0f, 1.0f, 1.0f), false);
+        layer(1, br, tint, true);
+        if (lit)
+        {
+            layer(2, lensR / 0.9f, scaled(Color(1.0f, 1.0f, 1.0f), kLensWhite), true);
+            layer(3, lensR / 0.9f, scaled(tint, kLensColour), true);
+            const float bloomHalf = lensR / 0.25f * 0.8f;
+            layer(4, bloomHalf, scaled(Color(1.0f, 1.0f, 1.0f), kBloom), true);
+            layer(5, bloomHalf, scaled(tint, kBloom), true);
+            layer(6, lensR, scaled(Color(1.0f, 1.0f, 1.0f), kGlass), true);
+        }
+        restore();
     }
 
     // A knob on a pedal's face: the knob image turned to the value (pointing up at the middle of the range, like the
@@ -6032,6 +6098,9 @@ private:
     std::map<std::string, std::string> fSidecars;             // block file path -> its image path
     NanoImage fKnobImage, fKnobSheen; // the pedal faces' knob and its lighting (KnobImages.cpp)
     bool fKnobImagesTried = false;
+    static constexpr int kLedLayers = 7;
+    NanoImage fLedImages[kLedLayers]; // the pedal faces' LED, in layers (LedImages.cpp)
+    bool fLedImagesTried = false;
 
     // metronome
     bool fMetroPanel = false;

@@ -198,6 +198,7 @@ dpf_add_plugin(namsayin
     src/ui/FolderPicker.cpp
     src/ui/FontData.cpp
     src/ui/KnobImages.cpp
+    src/ui/LedImages.cpp
     src/ui/ParamHelp.cpp
     src/ui/NAMsayinUI.cpp
     src/ui/OpenUrl.cpp
