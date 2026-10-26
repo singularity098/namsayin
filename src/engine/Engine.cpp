@@ -4,6 +4,7 @@
 #include "engine/Engine.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <unordered_set>
 
@@ -207,6 +208,29 @@ bool Engine::setChain(const ChainState& chain, std::string* error, std::vector<i
     return true;
 }
 
+void Engine::forgetBlocks()
+{
+    const std::lock_guard<std::mutex> lock(fMutex);
+    fCache = {};
+}
+
+bool Engine::silenceNonFinite(float* const* io, uint32_t numChannels, uint32_t frames)
+{
+    bool found = false;
+    for (uint32_t ch = 0; ch < numChannels; ++ch)
+    {
+        for (uint32_t i = 0; i < frames; ++i)
+        {
+            if (!std::isfinite(io[ch][i]))
+            {
+                io[ch][i] = 0.0f;
+                found = true;
+            }
+        }
+    }
+    return found;
+}
+
 void Engine::setParameter(uint32_t index, float value)
 {
     if (index < kParamCount)
@@ -329,9 +353,11 @@ void Engine::processChunk(const float* const* inputs, float* const* outputs, uin
     const bool stereo = param(kParamInputMode) >= 0.5f;
     const uint32_t numChannels = stereo ? 2 : 1;
 
-    // Copy first: inputs and outputs may be the same buffers
+    // Copy first: inputs and outputs may be the same buffers. A NaN from the host would stay in every filter.
     for (int ch = 0; ch < 2; ++ch)
         std::memcpy(fDry[ch].data(), inputs[ch], sizeof(float) * frames);
+    float* dry[2] = { fDry[0].data(), fDry[1].data() };
+    silenceNonFinite(dry, 2, frames);
 
     // Input stage
     fInputGain.setTarget(dbToGain(param(kParamInput)));
@@ -414,6 +440,10 @@ void Engine::processChunk(const float* const* inputs, float* const* outputs, uin
 
     // Output stage
     float* work[2] = { fWork[0].data(), fWork[1].data() };
+    // A block whose state went NaN outputs NaN from then on: silence it here, before it reaches the filters below,
+    // and have the chain rebuilt with fresh blocks
+    if (silenceNonFinite(work, numChannels, frames))
+        fChainFault.store(true, std::memory_order_release);
     fToneStack.setGains(param(kParamBass), param(kParamMiddle), param(kParamTreble));
     fToneStack.process(work, numChannels, frames);
 
@@ -444,6 +474,13 @@ void Engine::processChunk(const float* const* inputs, float* const* outputs, uin
     else
         fLimiter.reset();
     fParams[kParamLimiterReduction].store(-gainToDb(reduction, -24.0f), std::memory_order_relaxed);
+
+    // the output stage can't make a NaN from finite input, but if it ever did it must not stay in its filters
+    if (silenceNonFinite(work, numChannels, frames))
+    {
+        fToneStack.reset();
+        fLimiter.reset();
+    }
 
     if (!stereo)
         std::memcpy(fWork[1].data(), fWork[0].data(), sizeof(float) * frames);

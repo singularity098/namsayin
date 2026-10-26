@@ -534,3 +534,66 @@ TEST_CASE("split chain edits on another thread while audio runs")
     rig.run();
     CHECK(std::isfinite(rig.left()));
 }
+
+TEST_CASE("a NaN from the host doesn't stay in the engine")
+{
+    Rig rig;
+    rig.engine.setParameter(slotParam(0, 0), gainParam(0.0f));
+    rig.engine.setChain(gainChain(0));
+    rig.run();
+    rig.inL[10] = std::nanf("");
+    rig.inR[20] = INFINITY;
+    rig.run(1);
+    for (float v : rig.outL)
+        CHECK(std::isfinite(v));
+    rig.inL[10] = rig.inL[11];
+    rig.inR[20] = rig.inR[21];
+    rig.run();
+    CHECK(rig.left() == doctest::Approx(0.25f));
+    CHECK(rig.right() == doctest::Approx(0.25f)); // mono mode: the left input on both sides
+    CHECK_FALSE(rig.engine.takeChainFault());
+}
+
+TEST_CASE("a block whose state went NaN is silenced, reported and replaced by a fresh one")
+{
+    Rig rig;
+    rig.engine.setParameter(slotParam(0, 0), gainParam(0.0f));
+    const ChainState chain = gainChain(0);
+    rig.engine.setChain(chain);
+    rig.run();
+    CHECK_FALSE(rig.engine.takeChainFault());
+
+    testing::GainBlock::sBreakNext = true;
+    rig.run();
+    for (float v : rig.outL)
+        CHECK(v == 0.0f); // silence, not NaN
+    CHECK(rig.engine.takeChainFault());
+    CHECK_FALSE(rig.engine.takeChainFault()); // reported once
+
+    // the same chain again reuses the broken block; after forgetBlocks() it gets a new one
+    const int created = testing::GainBlock::sCreated;
+    rig.engine.forgetBlocks();
+    REQUIRE(rig.engine.setChain(chain));
+    CHECK(testing::GainBlock::sCreated == created + 1);
+    rig.run();
+    CHECK(rig.left() == doctest::Approx(0.25f));
+    rig.engine.takeChainFault(); // the old block's last buffers, before the swap
+    rig.run();
+    CHECK_FALSE(rig.engine.takeChainFault());
+}
+
+TEST_CASE("the host deactivating and activating the plugin keeps the chain playing")
+{
+    Rig rig;
+    rig.engine.setParameter(slotParam(0, 0), gainParam(-6.0f));
+    rig.engine.setChain(gainChain(0));
+    rig.run();
+    const float before = rig.left();
+    CHECK(before == doctest::Approx(0.25f * std::pow(10.0f, -6.0f / 20.0f)));
+    for (auto [rate, size] : { std::pair { 48000.0, 256u }, { 96000.0, 4096u }, { 44100.0, 64u } })
+    {
+        rig.engine.prepare(rate, size);
+        rig.run();
+        CHECK(rig.left() == doctest::Approx(before));
+    }
+}

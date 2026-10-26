@@ -342,6 +342,16 @@ std::optional<fs::path> presetPath(const fs::path& dir, const std::string& folde
     return path / pathFromUtf8(file);
 }
 
+bool deletePreset(const fs::path& dir, const std::string& path)
+{
+    const fs::path file = pathFromUtf8(path);
+    std::error_code ec;
+    if (lowered(pathToUtf8(file.extension())) != Preset::kExtension || !isInsideDir(dir, file)
+        || !fs::is_regular_file(file, ec))
+        return false;
+    return fs::remove(file, ec) && !ec;
+}
+
 bool isInsideDir(const fs::path& dir, const fs::path& path)
 {
     std::error_code ec;

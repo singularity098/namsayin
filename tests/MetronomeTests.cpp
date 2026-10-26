@@ -368,7 +368,7 @@ TEST_CASE("engine: the metronome is mixed in before the limiter, stays audible w
     CHECK(peak(outL, 0, 256) == 0.0f);
 }
 
-TEST_CASE("metronome: the Classic click is generated: 1500 Hz accent, 1000 Hz beat, a 50 ms decaying tone")
+TEST_CASE("metronome: the Classic click is generated: Fretbored's 1500/1000 Hz raised two semitones, a 50 ms decaying tone")
 {
     Metronome::Settings s = settings(120.0);
     s.levels = { 3, 2, 2, 2 };
@@ -386,14 +386,17 @@ TEST_CASE("metronome: the Classic click is generated: 1500 Hz accent, 1000 Hz be
         }
         return 2.0 * std::hypot(re, im) / static_cast<double>(length);
     };
+    const double up = std::pow(2.0, 2.0 / 12.0);
+    const double accentHz = 1500.0 * up, beatHz = 1000.0 * up;
     const size_t beat = 24000;
-    const size_t span = static_cast<size_t>(0.02 * kRate); // 20 ms: whole cycles of 1000, 1500 and 2000 Hz
-    CHECK(tone(0, span, 1500.0) > 5.0 * tone(0, span, 1000.0));
-    CHECK(tone(beat, span, 1000.0) > 5.0 * tone(beat, span, 1500.0));
+    const size_t span = static_cast<size_t>(0.02 * kRate); // 20 ms
+    CHECK(tone(0, span, accentHz) > 5.0 * tone(0, span, beatHz));
+    CHECK(tone(beat, span, beatHz) > 5.0 * tone(beat, span, accentHz));
+    CHECK(tone(beat, span, beatHz) > 5.0 * tone(beat, span, 1000.0)); // not the old pitch
     // the 2nd harmonic at 0.3 of the note (-10.5 dB)
-    CHECK(tone(beat, span, 2000.0) / tone(beat, span, 1000.0) == doctest::Approx(0.3).epsilon(0.05));
+    CHECK(tone(beat, span, 2.0 * beatHz) / tone(beat, span, beatHz) == doctest::Approx(0.3).epsilon(0.05));
     // decays with a 50 ms time constant, and ends after 50 ms
-    const double early = tone(beat, span, 1000.0), later = tone(beat + span, span, 1000.0);
+    const double early = tone(beat, span, beatHz), later = tone(beat + span, span, beatHz);
     CHECK(later / early == doctest::Approx(std::exp(-0.02 / 0.05)).epsilon(0.05));
     CHECK(peak(out, beat + static_cast<size_t>(0.051 * kRate), 2 * beat) == 0.0f);
     // it starts softly: no step at the first sample

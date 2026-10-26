@@ -73,6 +73,10 @@ std::vector<std::string> listPresetFolders(const std::filesystem::path& dir);
 std::optional<std::filesystem::path> presetPath(const std::filesystem::path& dir, const std::string& folder,
                                                 const std::string& name);
 
+// Deletes the preset file `path` (UTF-8), which must be a preset somewhere inside `dir` (Manage Presets). False,
+// with nothing deleted, for anything else or when the file can't be removed.
+bool deletePreset(const std::filesystem::path& dir, const std::string& path);
+
 // Whether `path` is somewhere inside `dir`
 bool isInsideDir(const std::filesystem::path& dir, const std::filesystem::path& path);
 

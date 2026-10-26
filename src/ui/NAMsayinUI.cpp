@@ -4,7 +4,6 @@
 #include "DistrhoUI.hpp"
 #include "src/nanovg/nanovg.h" // DPF's NanoVG class has no fallback-font call
 
-#include "BackgroundImage.hpp"
 #include "BlockGlyphs.hpp"
 #include "BlockImages.hpp"
 #include "FileLooks.hpp"
@@ -55,7 +54,7 @@ namespace {
 // Theme tokens. Very dark: a pure black window; boxes are black too, drawn as hairline grey outlines (surface()).
 namespace theme {
 const Color background(0x00, 0x00, 0x00);
-const Color dialogFill(0x06, 0x06, 0x08); // dialogs stand off the dimmed window a little
+const Color dialogFill(0x07, 0x07, 0x07); // dialogs (and menus) stand off the black window a little
 const Color tile(0x16, 0x16, 0x1a);       // small grey fills (hover in lists, meter boxes)
 const Color tileHover(0x1d, 0x1d, 0x22);
 const Color inset(0x05, 0x05, 0x06);
@@ -70,19 +69,21 @@ const Color bad(0xe5, 0x48, 0x4d);
 // Highlight colour, chosen in Settings from these
 const Color accents[] = {
     Color(0x9b, 0x5c, 0xff), // purple
-    Color(0x4c, 0x8d, 0xff), // blue (default, Settings::accent)
+    Color(0x4c, 0x8d, 0xff), // blue
     Color(0x2f, 0xbf, 0xa8), // teal
     Color(0x4c, 0xc9, 0x7a), // green
     Color(0xf0, 0xa0, 0x30), // amber
     Color(0xe5, 0x48, 0x4d), // red
     Color(0xe0, 0x5c, 0xb0), // pink
+    Color(0xff, 0xff, 0xff), // white (default, Settings::accent)
 };
 constexpr int accentCount = sizeof(accents) / sizeof(accents[0]);
-// The order Settings shows them in, the default (blue) first. Settings stores the index into `accents`, so that
+// The order Settings shows them in, the default (white) first. Settings stores the index into `accents`, so that
 // list keeps its order.
-constexpr int accentOrder[accentCount] = { 1, 0, 2, 3, 4, 5, 6 };
-Color accent = accents[1];
+constexpr int accentOrder[accentCount] = { 7, 1, 0, 2, 3, 4, 5, 6 };
+Color accent = accents[7];
 const Color faceLabel(255, 255, 255, 0.55f); // knob names on pedal images
+const Color led(0xff, 0x2a, 0x1c);            // the drawn pedals' and amps' LEDs, lit
 const Color neonBody(0x0a, 0x0a, 0x0d);
 const Color amp(0xd8, 0x30, 0x24);
 const Color cab(0x7e, 0x86, 0x96);
@@ -98,6 +99,9 @@ const Color pedalFilter(0x5c, 0xa0, 0x3a);
 const Color pedalDi(0x40, 0xb4, 0xc8);
 const Color pedalOther(0x70, 0x70, 0x7a);
 } // namespace theme
+
+// A pedal's LED: lit while the block is on, dark while it's bypassed; None where there's no block (Add Block)
+enum class Led { None, Off, On };
 
 // Kinds of box, for surface(): each has its own outline brightness
 enum class Surface { Bar, Panel, Tile, Button, Dialog, Inset };
@@ -203,6 +207,7 @@ enum class Hit {
     SaveConfirm,
     PresetRow,      // Presets dialog: index = row in fPresetRows
     PresetDefault,  // index = row in fPresetRows: make it the default (again: no default)
+    PresetDelete,   // index = row in fPresetRows: the first click asks, the second deletes
 };
 
 // What a context or preset menu item does
@@ -749,6 +754,10 @@ protected:
             && !(hit && (hit->kind == Hit::TextField || hit->kind == Hit::FieldClear) && hit->index == fFocusedField))
             blurField(true);
 
+        // a Delete waiting for its second click is called off by any other click
+        if (!(hit && hit->kind == Hit::PresetDelete))
+            fPresetDeleteArmed.clear();
+
         if (hit == nullptr)
             return false;
 
@@ -1039,6 +1048,31 @@ protected:
                 updateSettings([&path](Settings& settings) {
                     settings.defaultPreset = settings.defaultPreset == path ? std::string() : path;
                 });
+            }
+            return true;
+
+        case Hit::PresetDelete:
+            if (hit->index < static_cast<int>(fPresetRows.size()))
+            {
+                const std::string path = fPresetRows[hit->index].path;
+                if (fPresetDeleteArmed != path)
+                {
+                    fPresetDeleteArmed = path;
+                    repaint();
+                    return true;
+                }
+                fPresetDeleteArmed.clear();
+                if (deletePreset(presetsDir(), path))
+                {
+                    if (fSettings.defaultPreset == path)
+                        updateSettings([](Settings& settings) { settings.defaultPreset.clear(); });
+                }
+                else
+                {
+                    showToast("Couldn't delete the preset " + fileStem(path));
+                }
+                fPresetList = listPresets(presetsDir());
+                repaint();
             }
             return true;
 
@@ -2203,6 +2237,7 @@ private:
             break;
         case MenuAction::PresetBrowse:
             fPresetList = listPresets(presetsDir());
+            fPresetDeleteArmed.clear();
             openDialog(Dialog::Presets);
             break;
         case MenuAction::PresetOpen:
@@ -2473,26 +2508,8 @@ private:
     // What picks a block's own look in the placeholder art: its file's path
     static std::string fileLookKey(const BlockState& block) { return block.config.value("path", std::string()); }
 
-    // The window background behind the panels: the owner's image, scaled to cover the window and centred
-    void drawBackground()
-    {
-        fillRect(0, 0, fWidth, fHeight, theme::background);
-        if (!fBackgroundTried)
-        {
-            fBackgroundTried = true;
-            fBackground = createImageFromMemory(kBackgroundImage, kBackgroundImageSize, IMAGE_GENERATE_MIPMAPS);
-        }
-        const Size<uint> size = fBackground.getSize();
-        if (!fBackground.isValid() || size.getWidth() == 0 || size.getHeight() == 0)
-            return;
-        const float scale = std::max(fWidth / size.getWidth(), fHeight / size.getHeight());
-        const float w = size.getWidth() * scale, h = size.getHeight() * scale;
-        const float x = (fWidth - w) / 2, y = (fHeight - h) / 2;
-        beginPath();
-        rect(0, 0, fWidth, fHeight);
-        fillPaint(imagePattern(x, y, w, h, 0.0f, fBackground, 1.0f));
-        fill();
-    }
+    // The window: plain black behind the panels
+    void drawBackground() { fillRect(0, 0, fWidth, fHeight, theme::background); }
 
     // A block type's built-in image (resources/blocks/), if it has one
     NanoImage* builtinImage(const std::string& typeId)
@@ -2526,14 +2543,34 @@ private:
 
     // Draws a block's image, and if it's its type's built-in one, the knobs on its face (PedalFaces.cpp), turned to
     // the slot's values (slot < 0: the defaults). Interactive ones (the block panel's) turn the same host parameters
-    // as the panel's knobs, so either turns both.
+    // as the panel's knobs, so either turns both. Its LEDs show `led` (Led::None: as the image has them).
     void drawBlockImage(NanoImage& img, const BlockDescriptor* type, int slot, float x, float y, float w, float h,
-                        float radius, bool interactive)
+                        float radius, bool interactive, Led led = Led::None)
     {
         const Rect r = drawImageFit(img, x, y, w, h, radius);
         const PedalFace* face = type ? pedalFace(type->typeId) : nullptr;
         if (face == nullptr || r.w <= 0.0f || &img != builtinImage(type->typeId))
             return;
+        if (led != Led::None)
+        {
+            for (const FaceLed& faceLed : face->leds)
+            {
+                const float cx = r.x + faceLed.x * r.w, cy = r.y + faceLed.y * r.h, lr = faceLed.radius * r.w;
+                if (led == Led::Off)
+                {
+                    // hide the image's own (lit) LED and its glow, at full opacity even when the image is dimmed
+                    save();
+                    globalAlpha(1.0f);
+                    beginPath();
+                    circle(cx, cy, lr * 1.7f);
+                    fillPaint(radialGradient(cx, cy, lr * 1.12f, lr * 1.7f, Color(0x0e, 0x0c, 0x0d),
+                                             Color(0x0e, 0x0c, 0x0d, 0.0f)));
+                    fill();
+                    restore();
+                }
+                drawLed(cx, cy, lr, Color(faceLed.r, faceLed.g, faceLed.b), led == Led::On);
+            }
+        }
         for (const FaceKnob& knob : face->knobs)
         {
             int param = -1;
@@ -2566,6 +2603,40 @@ private:
             }
             fHits.push_back({ { cx - kr, cy - kr, 2 * kr, 2 * kr }, Hit::Knob, static_cast<int>(index) });
         }
+    }
+
+    // An LED: a lit lens with its glow, or a dark one, both with a little bezel and a highlight
+    void drawLed(float cx, float cy, float r, const Color& color, bool lit)
+    {
+        if (lit)
+        {
+            beginPath();
+            circle(cx, cy, r * 3.2f);
+            fillPaint(radialGradient(cx, cy, r * 0.6f, r * 3.2f, color.withAlpha(0.5f), color.withAlpha(0.0f)));
+            fill();
+        }
+        beginPath();
+        circle(cx, cy, r * 1.15f);
+        fillColor(Color(0x05, 0x05, 0x05));
+        fill();
+        Color inner = color, outer = color;
+        if (lit)
+        {
+            inner.interpolate(Color(1.0f, 1.0f, 1.0f), 0.55f);
+        }
+        else
+        {
+            inner.interpolate(Color(0, 0, 0), 0.72f);
+            outer.interpolate(Color(0, 0, 0), 0.86f);
+        }
+        beginPath();
+        circle(cx, cy, r);
+        fillPaint(radialGradient(cx - r * 0.15f, cy - r * 0.15f, r * 0.1f, r, inner, outer));
+        fill();
+        beginPath();
+        circle(cx - r * 0.35f, cy - r * 0.35f, r * 0.28f);
+        fillColor(Color(1.0f, 1.0f, 1.0f, lit ? 0.45f : 0.18f));
+        fill();
     }
 
     // A knob on a pedal's face: the knob image turned to the value (pointing up at the middle of the range, like the
@@ -3385,13 +3456,13 @@ private:
     // shapes bold so they read at small sizes. `key` (the file's path) gives each amp and cab its own look
     // (FileLooks.hpp); empty for the generic one.
     void drawBlockArt(const BlockDescriptor* type, float x, float y, float w, float h, bool detailed,
-                      const std::string& key = std::string())
+                      const std::string& key = std::string(), Led led = Led::None)
     {
         if (type == nullptr)
             return;
         lineCap(ROUND);
         lineJoin(ROUND);
-        drawBlockArtNeon(type, x, y, w, h, detailed, key);
+        drawBlockArtNeon(type, x, y, w, h, detailed, key, led);
         lineCap(BUTT);
         lineJoin(MITER);
     }
@@ -3598,7 +3669,7 @@ private:
 
     // Black enclosures outlined in glowing lines of the kind of block's colour
     void drawBlockArtNeon(const BlockDescriptor* type, float x, float y, float w, float h, bool detailed,
-                          const std::string& key)
+                          const std::string& key, Led led)
     {
         const float cx = x + w / 2, cy = y + h / 2;
         Color color = artColor(type->category);
@@ -3757,10 +3828,18 @@ private:
                     lineTo(kx + std::cos(a) * r * 0.85f, ky + std::sin(a) * r * 0.85f);
                     glowStroke(color, unit * 0.012f);
                 }
-                beginPath();
-                circle(ax + aw * 0.86f, ky, unit * 0.03f);
-                fillColor(color);
-                fill();
+                // the pilot light
+                if (led == Led::None)
+                {
+                    beginPath();
+                    circle(ax + aw * 0.86f, ky, unit * 0.03f);
+                    fillColor(color);
+                    fill();
+                }
+                else
+                {
+                    drawLed(ax + aw * 0.86f, ky, unit * 0.034f, theme::led, led == Led::On);
+                }
                 gy = ay + unit * 0.34f;
                 gh = ah - unit * 0.46f;
             }
@@ -3848,9 +3927,14 @@ private:
             circleAt(62, 164, 7);
         glowStroke(color, 1.6f * s * line);
 
-        if (detailed)
+        // the status LED (no name: the panel already shows it)
+        if (led != Led::None)
         {
-            // the status LED (no name: the panel already shows it)
+            const auto [lx, ly] = at(104, 164);
+            drawLed(lx, ly, (detailed ? 3.2f : 5.5f) * s, theme::led, led == Led::On);
+        }
+        else if (detailed)
+        {
             beginPath();
             circleAt(104, 164, 2.6f);
             fillColor(color);
@@ -4710,10 +4794,11 @@ private:
         // thumbnail (placeholder art until real images)
         const BlockDescriptor* type = BlockRegistry::builtin().find(block.typeId);
         globalAlpha(bypassed || missing || notRunning ? 0.35f : 1.0f);
+        const Led led = bypassed || missing || notRunning ? Led::Off : Led::On;
         if (NanoImage* img = blockImage(block))
-            drawBlockImage(*img, type, static_cast<int>(block.slot), 16, 24, kTileSize - 32, 58, 4.0f, false);
+            drawBlockImage(*img, type, static_cast<int>(block.slot), 16, 24, kTileSize - 32, 58, 4.0f, false, led);
         else
-            drawBlockArt(type, 16, 24, kTileSize - 32, 58, false, fileLookKey(block));
+            drawBlockArt(type, 16, 24, kTileSize - 32, 58, false, fileLookKey(block), led);
         std::string name = missing ? "Missing file"
                          : notRunning ? "Not running"
                          : path.empty() ? (type ? type->displayName : block.typeId)
@@ -4819,12 +4904,13 @@ private:
             surface(imageX, imageY, imageW, imageH, 8.0f, Surface::Inset);
             const bool bypassed = fParams[slotBypassParam(block.slot)] >= 0.5f;
             globalAlpha(bypassed ? 0.35f : 1.0f);
+            const Led led = bypassed ? Led::Off : Led::On;
             if (img)
                 drawBlockImage(*img, type, static_cast<int>(block.slot), imageX + kImagePad, imageY + kImagePad,
-                               imageW - 2 * kImagePad, imageH - 2 * kImagePad, 6.0f, true);
+                               imageW - 2 * kImagePad, imageH - 2 * kImagePad, 6.0f, true, led);
             else
                 drawBlockArt(type, imageX + imageW * 0.1f, imageY + imageH * 0.1f, imageW * 0.8f, imageH * 0.8f, true,
-                             fileLookKey(block));
+                             fileLookKey(block), led);
             globalAlpha(1.0f);
         }
 
@@ -5665,23 +5751,34 @@ private:
                   ALIGN_LEFT | ALIGN_MIDDLE);
 
             const bool isDefault = row.path == fSettings.defaultPreset;
+            const bool armed = row.path == fPresetDeleteArmed;
             const Rect def { r.x + r.w - 92.0f, r.y + 5.0f, 84.0f, r.h - 10.0f };
+            const Rect del { def.x - 92.0f, def.y, 84.0f, def.h };
             if (isDefault || hover)
                 drawButton(def, "Default", isDefault, theme::accent, Hit::PresetDefault, i);
+            if (armed || hover)
+                drawButton(del, armed ? "Delete?" : "Delete", armed, theme::bad, Hit::PresetDelete, i);
             const float top = std::max(r.y, listY), bottom = std::min(r.y + r.h, listY + listH);
+            // a button's hit area, cut to the list
+            const auto buttonHit = [&](const Rect& b, Hit kind) {
+                fHits.push_back({ { b.x, std::max(b.y, listY), b.w,
+                                    std::min(b.y + b.h, listY + listH) - std::max(b.y, listY) },
+                                  kind, i });
+            };
             if (bottom > top)
             {
-                fHits.push_back({ { r.x, top, r.w - 100.0f, bottom - top }, Hit::PresetRow, i });
+                fHits.push_back({ { r.x, top, r.w - 192.0f, bottom - top }, Hit::PresetRow, i });
                 if (isDefault || hover)
-                    fHits.push_back({ { def.x, std::max(def.y, listY), def.w,
-                                        std::min(def.y + def.h, listY + listH) - std::max(def.y, listY) },
-                                      Hit::PresetDefault, i });
+                    buttonHit(def, Hit::PresetDefault);
+                if (armed || hover)
+                    buttonHit(del, Hit::PresetDelete);
             }
         }
         restore();
 
         label(x + 20.0f, y + h - 20.0f,
-              "Click a preset to load it. The Default preset loads when you add NAMsayin to a track.",
+              "Click a preset to load it. The Default preset loads when you add NAMsayin to a track. "
+              "Delete asks again before it deletes.",
               theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
     }
 
@@ -5898,8 +5995,6 @@ private:
     float fLearnCcCount = 0.0f;
     std::string fToast;
     std::chrono::steady_clock::time_point fToastAt;
-    NanoImage fBackground;
-    bool fBackgroundTried = false;
     FontId fUiFont = -1;      // Jost Light
     FontId fUiFontSmall = -1; // Jost Regular, for small text
     Category fDialogCategory = Category::Nam;
@@ -5987,6 +6082,7 @@ private:
     std::vector<std::string> fMenuPresets;    // the preset menu's presets, by MenuEntry::arg
     float fPresetButtonX = 140.0f;
     std::vector<PresetEntry> fPresetList;     // Presets dialog
+    std::string fPresetDeleteArmed;           // the preset whose Delete was clicked once (Presets dialog)
     struct PresetRow {
         std::string folder; // a folder heading when path is empty
         std::string path;

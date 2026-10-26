@@ -174,3 +174,29 @@ TEST_CASE("preset folder: paths from folder and name, listing, inside checks")
     CHECK_FALSE(isInsideDir(dir, dir.parent_path() / "elsewhere.namsayin"));
     CHECK_FALSE(isInsideDir(dir, dir / ".." / "elsewhere.namsayin"));
 }
+
+TEST_CASE("deleting a preset: only preset files inside the preset folder")
+{
+    const fs::path root = fs::temp_directory_path() / "namsayin-test-preset-delete";
+    fs::remove_all(root);
+    const fs::path dir = root / "presets";
+    Preset preset;
+    const std::string twin = pathToUtf8(*presetPath(dir, "Clean", "Twin"));
+    const std::string outside = pathToUtf8(root / "Outside.namsayin");
+    REQUIRE(savePresetFile(twin, preset, false));
+    REQUIRE(savePresetFile(outside, preset, false));
+    std::ofstream(dir / "notes.txt") << "not a preset";
+
+    CHECK(deletePreset(dir, twin));
+    CHECK_FALSE(fs::exists(pathFromUtf8(twin)));
+    CHECK(listPresets(dir).empty());
+    CHECK_FALSE(deletePreset(dir, twin)); // already gone
+
+    CHECK_FALSE(deletePreset(dir, outside));
+    CHECK(fs::exists(pathFromUtf8(outside)));
+    CHECK_FALSE(deletePreset(dir, pathToUtf8(dir / "notes.txt")));
+    CHECK(fs::exists(dir / "notes.txt"));
+    CHECK_FALSE(deletePreset(dir, pathToUtf8(dir / "Clean"))); // a folder
+    CHECK(fs::exists(dir / "Clean"));
+    fs::remove_all(root);
+}

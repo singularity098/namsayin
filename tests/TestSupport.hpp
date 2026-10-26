@@ -32,11 +32,12 @@ public:
 
 // Test block: a gain (param 0, -24..24 dB) with optional latency and a configure() failure, set via config:
 // {"latency": samples, "fail": true}. Its meter() reports the host tempo it was given; sLastSongBeat the last song
-// position (-1 if none).
+// position (-1 if none). sBreakNext breaks the next block to process: its state goes NaN, so it outputs NaN for good.
 class GainBlock : public namsayin::Block {
 public:
     static inline int sCreated = 0;
     static inline double sLastSongBeat = -1.0;
+    static inline std::atomic<bool> sBreakNext { false };
 
     GainBlock() { ++sCreated; }
 
@@ -57,9 +58,11 @@ public:
 
     void process(float* const* io, uint32_t numChannels, uint32_t frames) override
     {
+        if (sBreakNext.exchange(false))
+            fState = std::nanf("");
         for (uint32_t ch = 0; ch < numChannels; ++ch)
             for (uint32_t i = 0; i < frames; ++i)
-                io[ch][i] *= fGain;
+                io[ch][i] = io[ch][i] * fGain + fState;
 
         // Delay channel 0 by fLatency samples
         if (fLatency > 0)
@@ -81,6 +84,7 @@ public:
 private:
     double fTempo = 0.0;
     float fGain = 1.0f;
+    float fState = 0.0f;
     uint32_t fLatency = 0;
     std::vector<float> fDelay;
     size_t fPos = 0;

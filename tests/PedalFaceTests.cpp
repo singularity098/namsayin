@@ -39,3 +39,21 @@ TEST_CASE("pedal face knobs turn real knob parameters, inside their image")
     }
     CHECK(pedalFace("no-such-block") == nullptr);
 }
+
+TEST_CASE("pedal face LEDs sit inside their image")
+{
+    for (const PedalFace& face : pedalFaces())
+    {
+        CAPTURE(std::string(face.typeId));
+        for (const FaceLed& led : face.leds)
+        {
+            CHECK(led.radius > 0.0f);
+            CHECK(led.x - led.radius >= 0.0f);
+            CHECK(led.x + led.radius <= 1.0f);
+            CHECK(led.y > 0.0f);
+            CHECK(led.y < 1.0f);
+        }
+    }
+    REQUIRE(pedalFace("polychip") != nullptr);
+    CHECK(pedalFace("polychip")->leds.size() == 2);
+}

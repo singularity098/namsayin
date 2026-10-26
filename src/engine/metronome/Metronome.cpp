@@ -17,7 +17,10 @@ constexpr int64_t kEventsPerBeat = 16; // event IDs in sync mode: beat * kEvents
 
 // The Classic sound (Fretbored's click): a tone with its 2nd and 3rd harmonics, 0.5 : 0.15 : 0.05, starting at full
 // level and decaying with a 50 ms time constant, cut off after 50 ms; 0.5 ms and 6 ms fades soften the start and
-// keep the cut from popping
+// keep the cut from popping. The owner raised its pitch by two semitones (2026-10-26): 1500 and 1000 Hz were Fretbored's.
+constexpr double kClassicAccentHz = 1500.0 * 1.122462048309373; // 2^(2/12)
+constexpr double kClassicBeatHz = 1000.0 * 1.122462048309373;
+
 std::vector<float> classicClick(double frequency, double rate)
 {
     std::vector<float> out(static_cast<size_t>(rate * 0.05));
@@ -91,8 +94,8 @@ void Metronome::prepare(double sampleRate)
     const int classic = static_cast<int>(MetroSound::Classic);
     const int digital = static_cast<int>(MetroSound::Digital);
     const int beepSound = static_cast<int>(MetroSound::Beep);
-    fSamples[classic][kAccent] = classicClick(1500.0, sampleRate);
-    fSamples[classic][kBeat] = classicClick(1000.0, sampleRate);
+    fSamples[classic][kAccent] = classicClick(kClassicAccentHz, sampleRate);
+    fSamples[classic][kBeat] = classicClick(kClassicBeatHz, sampleRate);
     fSamples[classic][kSub] = fSamples[classic][kBeat];
     fSamples[digital][kAccent] = digitalClick(1975.5, sampleRate); // B6
     fSamples[digital][kBeat] = digitalClick(1318.5, sampleRate);   // E6

@@ -21,7 +21,7 @@ struct Settings {
     bool a2Lite = false;         // default A2 size for new NAM blocks
     bool normalize = true;       // default normalization for new NAM and IR blocks
     bool parallel = true;        // run split branch B on a second core
-    int accent = 1;              // index into the UI's accent colours (1: blue)
+    int accent = 7;              // index into the UI's accent colours (7: white)
     std::set<std::string> favorites; // content hashes (XXH3-128, hex)
     bool embedFiles = true;      // exported presets carry the files they use (saved ones never do)
     std::string defaultPreset;   // loaded into new plugin instances; empty for none

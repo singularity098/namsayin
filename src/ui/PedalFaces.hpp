@@ -15,12 +15,20 @@ struct FaceKnob {
     float x, y, radius;
 };
 
+// An LED on a block's image: drawn lit while the block is on and dark while it's bypassed, over the image's own
+// (x and the radius are fractions of the image's width, y of its height; the colour is the lit one)
+struct FaceLed {
+    float x, y, radius;
+    unsigned char r, g, b;
+};
+
 struct PedalFace {
     const char* typeId;
     std::vector<FaceKnob> knobs;
+    std::vector<FaceLed> leds;
 };
 
-// A block type's face knobs, or nullptr if its image has none
+// A block type's face knobs and LEDs, or nullptr if its image has none
 const PedalFace* pedalFace(const char* typeId);
 
 const std::vector<PedalFace>& pedalFaces();

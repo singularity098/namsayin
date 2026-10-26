@@ -50,6 +50,14 @@ public:
     // (audio passes through them); their slots are listed in `failedSlots`.
     bool setChain(const ChainState& chain, std::string* error = nullptr, std::vector<int>* failedSlots = nullptr);
 
+    // Any thread. True once after the chain's output went non-finite (NaN or infinity): a block's state is broken
+    // (a NaN never leaves recursive filters by itself). The engine outputs silence for it meanwhile; the caller
+    // rebuilds the chain with fresh blocks (forgetBlocks(), then setChain()).
+    bool takeChainFault() { return fChainFault.exchange(false, std::memory_order_acq_rel); }
+
+    // Non-RT. The next setChain() creates every block anew instead of reusing unchanged ones.
+    void forgetBlocks();
+
     // Any thread. Index from Params.hpp; slot parameters are normalized 0..1.
     void setParameter(uint32_t index, float value);
     float getParameter(uint32_t index) const;
@@ -158,6 +166,8 @@ private:
     void updateLatency(Graph& graph);
     void swapGraph();
     void drainRetired();
+    // RT. Replaces NaN and infinite samples with silence; returns whether there were any
+    static bool silenceNonFinite(float* const* io, uint32_t numChannels, uint32_t frames);
     float param(uint32_t index) const { return fParams[index].load(std::memory_order_relaxed); }
 
     const BlockRegistry& fRegistry;
@@ -177,6 +187,7 @@ private:
     SpscQueue<Graph*, 8> fRetired;
     std::atomic<uint32_t> fLatency { 0 };
     std::atomic<bool> fParallel { true };
+    std::atomic<bool> fChainFault { false };
     std::unique_ptr<ParallelWorker> fWorker; // started when a chain first needs it
 
     // audio thread side

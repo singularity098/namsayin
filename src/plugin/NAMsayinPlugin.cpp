@@ -158,13 +158,39 @@ protected:
         return String(fChainJson.c_str());
     }
 
+    // Hosts may call this on any thread, and DPF already counts the plugin as active while it runs, so the audio
+    // thread can call run() meanwhile (DPF's VST3 process() also activates the plugin itself). The two never
+    // overlap: this waits for a run() in progress, and run() outputs silence while this prepares.
     void activate() override
     {
+        const std::lock_guard<std::mutex> lock(fActivateMutex);
+        fPreparing.store(true);
+        while (fRunning.load())
+            std::this_thread::yield();
         fEngine.prepare(getSampleRate(), getBufferSize());
+        fPreparing.store(false);
     }
 
     void run(const float** const inputs, float** const outputs, const uint32_t frames,
              const MidiEvent* const midiEvents, const uint32_t midiEventCount) override
+    {
+        // the handshake with activate(): announce the run, then check (both sequentially consistent, so one of the
+        // two always sees the other)
+        fRunning.store(true);
+        if (fPreparing.load())
+        {
+            fRunning.store(false);
+            for (int ch = 0; ch < 2; ++ch)
+                std::memset(outputs[ch], 0, sizeof(float) * frames);
+            return;
+        }
+        runEngine(inputs, outputs, frames, midiEvents, midiEventCount);
+        fRunning.store(false);
+    }
+
+private:
+    void runEngine(const float** const inputs, float** const outputs, const uint32_t frames,
+                   const MidiEvent* const midiEvents, const uint32_t midiEventCount)
     {
         // MIDI CCs (learn and mapped controls), applied at the start of the buffer
         for (uint32_t i = 0; i < midiEventCount; ++i)
@@ -212,7 +238,6 @@ protected:
         }
     }
 
-private:
     // Non-RT. Builds the chain and keeps its JSON for getState() and the exchange file.
     void applyChain(const char* const json)
     {
@@ -240,13 +265,41 @@ private:
         writeChainExchange(fInstanceId, json);
     }
 
-    // Picks up chains the UI sent through the exchange file (see state/ChainExchange.hpp)
+    // Non-RT. Builds the current chain again with fresh blocks, after one broke (Engine::takeChainFault())
+    void rebuildChain()
+    {
+        std::string json;
+        {
+            const std::lock_guard<std::mutex> lock(fChainMutex);
+            json = fChainJson;
+        }
+        if (json.empty())
+            return;
+        d_stderr2("NAMsayin: a block's output went NaN; rebuilding the chain");
+        fEngine.forgetBlocks();
+        if (const std::optional<ChainState> chain = ChainState::fromJson(json))
+            fEngine.setChain(*chain);
+        // the broken blocks play until the new ones swap in: their reports are old news
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        fEngine.takeChainFault();
+    }
+
+    // Picks up chains the UI sent through the exchange file (see state/ChainExchange.hpp), and rebuilds the chain
+    // when a block broke
     void watchExchange()
     {
         uint32_t seenRevision = 0;
+        auto lastRebuild = std::chrono::steady_clock::now() - std::chrono::seconds(10);
         while (!fStopExchange)
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(30));
+            // at most once a second, in case a block keeps breaking
+            const auto now = std::chrono::steady_clock::now();
+            if (now - lastRebuild >= std::chrono::seconds(1) && fEngine.takeChainFault())
+            {
+                lastRebuild = now;
+                rebuildChain();
+            }
             const auto revision = static_cast<uint32_t>(fEngine.getParameter(kParamChainRevision));
             if (revision == seenRevision)
                 continue;
@@ -270,6 +323,9 @@ private:
 
     Engine fEngine;
     uint32_t fReportedLatency = 0;
+    std::mutex fActivateMutex;               // activate() calls from two threads at once
+    std::atomic<bool> fPreparing { false };  // activate() is preparing the engine
+    std::atomic<bool> fRunning { false };    // run() is processing
 
     uint32_t fInstanceId = 0;
     mutable std::mutex fChainMutex;
