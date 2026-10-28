@@ -55,11 +55,14 @@ float rms(const std::vector<float>& x, size_t from)
     return static_cast<float>(std::sqrt(sum / static_cast<double>(x.size() - from)));
 }
 
-std::unique_ptr<Block> loadBlock(const std::string& path, double a2Size = 1.0)
+std::unique_ptr<Block> loadBlock(const std::string& path, double a2Size = 1.0, bool tone = true)
 {
     std::unique_ptr<Block> block = kNamBlockDescriptor.create();
     block->prepare(kRate, kBuffer);
-    if (!block->configure({ { "path", path }, { "a2Size", a2Size } }))
+    nlohmann::json config = { { "path", path }, { "a2Size", a2Size } };
+    if (tone)
+        config[kNamToneKey] = true;
+    if (!block->configure(config))
         return nullptr;
     for (int p = 0; p < kNamBlockDescriptor.numParams; ++p)
         block->setParam(p, kNamBlockDescriptor.params[p].def);
@@ -116,6 +119,27 @@ TEST_CASE("NAM block output level follows its parameters")
     block->setParam(kNamParamOutput, -6.0f);
     const float quieter = rms(render(*block, 200), 12800);
     CHECK(20.0f * std::log10(quieter / base) == doctest::Approx(-6.0f).epsilon(0.02));
+}
+
+TEST_CASE("NAM block tone controls shape the output; blocks from before them stay flat")
+{
+    for (const bool tone : { true, false })
+    {
+        CAPTURE(tone);
+        std::unique_ptr<Block> block = loadBlock(exampleModel("wavenet_a1_standard.nam"), 1.0, tone);
+        REQUIRE(block);
+        block->setParam(kNamParamNormalize, 0.0f);
+        const float base = rms(render(*block, 200), 12800);
+        block->setParam(kNamParamBass, 12.0f); // a shelf at 120 Hz: the model's 220 Hz fundamental rises a little
+        int allocations = 0;
+        const std::vector<float> out = render(*block, 200, &allocations);
+        CHECK(allocations == 0);
+        const float boosted = rms(out, 12800);
+        if (tone)
+            CHECK(20.0f * std::log10(boosted / base) > 0.5f);
+        else
+            CHECK(boosted == doctest::Approx(base).epsilon(1e-4));
+    }
 }
 
 TEST_CASE("NAM block in the engine, including through the plugin's state format")

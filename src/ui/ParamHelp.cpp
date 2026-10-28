@@ -77,6 +77,16 @@ constexpr BlockHelp kBlockHelp[] = {
       "Brings every model to about the same loudness, using the loudness value stored in the .nam file. Keep it on "
       "so switching between models doesn't make big jumps in volume. Models without a stored loudness are left as "
       "they are." },
+    { "nam", "Bass",
+      "Boosts or cuts the lows coming out of the amp model (a shelf at 120 Hz). Handy for shaping each side of a split "
+      "so the two amps don't pile up in the low end: trim the bass on one and let the other carry it. 0 dB leaves it "
+      "as the model sounds." },
+    { "nam", "Middle",
+      "Boosts or cuts the mids coming out of the amp model (around 800 Hz). Boost to push the guitar forward in a mix "
+      "or to make one side of a split cut through; cut for a scooped sound. 0 dB leaves it as the model sounds." },
+    { "nam", "Treble",
+      "Boosts or cuts the highs coming out of the amp model (a shelf at 3.2 kHz). Turn it down to tame fizz, up to add "
+      "bite and clarity. 0 dB leaves it as the model sounds." },
 
     // IR
     { "ir", "Level",

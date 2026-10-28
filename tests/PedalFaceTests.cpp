@@ -13,7 +13,7 @@
 
 using namespace namsayin;
 
-TEST_CASE("pedal face knobs turn real knob parameters, inside their image")
+TEST_CASE("pedal face knobs turn real knob parameters, inside their image, with short names")
 {
     for (const PedalFace& face : pedalFaces())
     {
@@ -38,9 +38,15 @@ TEST_CASE("pedal face knobs turn real knob parameters, inside their image")
             CHECK(knob.x + knob.radius <= 1.0f);
             CHECK(knob.y > 0.0f);
             CHECK(knob.y < 1.0f);
+            CHECK(std::strlen(faceKnobLabel(knob.param)) <= 5);
         }
+        for (size_t i = 0; i < face.knobs.size(); ++i)
+            for (size_t j = i + 1; j < face.knobs.size(); ++j)
+                CHECK(std::strcmp(faceKnobLabel(face.knobs[i].param), faceKnobLabel(face.knobs[j].param)) != 0);
     }
     CHECK(pedalFace("no-such-block") == nullptr);
+    CHECK(std::strcmp(faceKnobLabel("Damping"), "Damp") == 0);
+    CHECK(std::strcmp(faceKnobLabel("Mix"), "Mix") == 0);
 }
 
 TEST_CASE("pedal face LEDs sit inside their image")

@@ -12,7 +12,8 @@
 
 namespace namsayin {
 
-// Global Bass / Middle / Treble EQ at the end of the chain. At 0 dB on all three it is bypassed exactly.
+// Bass / Middle / Treble EQ: the global one at the end of the chain, and each NAM block's. At 0 dB on all three it is
+// bypassed exactly.
 class ToneStack {
 public:
     static constexpr double kBassFreq = 120.0;

@@ -204,6 +204,7 @@ dpf_add_plugin(namsayin
   FILES_DSP
     src/plugin/NAMsayinPlugin.cpp
   FILES_UI
+    src/ui/BackgroundImage.cpp
     src/ui/BlockGlyphs.cpp
     ${NAMSAYIN_BLOCK_IMAGES_CPP}
     src/ui/FileLooks.cpp

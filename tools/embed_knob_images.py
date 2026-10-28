@@ -6,8 +6,12 @@
 knob.png is the knob drawn pointing up (12 o'clock) on a black background; sheen.png is its lighting layer, a lit
 sphere on black. Both are cut out to the knob's circle (found from the pixels brighter than the background) and
 embedded as SIZE px 8-bit RGBA PNGs: the knob keeps its colours, the sheen becomes white whose alpha is its
-brightness, so drawing it over the knob screens the light on (the UI sets its strength). The UI rotates the knob to
-its value and draws the sheen over it unrotated, so the light stays put.
+brightness, so drawing it over the knob screens the light on (the UI sets its strength).
+
+A real knob's reflections don't turn with it, so only the pointer does: each knob is split into its body, with the
+pointer painted out (filled from the same radius either side; the brushed metal is concentric), drawn unrotated
+with its lighting, and the pointer alone (RGBA), which the UI rotates to the value over it. The sheen is drawn over
+both, unrotated.
 
 rim.png is the knob with a glowing blue rim (the owner's, 2026-10-28), on black. Each pedal tints the rim its own
 colour, so it's split like the LEDs (embed_led_images.py): the neutral part (each pixel's smallest channel) and the
@@ -48,9 +52,37 @@ def circle_mask():
     return np.clip(SIZE / 2 - 1.0 - d, 0.0, 1.0)
 
 
+def split_pointer(rgba):
+    """Splits a knob (RGBA, pointing up, centred) into its body with the pointer painted out and the pointer alone"""
+    c = (SIZE - 1) / 2
+    rgb = rgba[..., :3]
+    lum = rgb.mean(axis=2)
+    sat = rgb.max(axis=2) - rgb.min(axis=2)
+    y, x = np.mgrid[0:SIZE, 0:SIZE]
+    # the pointer: the bright, grey pixels in a narrow band above the centre
+    core = (np.abs(x - c) < SIZE * 0.05) & (y < c) & (lum > 140) & (sat < 40)
+    ys, xs = np.nonzero(core)
+    pad = SIZE * 0.008
+    x0, x1, y0, y1 = xs.min() - pad, xs.max() + pad, ys.min() - pad, ys.max() + pad
+    # a soft-edged rounded box around it
+    dx = np.maximum(np.maximum(x0 - x, x - x1), 0.0)
+    dy = np.maximum(np.maximum(y0 - y, y - y1), 0.0)
+    alpha = np.clip(1.0 - np.hypot(dx, dy) / (SIZE * 0.01), 0.0, 1.0)
+    # the body there: the same radius either side of it, averaged, so the light around the knob carries on across it
+    img = Image.fromarray(np.round(rgba).astype(np.uint8), "RGBA")
+    turned = np.mean([np.asarray(img.rotate(a, Image.BICUBIC))[..., :3].astype(np.float64) for a in (-18, 18, -30, 30)],
+                     axis=0)
+    body = rgba.copy()
+    body[..., :3] = rgb * (1 - alpha[..., None]) + turned * alpha[..., None]
+    pointer_alpha = np.minimum(alpha, rgba[..., 3] / 255)
+    pointer = np.dstack([rgb * (pointer_alpha > 0)[..., None], pointer_alpha * 255])
+    return body, pointer
+
+
 mask = circle_mask()
 knob = np.asarray(circle_crop(Image.open(SOURCE / "knob.png").convert("RGB"))).astype(np.float64)
 knob = np.dstack([knob, mask * 255])
+knob, knob_pointer = split_pointer(knob)
 sheen = np.asarray(circle_crop(Image.open(SOURCE / "sheen.png").convert("L"))).astype(np.float64)
 sheen = np.dstack([np.full((SIZE, SIZE, 3), 255.0), sheen * mask])
 
@@ -79,6 +111,7 @@ def rim_layers():
 
 
 rim, rim_colour = rim_layers()
+rim, rim_pointer = split_pointer(rim)
 
 lines = [
     "// SPDX-License-Identifier: MIT",
@@ -93,7 +126,8 @@ lines = [
     "namespace {",
     "",
 ]
-for name, pixels, mode in (("kKnobPng", knob, "RGBA"), ("kSheenPng", sheen, "RGBA"), ("kRimPng", rim, "RGBA"),
+for name, pixels, mode in (("kKnobPng", knob, "RGBA"), ("kKnobPointerPng", knob_pointer, "RGBA"),
+                           ("kSheenPng", sheen, "RGBA"), ("kRimPng", rim, "RGBA"), ("kRimPointerPng", rim_pointer, "RGBA"),
                            ("kRimColourPng", rim_colour, "L")):
     buf = io.BytesIO()
     Image.fromarray(np.round(pixels).astype(np.uint8), mode).save(buf, "PNG", optimize=True)
@@ -109,9 +143,13 @@ lines += [
     "",
     "BuiltinImage knobImage() { return { kKnobPng, sizeof(kKnobPng) }; }",
     "",
+    "BuiltinImage knobPointerImage() { return { kKnobPointerPng, sizeof(kKnobPointerPng) }; }",
+    "",
     "BuiltinImage knobSheenImage() { return { kSheenPng, sizeof(kSheenPng) }; }",
     "",
     "BuiltinImage rimKnobImage() { return { kRimPng, sizeof(kRimPng) }; }",
+    "",
+    "BuiltinImage rimKnobPointerImage() { return { kRimPointerPng, sizeof(kRimPointerPng) }; }",
     "",
     "BuiltinImage rimKnobColourImage() { return { kRimColourPng, sizeof(kRimColourPng) }; }",
     "",

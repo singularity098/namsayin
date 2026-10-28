@@ -4,6 +4,7 @@
 #include "engine/blocks/NamBlock.hpp"
 
 #include "engine/dsp/Smoother.hpp"
+#include "engine/dsp/ToneStack.hpp"
 #include "state/Library.hpp"
 #include "state/Paths.hpp"
 
@@ -33,6 +34,7 @@ public:
         fDcCoef = static_cast<float>(std::exp(-2.0 * M_PI * 5.0 / sampleRate));
         fInputGain.snap(dbToGain(fInputDb));
         fOutputGain.snap(targetOutputGain());
+        fTone.prepare(sampleRate);
         resetModels();
     }
 
@@ -40,6 +42,8 @@ public:
     {
         const std::string path = config.value("path", std::string());
         const double a2Size = config.value("a2Size", 1.0);
+        fHasTone = config.value(kNamToneKey, false);
+        updateTone();
         if (path.empty())
             return false;
         // a file inside a zip is extracted to the cache first
@@ -91,6 +95,12 @@ public:
             fNormalize = value >= 0.5f;
             fOutputGain.setTarget(targetOutputGain());
             break;
+        case kNamParamBass:
+        case kNamParamMiddle:
+        case kNamParamTreble:
+            fToneDb[index - kNamParamBass] = value;
+            updateTone();
+            break;
         }
     }
 
@@ -126,11 +136,13 @@ public:
             fDcIn[ch] = dcIn;
             fDcOut[ch] = dcOut;
         }
+        fTone.process(io, numChannels, frames);
     }
 
     void reset() override
     {
         resetModels();
+        fTone.reset();
         fDcIn[0] = fDcIn[1] = fDcOut[0] = fDcOut[1] = 0.0f;
     }
 
@@ -141,6 +153,15 @@ private:
         if (fNormalize && fHasLoudness)
             db += static_cast<float>(kNamTargetLoudnessDb - fLoudnessDb);
         return dbToGain(db);
+    }
+
+    // flat (bypassed exactly) for a block from before the tone controls
+    void updateTone()
+    {
+        if (fHasTone)
+            fTone.setGains(fToneDb[0], fToneDb[1], fToneDb[2]);
+        else
+            fTone.setGains(0.0f, 0.0f, 0.0f);
     }
 
     void resetModels()
@@ -162,6 +183,9 @@ private:
     float fOutputDb = 0.0f;
     bool fNormalize = true;
     Smoother fInputGain, fOutputGain;
+    ToneStack fTone;
+    float fToneDb[3] {};
+    bool fHasTone = false;
     float fDcCoef = 0.9993f;
     float fDcIn[2] {}, fDcOut[2] {};
 };
@@ -177,6 +201,9 @@ const BlockDescriptor kNamBlockDescriptor = {
         ParamSpec { "Input", "dB", -24.0f, 24.0f, 0.0f, ParamScale::Linear },
         ParamSpec { "Output", "dB", -24.0f, 24.0f, 0.0f, ParamScale::Linear },
         ParamSpec { "Normalize", "", 0.0f, 1.0f, 1.0f, ParamScale::Toggle },
+        ParamSpec { "Bass", "dB", -12.0f, 12.0f, 0.0f, ParamScale::Linear },
+        ParamSpec { "Middle", "dB", -12.0f, 12.0f, 0.0f, ParamScale::Linear },
+        ParamSpec { "Treble", "dB", -12.0f, 12.0f, 0.0f, ParamScale::Linear },
     },
     [] { return std::unique_ptr<Block>(new NamBlock()); },
 };

@@ -7,7 +7,7 @@ python3 tools/prepare_block_image.py <photo> <typeId> --box x0,y0,x1,y1
 
 The box is the pedal's enclosure, as fractions of the photo (left, top, right, bottom). The photo is cropped around it
 to a 1:2 portrait (a little floor and cable either side) and written as two baseline JPEGs, which DPF's stb_image
-decodes:
+decodes, at high quality without chroma subsampling (4:4:4), so the pedals' saturated edges and fine print stay sharp:
   resources/blocks/<typeId>.jpg         HEIGHT px high, for the block panel
   resources/blocks/thumbs/<typeId>.jpg  THUMB_HEIGHT px high, for the chain's tiles and the lists
 The build embeds every JPEG there (cmake/EmbedBlockImages.cmake); nothing else is needed. Then place the face's knobs,
@@ -23,9 +23,10 @@ from PIL import Image, ImageDraw
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT = ROOT / "resources" / "blocks"
-HEIGHT = 640        # the panel's image is at most ~300 logical px high, so this covers 2x scaling
-THUMB_HEIGHT = 192  # tiles show it 58 logical px high
-QUALITY = 88
+HEIGHT = 1280       # the panel's image is ~300-600 logical px high, so this stays sharp at 2x scaling
+THUMB_HEIGHT = 384  # tiles show it 58 logical px high (and the lists' rows); sharp at any scale
+QUALITY = 94
+SUBSAMPLING = 0     # 4:4:4
 
 
 def crop_box(width, height, box):
@@ -52,7 +53,7 @@ def main():
     (OUT / "thumbs").mkdir(parents=True, exist_ok=True)
     for height, path in ((HEIGHT, OUT / f"{args.type_id}.jpg"), (THUMB_HEIGHT, OUT / "thumbs" / f"{args.type_id}.jpg")):
         img = crop.resize((height // 2, height), Image.LANCZOS)
-        img.save(path, "JPEG", quality=QUALITY, optimize=True, progressive=False)
+        img.save(path, "JPEG", quality=QUALITY, subsampling=SUBSAMPLING, optimize=True, progressive=False)
         print(f"{path.relative_to(ROOT)}: {img.width}x{img.height}, {path.stat().st_size} bytes")
 
     if args.preview:

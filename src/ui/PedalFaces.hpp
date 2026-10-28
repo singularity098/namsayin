@@ -9,7 +9,8 @@ namespace namsayin {
 
 // Knobs drawn on a block's built-in image (resources/blocks/), each turning one of the block's parameters: the same
 // host parameter as its knob among the panel's controls, so turning either turns both. Positions are fractions of the
-// image (x and the radius of its width, y of its height). Plain data, no DPF, so the tests can check it.
+// image (x and the radius of its width, y of its height). Three knobs sit in a shallow triangle, the middle one higher,
+// so its name gets a row of its own. Plain data, no DPF, so the tests can check it.
 struct FaceKnob {
     const char* param; // the ParamSpec name
     float x, y, radius;
@@ -41,6 +42,10 @@ struct PedalFace {
     FaceSwitch footswitch;
     FaceRim rim;
 };
+
+// The name a face engraves under a knob turning `param`: at most five letters, so neighbouring knobs' names don't run
+// into each other ("Damping" is "Damp"); the panel's knobs keep the full names
+const char* faceKnobLabel(const char* param);
 
 // A block type's face knobs and LEDs, or nullptr if its image has none
 const PedalFace* pedalFace(const char* typeId);

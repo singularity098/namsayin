@@ -5,6 +5,7 @@
 #include "src/nanovg/nanovg.h" // DPF's NanoVG class has no fallback-font call
 
 #include "BlockGlyphs.hpp"
+#include "BackgroundImage.hpp"
 #include "BlockImages.hpp"
 #include "FileLooks.hpp"
 #include "FontData.hpp"
@@ -55,7 +56,8 @@ namespace {
 // Theme tokens. Very dark: a pure black window; boxes are black too, drawn as hairline grey outlines (surface()).
 namespace theme {
 const Color background(0x00, 0x00, 0x00);
-const Color dialogFill(0x07, 0x07, 0x07); // dialogs (and menus) stand off the black window a little
+const Color panelFill(0x00, 0x00, 0x00, 0.88f);  // bars, panels, tiles and buttons: the background image shows faintly
+const Color dialogFill(0x07, 0x07, 0x07, 0.9f); // dialogs (and menus) stand off the window a little
 const Color tile(0x16, 0x16, 0x1a);       // small grey fills (hover in lists, meter boxes)
 const Color tileHover(0x1d, 0x1d, 0x22);
 const Color inset(0x05, 0x05, 0x06);
@@ -606,6 +608,7 @@ protected:
             // an empty state is a new instance's (it may still get the default preset); a saved chain is never empty
             fGotChainState = value[0] != '\0';
             fChain = std::move(*chain);
+            fNamToneSlots = migrateNamTone(fChain);
             fSavedChain = fChain; // the host's state: nothing to mark as modified, nothing to undo
             fUndo.clear();
             chainChanged();
@@ -1428,6 +1431,21 @@ protected:
             repaint(); // the readout itself counts frames, so keep drawing
         if (fMomentaryReleasePending && std::chrono::steady_clock::now() - fMomentaryPressedAt >= kMomentaryMinHold)
             releaseMomentary();
+        if (!fNamToneSlots.empty())
+        {
+            // the host has the old blocks' unused values (-12 dB): flat first, then the chain that turns them on
+            const std::vector<int> slots = std::exchange(fNamToneSlots, {});
+            for (BlockState& block : fChain.blocks)
+                if (std::find(slots.begin(), slots.end(), block.slot) != slots.end())
+                    for (int p = kNamParamBass; p <= kNamParamTreble; ++p)
+                    {
+                        const ParamSpec& spec = kNamBlockDescriptor.params[p];
+                        block.params[p] = spec.toNormalized(spec.def);
+                        setHostParameter(slotParam(block.slot, p), block.params[p]);
+                    }
+            fSavedChain = fChain;
+            sendChain();
+        }
         if (!fToast.empty() && std::chrono::steady_clock::now() - fToastAt > std::chrono::seconds(5))
             repaint();
         if (std::optional<LibraryScanner::Result> result = fScanner.poll())
@@ -1791,9 +1809,30 @@ private:
         openDialog(Dialog::AddBlock);
     }
 
+    // NAM blocks from before their tone controls (no "tone" in the config; see NamBlock.hpp) get flat ones: their
+    // values are set to 0 dB and the config marks them, so the DSP applies them. Returns the slots changed.
+    static std::vector<int> migrateNamTone(ChainState& chain)
+    {
+        std::vector<int> changed;
+        for (BlockState& block : chain.blocks)
+        {
+            if (block.typeId != kNamBlockDescriptor.typeId || block.config.contains(kNamToneKey))
+                continue;
+            for (int p = kNamParamBass; p <= kNamParamTreble; ++p)
+            {
+                const ParamSpec& spec = kNamBlockDescriptor.params[p];
+                block.params[p] = spec.toNormalized(spec.def);
+            }
+            block.config[kNamToneKey] = true;
+            changed.push_back(block.slot);
+        }
+        return changed;
+    }
+
     // Replaces the chain (undo, redo, presets): the host gets every block's values back
     void applyChain(ChainState chain)
     {
+        migrateNamTone(chain);
         fChain = std::move(chain);
         for (const BlockState& block : fChain.blocks)
         {
@@ -2512,8 +2551,27 @@ private:
     // What picks a block's own look in the placeholder art: its file's path
     static std::string fileLookKey(const BlockState& block) { return block.config.value("path", std::string()); }
 
-    // The window: plain black behind the panels
-    void drawBackground() { fillRect(0, 0, fWidth, fHeight, theme::background); }
+    // The window background behind the panels: the owner's image (BackgroundImage.cpp), scaled to cover the window and
+    // centred; the panels over it are translucent black
+    void drawBackground()
+    {
+        fillRect(0, 0, fWidth, fHeight, theme::background);
+        if (!fBackgroundTried)
+        {
+            fBackgroundTried = true;
+            fBackground = createImageFromMemory(kBackgroundImage, kBackgroundImageSize, IMAGE_GENERATE_MIPMAPS);
+        }
+        const Size<uint> size = fBackground.getSize();
+        if (!fBackground.isValid() || size.getWidth() == 0 || size.getHeight() == 0)
+            return;
+        const float scale = std::max(fWidth / size.getWidth(), fHeight / size.getHeight());
+        const float w = size.getWidth() * scale, h = size.getHeight() * scale;
+        const float x = (fWidth - w) / 2, y = (fHeight - h) / 2;
+        beginPath();
+        rect(0, 0, fWidth, fHeight);
+        fillPaint(imagePattern(x, y, w, h, 0.0f, fBackground, 1.0f));
+        fill();
+    }
 
     // A block type's built-in image (resources/blocks/), if it has one. Decoded when first drawn; the least recently
     // drawn ones beyond kMaxFullImages are freed (never one drawn this frame: NanoVG renders at the frame's end).
@@ -2647,8 +2705,8 @@ private:
             if (kr >= 12.0f)
             {
                 const bool turning = fDragParam == static_cast<int>(index);
-                label(cx, cy + kr + 12.0f, turning ? valueText(index).c_str() : spec.name, theme::faceLabel, 11.0f,
-                      ALIGN_CENTER | ALIGN_MIDDLE);
+                label(cx, cy + kr + 10.0f, turning ? valueText(index).c_str() : faceKnobLabel(spec.name),
+                      theme::faceLabel, 9.0f, ALIGN_CENTER | ALIGN_MIDDLE);
             }
             fHits.push_back({ { cx - kr, cy - kr, 2 * kr, 2 * kr }, Hit::Knob, static_cast<int>(index) });
         }
@@ -2769,22 +2827,26 @@ private:
         restore();
     }
 
-    // A knob on a pedal's face: the knob image turned to the value (pointing up at the middle of the range, like the
-    // panel's knobs), its sheen over it unturned so the light stays put, on a soft shadow. With a lit `rim`, the knob
-    // with the glowing rim, the rim tinted that colour (like the face LEDs: the colour part added tinted); else black.
+    // A knob on a pedal's face, on a soft shadow: the knob's body unrotated, so its reflections stay put like a real
+    // knob's, its pointer turned to the value (pointing up at the middle of the range, like the panel's knobs) and the
+    // sheen over both. With a lit `rim`, the knob with the glowing rim, the rim tinted that colour (like the face
+    // LEDs: the colour part added tinted); else black.
     void drawFaceKnob(float cx, float cy, float r, float n, FaceRim rim = {})
     {
         if (!fKnobImagesTried)
         {
             fKnobImagesTried = true;
-            const BuiltinImage knob = knobImage(), sheen = knobSheenImage();
-            fKnobImage = createImageFromMemory(knob.data, knob.size, IMAGE_GENERATE_MIPMAPS);
-            fKnobSheen = createImageFromMemory(sheen.data, sheen.size, IMAGE_GENERATE_MIPMAPS);
-            const BuiltinImage rimKnob = rimKnobImage(), rimColour = rimKnobColourImage();
-            fRimKnob = createImageFromMemory(rimKnob.data, rimKnob.size, IMAGE_GENERATE_MIPMAPS);
-            fRimKnobColour = createImageFromMemory(rimColour.data, rimColour.size, IMAGE_GENERATE_MIPMAPS);
+            const auto load = [this](NanoImage& img, BuiltinImage data) {
+                img = createImageFromMemory(data.data, data.size, IMAGE_GENERATE_MIPMAPS);
+            };
+            load(fKnobImage, knobImage());
+            load(fKnobPointer, knobPointerImage());
+            load(fKnobSheen, knobSheenImage());
+            load(fRimKnob, rimKnobImage());
+            load(fRimKnobPointer, rimKnobPointerImage());
+            load(fRimKnobColour, rimKnobColourImage());
         }
-        const bool rimmed = rim.lit() && fRimKnob.isValid() && fRimKnobColour.isValid();
+        const bool rimmed = rim.lit() && fRimKnob.isValid() && fRimKnobPointer.isValid() && fRimKnobColour.isValid();
         constexpr float kSheenStrength = 0.2f;
         const float drop = r * 0.08f;
         beginPath();
@@ -2794,44 +2856,56 @@ private:
         fill();
 
         const float angle = (std::clamp(n, 0.0f, 1.0f) - 0.5f) * 1.5f * static_cast<float>(M_PI);
-        save();
-        translate(cx, cy);
-        rotate(angle);
+        const auto image = [this](NanoImage& img, float x, float y, float half) {
+            beginPath();
+            rect(x - half, y - half, 2 * half, 2 * half);
+            fillPaint(imagePattern(x - half, y - half, 2 * half, 2 * half, 0.0f, img, 1.0f));
+            fill();
+        };
+        const auto pointer = [&](NanoImage& img, float half) {
+            save();
+            translate(cx, cy);
+            rotate(angle);
+            image(img, 0.0f, 0.0f, half);
+            restore();
+        };
         if (rimmed)
         {
             const float half = r * kRimKnobGlow;
-            beginPath();
-            rect(-half, -half, 2 * half, 2 * half);
-            fillPaint(imagePattern(-half, -half, 2 * half, 2 * half, 0.0f, fRimKnob, 1.0f));
-            fill();
-            Paint p = imagePattern(-half, -half, 2 * half, 2 * half, 0.0f, fRimKnobColour, 1.0f);
+            image(fRimKnob, cx, cy, half);
+            Paint p = imagePattern(cx - half, cy - half, 2 * half, 2 * half, 0.0f, fRimKnobColour, 1.0f);
             p.innerColor = p.outerColor = photoTint(Color(rim.r, rim.g, rim.b));
             nvgGlobalCompositeBlendFuncSeparate(getContext(), NVG_ONE, NVG_ONE, NVG_ZERO, NVG_ONE);
             beginPath();
-            rect(-half, -half, 2 * half, 2 * half);
+            rect(cx - half, cy - half, 2 * half, 2 * half);
             fillPaint(p);
             fill();
             nvgGlobalCompositeOperation(getContext(), NVG_SOURCE_OVER);
-            restore();
+            pointer(fRimKnobPointer, half);
             return;
         }
-        beginPath();
-        circle(0.0f, 0.0f, r);
-        if (fKnobImage.isValid())
-            fillPaint(imagePattern(-r, -r, 2 * r, 2 * r, 0.0f, fKnobImage, 1.0f));
-        else
-            fillColor(theme::background);
-        fill();
-        if (!fKnobImage.isValid())
+        if (fKnobImage.isValid() && fKnobPointer.isValid())
         {
+            image(fKnobImage, cx, cy, r);
+            pointer(fKnobPointer, r);
+        }
+        else
+        {
+            beginPath();
+            circle(cx, cy, r);
+            fillColor(theme::background);
+            fill();
+            save();
+            translate(cx, cy);
+            rotate(angle);
             beginPath();
             moveTo(0.0f, -r * 0.8f);
             lineTo(0.0f, -r * 0.45f);
             strokeColor(theme::text);
             strokeWidth(std::max(1.0f, r * 0.08f));
             stroke();
+            restore();
         }
-        restore();
 
         if (fKnobSheen.isValid())
         {
@@ -2884,6 +2958,7 @@ private:
         if (type == &kNamBlockDescriptor)
         {
             block.config["a2Size"] = fSettings.a2Lite ? 0.0 : 1.0;
+            block.config[kNamToneKey] = true;
             block.params[kNamParamNormalize] = fSettings.normalize ? 1.0f : 0.0f;
         }
         else if (type == &kIrBlockDescriptor)
@@ -2925,6 +3000,7 @@ private:
         if (std::optional<ChainState> chain = ChainState::fromJson(*json))
         {
             fChain = std::move(*chain);
+            fNamToneSlots = migrateNamTone(fChain);
             fSavedChain = fChain;
             fUndo.clear();
             if (fSelected >= static_cast<int>(fChain.blocks.size()))
@@ -3062,7 +3138,7 @@ private:
         fill();
     }
 
-    // A box: black inside with a 1 px grey outline that brightens on hover. Bars are black with one dividing line on
+    // A box: translucent black inside (the background image barely shows) with a 1 px grey outline that brightens on hover. Bars are black with one dividing line on
     // their inner edge.
     void surface(float x, float y, float w, float h, float radius, Surface kind, bool hover = false)
     {
@@ -3076,7 +3152,7 @@ private:
         case Surface::Dialog: alpha = 0.16f; break;
         case Surface::Inset: alpha = 0.08f; break;
         }
-        fillRect(x, y, w, h, kind == Surface::Dialog ? theme::dialogFill : theme::background, radius);
+        fillRect(x, y, w, h, kind == Surface::Dialog ? theme::dialogFill : theme::panelFill, radius);
         beginPath();
         if (kind == Surface::Bar)
         {
@@ -3137,15 +3213,25 @@ private:
         if (str == nullptr || str[0] == '\0')
             return;
         fontSize(size);
-        fillColor(color);
+        fillColor(dimmed(color));
         textAlign(align);
         text(x, y, str, nullptr);
+    }
+
+    // A colour as the block panel's controls draw it: dark grey while their block is bypassed (fDimControls), so they
+    // show they don't change the sound (they still turn)
+    Color dimmed(const Color& color) const
+    {
+        if (!fDimControls)
+            return color;
+        const float grey = (color.red + color.green + color.blue) / 3.0f * 0.42f;
+        return Color(grey, grey, grey, color.alpha);
     }
 
     void drawButton(const Rect& r, const char* str, bool on, const Color& onColor, Hit kind, int index)
     {
         if (on)
-            onSurface(r, onColor, 6.0f);
+            onSurface(r, dimmed(onColor), 6.0f);
         else
             surface(r.x, r.y, r.w, r.h, 6.0f, Surface::Button, r.contains(fMouseX, fMouseY));
         label(r.x + r.w / 2, r.y + r.h / 2, str, on ? onColor : theme::text, 13.0f,
@@ -3513,14 +3599,14 @@ private:
             beginPath();
             moveTo(cx + std::cos(tickAngle) * r0, cy + std::sin(tickAngle) * r0);
             lineTo(cx + std::cos(tickAngle) * r1, cy + std::sin(tickAngle) * r1);
-            strokeColor(tickAngle <= angle + 1e-4f ? theme::accent : Color(1.0f, 1.0f, 1.0f, 0.18f));
+            strokeColor(tickAngle <= angle + 1e-4f ? dimmed(theme::accent) : Color(1.0f, 1.0f, 1.0f, 0.18f));
             strokeWidth(1.0f);
             stroke();
         }
 
         beginPath();
         circle(cx + std::cos(angle) * (kKnobRadius - 8.0f), cy + std::sin(angle) * (kKnobRadius - 8.0f), 2.2f);
-        fillColor(theme::accent);
+        fillColor(dimmed(theme::accent));
         fill();
 
         if (fLearnParam == static_cast<int>(index))
@@ -4966,16 +5052,58 @@ private:
               ALIGN_CENTER | ALIGN_MIDDLE);
 
         // bypass (top left) and remove (top right)
-        beginPath();
-        circle(15, 13, 6.0f);
-        fillColor(bypassed ? theme::border : theme::good);
-        fill();
+        const bool powerHover = hitRect(4, 3, 24, 24).contains(fMouseX, fMouseY);
+        drawPowerButton(16, 15, 9.0f, !bypassed, powerHover);
         label(kTileSize - 15, 13, "×", theme::textDim, 18.0f, ALIGN_CENTER | ALIGN_MIDDLE);
         restore();
 
         fHits.push_back({ { x, y, size, size }, Hit::Tile, i });
-        fHits.push_back({ hitRect(6, 4, 18, 18), Hit::TileBypass, i });
+        fHits.push_back({ hitRect(4, 3, 24, 24), Hit::TileBypass, i });
         fHits.push_back({ hitRect(kTileSize - 24, 4, 18, 18), Hit::TileRemove, i });
+    }
+
+    // A block's power button: a round black button with a hairline bezel and the power symbol, white with a soft glow
+    // while the block is on, dim grey while it's bypassed
+    void drawPowerButton(float cx, float cy, float r, bool on, bool hover)
+    {
+        // a faint lift off the tile, and the button's face, lit a little from above
+        beginPath();
+        circle(cx, cy + r * 0.08f, r * 1.25f);
+        fillPaint(radialGradient(cx, cy + r * 0.08f, r * 0.9f, r * 1.25f, Color(0.0f, 0.0f, 0.0f, 0.7f),
+                                 Color(0.0f, 0.0f, 0.0f, 0.0f)));
+        fill();
+        beginPath();
+        circle(cx, cy, r);
+        fillPaint(linearGradient(cx, cy - r, cx, cy + r, Color(0x1c, 0x1c, 0x20), Color(0x06, 0x06, 0x07)));
+        fill();
+        strokeColor(Color(255, 255, 255, hover ? 0.35f : on ? 0.22f : 0.12f));
+        strokeWidth(1.0f);
+        stroke();
+
+        const Color ink = on ? Color(1.0f, 1.0f, 1.0f) : Color(0x6a, 0x6a, 0x72);
+        const float ir = r * 0.48f;                                      // the symbol's ring
+        const float gap = static_cast<float>(M_PI) * 0.30f;              // half the ring's opening, at the top
+        const auto symbol = [&](const Color& color, float width) {
+            beginPath();
+            arc(cx, cy, ir, -static_cast<float>(M_PI) / 2 + gap, 3 * static_cast<float>(M_PI) / 2 - gap, CW);
+            moveTo(cx, cy - ir * 1.25f);
+            lineTo(cx, cy - ir * 0.15f);
+            lineCap(ROUND);
+            strokeColor(color);
+            strokeWidth(width);
+            stroke();
+        };
+        if (on)
+        {
+            beginPath();
+            circle(cx, cy, r * 0.95f);
+            fillPaint(radialGradient(cx, cy, ir * 0.4f, r * 0.95f, Color(1.0f, 1.0f, 1.0f, 0.16f),
+                                     Color(1.0f, 1.0f, 1.0f, 0.0f)));
+            fill();
+            symbol(Color(1.0f, 1.0f, 1.0f, 0.25f), 3.2f); // glow
+        }
+        symbol(ink, 1.5f);
+        lineCap(BUTT);
     }
 
     void drawSelectedPanel()
@@ -5094,16 +5222,23 @@ private:
             drawButton({ bx, top + 86.0f, 96.0f, 28.0f }, "Locate…", false, theme::accent, Hit::Locate, fSelected);
         }
 
-        const float gridRight = left + width - kPanelMargin;
-        const float gridTop = top + kHeaderHeight + std::max(0.0f, (rowsSpace - rows * kCellHeight) / 2);
+        // The controls, centred in the space right of the image and spread out to fill it (up to a point, so they
+        // stay a group); the last row centred too. A bypassed block's are dark grey: they still turn, but don't
+        // change the sound.
+        const float gridLeft = showImage ? textX : left + kPanelMargin;
+        const float gridWidth = left + width - kPanelMargin - gridLeft;
+        const float cellW = std::clamp(gridWidth / columns, cellWidth, cellWidth * 1.6f);
+        const float rowH = std::clamp(rowsSpace / rows, kCellHeight, kCellHeight * 1.35f);
+        const float gridTop = top + kHeaderHeight + std::max(0.0f, (rowsSpace - rows * rowH) / 2);
+        const float gridMid = gridLeft + gridWidth / 2;
+        fDimControls = fParams[slotBypassParam(block.slot)] >= 0.5f;
         for (int i = 0; i < count; ++i)
         {
             const int row = i / columns;
             const int col = i % columns;
-            // right-justified: the last row's cells sit against the right edge too
             const int inRow = row == rows - 1 ? count - row * columns : columns;
-            const float cx = gridRight - (inRow - col - 0.5f) * cellWidth;
-            const float cy = gridTop + row * kCellHeight + 8.0f + kKnobRadius + 6.0f;
+            const float cx = gridMid + (col - (inRow - 1) / 2.0f) * cellW;
+            const float cy = gridTop + row * rowH + (rowH - kCellHeight) / 2 + 8.0f + kKnobRadius + 6.0f;
             const Control& control = controls[i];
 
             if (control.cell == Cell::A2Size)
@@ -5144,6 +5279,7 @@ private:
             else
                 drawKnob(cx, cy, index, spec.name);
         }
+        fDimControls = false;
     }
 
     void drawAddDialog()
@@ -6192,8 +6328,8 @@ private:
     std::map<std::string, std::unique_ptr<NanoImage>> fBuiltinThumbs;
     uint64_t fFrame = 0;
     std::map<std::string, std::string> fSidecars;             // block file path -> its image path
-    NanoImage fKnobImage, fKnobSheen; // the pedal faces' knob and its lighting (KnobImages.cpp)
-    NanoImage fRimKnob, fRimKnobColour; // the knob with a glowing rim, tinted per pedal (KnobImages.cpp)
+    NanoImage fKnobImage, fKnobPointer, fKnobSheen; // the pedal faces' knob, its pointer and its lighting (KnobImages.cpp)
+    NanoImage fRimKnob, fRimKnobPointer, fRimKnobColour; // the knob with a glowing rim, tinted per pedal (KnobImages.cpp)
     bool fKnobImagesTried = false;
     static constexpr int kLedLayers = 7;
     NanoImage fLedImages[kLedLayers]; // the pedal faces' LED, in layers (LedImages.cpp)
@@ -6243,6 +6379,10 @@ private:
     uint32_t fInstanceId = 0;
     bool fGotChainState = false;
     bool fDefaultPending = false; // the default preset may still be loaded (a new instance)
+    NanoImage fBackground;
+    bool fBackgroundTried = false;
+    bool fDimControls = false; // drawing a bypassed block's controls (dimmed())
+    std::vector<int> fNamToneSlots; // the host's chain had NAM blocks without tone controls (slots): send flat ones
     std::chrono::steady_clock::time_point fOpenedAt = std::chrono::steady_clock::now();
     std::vector<std::string> fPresetFolders;  // Save Preset dialog
     std::vector<std::string> fMenuPresets;    // the preset menu's presets, by MenuEntry::arg
