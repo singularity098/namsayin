@@ -6,15 +6,15 @@
 python3 tools/prepare_block_image.py <photo> <typeId> --box x0,y0,x1,y1
 
 The box is the pedal's enclosure, as fractions of the photo (left, top, right, bottom). The photo is cropped around it
-to a 1:2 portrait (a little floor and cable either side) and written as two baseline JPEGs, which DPF's stb_image
-decodes, at high quality without chroma subsampling (4:4:4), so the pedals' saturated edges and fine print stay sharp:
-  resources/blocks/<typeId>.jpg         HEIGHT px high, for the block panel
-  resources/blocks/thumbs/<typeId>.jpg  THUMB_HEIGHT px high, for the chain's tiles and the lists
-The build embeds every JPEG there (cmake/EmbedBlockImages.cmake); nothing else is needed. Then place the face's knobs,
+to a 1:2 portrait (a little floor and cable either side) and written as two high-quality WebPs (lossy, sharp RGB to YUV
+conversion; the UI decodes them with libwebp, src/ui/WebpImage.*):
+  resources/blocks/<typeId>.webp         HEIGHT px high, for the block panel
+  resources/blocks/thumbs/<typeId>.webp  THUMB_HEIGHT px high, for the chain's tiles and the lists
+The build embeds every WebP there (cmake/EmbedBlockImages.cmake); nothing else is needed. Then place the face's knobs,
 power LED and footswitch in src/ui/PedalFaces.cpp, as fractions of the cropped image (--preview draws a grid on a copy
 to read them from).
 
-Needs Pillow.
+Needs Pillow (with WebP support).
 """
 import argparse
 import pathlib
@@ -25,8 +25,11 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT = ROOT / "resources" / "blocks"
 HEIGHT = 1280       # the panel's image is ~300-600 logical px high, so this stays sharp at 2x scaling
 THUMB_HEIGHT = 384  # tiles show it 58 logical px high (and the lists' rows); sharp at any scale
-QUALITY = 94
-SUBSAMPLING = 0     # 4:4:4
+QUALITY = 96        # about 115 KB a pedal; WebP stores colour at half resolution, still finer than the panel shows it
+
+
+def save(img, path):
+    img.save(path, "WEBP", quality=QUALITY, method=6, use_sharp_yuv=True)
 
 
 def crop_box(width, height, box):
@@ -51,9 +54,9 @@ def main():
     photo = Image.open(args.photo).convert("RGB")
     crop = photo.crop(crop_box(photo.width, photo.height, box))
     (OUT / "thumbs").mkdir(parents=True, exist_ok=True)
-    for height, path in ((HEIGHT, OUT / f"{args.type_id}.jpg"), (THUMB_HEIGHT, OUT / "thumbs" / f"{args.type_id}.jpg")):
+    for height, path in ((HEIGHT, OUT / f"{args.type_id}.webp"), (THUMB_HEIGHT, OUT / "thumbs" / f"{args.type_id}.webp")):
         img = crop.resize((height // 2, height), Image.LANCZOS)
-        img.save(path, "JPEG", quality=QUALITY, subsampling=SUBSAMPLING, optimize=True, progressive=False)
+        save(img, path)
         print(f"{path.relative_to(ROOT)}: {img.width}x{img.height}, {path.stat().st_size} bytes")
 
     if args.preview:

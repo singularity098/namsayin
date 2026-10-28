@@ -74,8 +74,8 @@ TEST_CASE("every pedal has an image with its knobs, power LED and footswitch")
         CAPTURE(typeId);
         if (typeId == "nam" || typeId == "ir")
             continue; // these get a look per file (FileLooks.cpp)
-        CHECK(std::filesystem::exists(images / (typeId + ".jpg")));
-        CHECK(std::filesystem::exists(images / "thumbs" / (typeId + ".jpg")));
+        CHECK(std::filesystem::exists(images / (typeId + ".webp")));
+        CHECK(std::filesystem::exists(images / "thumbs" / (typeId + ".webp")));
         const PedalFace* face = pedalFace(type->typeId);
         REQUIRE(face != nullptr);
         CHECK(face->leds.size() == 1);

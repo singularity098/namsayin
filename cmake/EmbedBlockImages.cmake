@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 singularity098
 #
-# Writes BlockImages.cpp: every JPEG in resources/blocks/ (and thumbs/) as a byte array, by typeId (the file name).
+# Writes BlockImages.cpp: every WebP in resources/blocks/ (and thumbs/) as a byte array, by typeId (the file name).
 # Run at build time (cmake -DSOURCE=<resources/blocks> -DOUT=<file> -P EmbedBlockImages.cmake), so the images are
-# committed only as JPEGs; tools/prepare_block_image.py makes them.
+# committed only as WebPs; tools/prepare_block_image.py makes them.
 
-file(GLOB images RELATIVE "${SOURCE}" "${SOURCE}/*.jpg")
+file(GLOB images RELATIVE "${SOURCE}" "${SOURCE}/*.webp")
 list(SORT images)
 
 set(arrays "")

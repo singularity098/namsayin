@@ -4,7 +4,7 @@
 """Regenerates src/ui/BackgroundImage.cpp from resources/background/background.*.
 
 The window background behind every panel (the owner's image; the panels over it are translucent black). It's embedded
-as a JPEG, which DPF's stb_image decodes, at most WIDTH px wide, at high quality without chroma subsampling.
+as a WebP (decoded with libwebp, src/ui/WebpImage.*): a WebP at most WIDTH px wide as it is, anything else re-encoded.
 
 Needs Pillow. Run from the repository root after changing the image: python3 tools/embed_background.py
 """
@@ -18,12 +18,16 @@ SOURCE = next((ROOT / "resources" / "background").glob("background.*"))
 OUT = ROOT / "src" / "ui" / "BackgroundImage.cpp"
 WIDTH = 2000
 
-img = Image.open(SOURCE).convert("RGB")
-if img.width > WIDTH:
-    img = img.resize((WIDTH, round(img.height * WIDTH / img.width)), Image.LANCZOS)
-buf = io.BytesIO()
-img.save(buf, "JPEG", quality=95, subsampling=0, optimize=True)
-data = buf.getvalue()
+img = Image.open(SOURCE)
+if img.format == "WEBP" and img.width <= WIDTH:
+    data = SOURCE.read_bytes()
+else:
+    img = img.convert("RGB")
+    if img.width > WIDTH:
+        img = img.resize((WIDTH, round(img.height * WIDTH / img.width)), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, "WEBP", quality=95, method=6, use_sharp_yuv=True)
+    data = buf.getvalue()
 
 lines = [
     "// SPDX-License-Identifier: MIT",

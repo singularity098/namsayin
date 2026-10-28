@@ -25,6 +25,7 @@ jobs:
             deps/FFTConvolver
             deps/miniz
             deps/xxHash
+            deps/libwebp
           key: submodules-${{ runner.os }}-${{ steps.submodules.outputs.key }}
       - name: Fetch submodules
         shell: bash
@@ -68,6 +69,7 @@ jobs:
             deps/FFTConvolver
             deps/miniz
             deps/xxHash
+            deps/libwebp
           key: submodules-${{ runner.os }}-${{ steps.submodules.outputs.key }}
       - name: Fetch submodules
         shell: bash
@@ -105,6 +107,7 @@ jobs:
             deps/FFTConvolver
             deps/miniz
             deps/xxHash
+            deps/libwebp
           key: submodules-${{ runner.os }}-${{ steps.submodules.outputs.key }}
       - name: Fetch submodules
         shell: bash

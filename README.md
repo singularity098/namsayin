@@ -138,7 +138,7 @@ NAMsayin is built on:
 
 - [NeuralAmpModelerCore](https://github.com/sdatkinson/NeuralAmpModelerCore) by Steven Atkinson (MIT), with [Eigen](https://eigen.tuxfamily.org/) and [nlohmann/json](https://github.com/nlohmann/json)
 - [DPF](https://github.com/DISTRHO/DPF), the DISTRHO Plugin Framework (ISC), with NanoVG
-- [FFTConvolver](https://github.com/HiFi-LoFi/FFTConvolver) (MIT), [miniz](https://github.com/richgel999/miniz) (MIT), [xxHash](https://github.com/Cyan4973/xxHash) (BSD-2) and [doctest](https://github.com/doctest/doctest) (MIT)
+- [FFTConvolver](https://github.com/HiFi-LoFi/FFTConvolver) (MIT), [miniz](https://github.com/richgel999/miniz) (MIT), [xxHash](https://github.com/Cyan4973/xxHash) (BSD-2), [libwebp](https://github.com/webmproject/libwebp) (BSD-3, decoding the built-in images) and [doctest](https://github.com/doctest/doctest) (MIT)
 - The [Jost](https://github.com/indestructible-type/Jost) font (SIL Open Font License)
 
 Also from the same author: [Fretbored](https://singularity098.github.io/fretbored/), a free web app for learning the guitar neck.

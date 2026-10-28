@@ -7,6 +7,7 @@
 #include "BlockGlyphs.hpp"
 #include "BackgroundImage.hpp"
 #include "BlockImages.hpp"
+#include "WebpImage.hpp"
 #include "FileLooks.hpp"
 #include "FontData.hpp"
 #include "FolderPicker.hpp"
@@ -2551,6 +2552,20 @@ private:
     // What picks a block's own look in the placeholder art: its file's path
     static std::string fileLookKey(const BlockState& block) { return block.config.value("path", std::string()); }
 
+    // An embedded image: WebP (the block images and the background) through libwebp, else what stb_image reads (PNG,
+    // JPEG), into `img`; left as it was (invalid) if it doesn't decode.
+    void loadImage(NanoImage& img, const unsigned char* data, unsigned int size)
+    {
+        if (!isWebp(data, size))
+        {
+            img = createImageFromMemory(data, size, IMAGE_GENERATE_MIPMAPS);
+            return;
+        }
+        RgbaImage decoded;
+        if (decodeWebp(data, size, decoded))
+            img = createImageFromRGBA(decoded.width, decoded.height, decoded.pixels.data(), IMAGE_GENERATE_MIPMAPS);
+    }
+
     // The window background behind the panels: the owner's image (BackgroundImage.cpp), scaled to cover the window and
     // centred; the panels over it are translucent black
     void drawBackground()
@@ -2559,7 +2574,7 @@ private:
         if (!fBackgroundTried)
         {
             fBackgroundTried = true;
-            fBackground = createImageFromMemory(kBackgroundImage, kBackgroundImageSize, IMAGE_GENERATE_MIPMAPS);
+            loadImage(fBackground, kBackgroundImage, kBackgroundImageSize);
         }
         const Size<uint> size = fBackground.getSize();
         if (!fBackground.isValid() || size.getWidth() == 0 || size.getHeight() == 0)
@@ -2583,7 +2598,7 @@ private:
             const BuiltinImage builtin = builtinBlockImage(typeId.c_str());
             it = fBuiltinImages.emplace(typeId, CachedImage { std::make_unique<NanoImage>(), 0 }).first;
             if (builtin.data != nullptr)
-                *it->second.image = createImageFromMemory(builtin.data, builtin.size, IMAGE_GENERATE_MIPMAPS);
+                loadImage(*it->second.image, builtin.data, builtin.size);
             if (!it->second.image->isValid())
                 return nullptr; // stays in the map, empty, so it isn't looked up again
             evictBuiltinImages(typeId);
@@ -2622,7 +2637,7 @@ private:
             it = fBuiltinThumbs.emplace(typeId, std::make_unique<NanoImage>()).first;
             const BuiltinImage builtin = builtinBlockThumb(typeId.c_str());
             if (builtin.data != nullptr)
-                *it->second = createImageFromMemory(builtin.data, builtin.size, IMAGE_GENERATE_MIPMAPS);
+                loadImage(*it->second, builtin.data, builtin.size);
         }
         return it->second->isValid() ? it->second.get() : nullptr;
     }

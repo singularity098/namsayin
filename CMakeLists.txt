@@ -106,6 +106,27 @@ target_compile_definitions(miniz PUBLIC MINIZ_NO_ZLIB_COMPATIBLE_NAMES _LARGEFIL
 add_library(xxhash INTERFACE)
 target_include_directories(xxhash SYSTEM INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/deps/xxHash)
 
+# libwebp: decoding the built-in images (WebP; DPF's stb_image reads only JPEG and PNG). Only the decoder is built, from
+# the lists in its src/*/Makefile.am. Without HAVE_CONFIG_H its SSE2/SSE4.1/AVX2/NEON code is chosen by the compiler's
+# own macros (src/dsp/cpu.h), so every architecture of a macOS universal build gets its own; the other files compile empty.
+set(WEBP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/deps/libwebp)
+set(WEBP_DSP_SOURCES alpha_processing cpu dec dec_clip_tables filters lossless rescaler upsampling yuv
+  alpha_processing_sse2 dec_sse2 filters_sse2 lossless_sse2 rescaler_sse2 upsampling_sse2 yuv_sse2
+  alpha_processing_sse41 dec_sse41 lossless_sse41 upsampling_sse41 yuv_sse41
+  lossless_avx2
+  alpha_processing_neon dec_neon filters_neon lossless_neon rescaler_neon upsampling_neon yuv_neon)
+set(WEBP_UTILS_SOURCES bit_reader_utils color_cache_utils filters_utils huffman_utils palette quant_levels_dec_utils
+  rescaler_utils random_utils thread_utils utils)
+set(WEBP_DEC_SOURCES alpha_dec buffer_dec frame_dec idec_dec io_dec quant_dec tree_dec vp8_dec vp8l_dec webp_dec)
+list(TRANSFORM WEBP_DSP_SOURCES PREPEND ${WEBP_DIR}/src/dsp/)
+list(TRANSFORM WEBP_UTILS_SOURCES PREPEND ${WEBP_DIR}/src/utils/)
+list(TRANSFORM WEBP_DEC_SOURCES PREPEND ${WEBP_DIR}/src/dec/)
+set(WEBP_SOURCES ${WEBP_DSP_SOURCES} ${WEBP_UTILS_SOURCES} ${WEBP_DEC_SOURCES})
+list(TRANSFORM WEBP_SOURCES APPEND .c)
+add_library(webpdecoder STATIC ${WEBP_SOURCES})
+target_include_directories(webpdecoder PRIVATE ${WEBP_DIR})
+target_include_directories(webpdecoder SYSTEM PUBLIC ${WEBP_DIR}/src)
+
 # ---------------------------------------------------------------------------------------------------------------------
 # Engine (DSP and state, independent of DPF so it can be unit tested)
 
@@ -186,9 +207,9 @@ if(APPLE)
   list(APPEND NAMSAYIN_FORMATS au)
 endif()
 
-# The built-in block images: the JPEGs in resources/blocks/ (made by tools/prepare_block_image.py), embedded as byte
-# arrays at build time, so only the JPEGs are committed
-file(GLOB NAMSAYIN_BLOCK_IMAGES CONFIGURE_DEPENDS resources/blocks/*.jpg resources/blocks/thumbs/*.jpg)
+# The built-in block images: the WebPs in resources/blocks/ (made by tools/prepare_block_image.py), embedded as byte
+# arrays at build time, so only the WebPs are committed
+file(GLOB NAMSAYIN_BLOCK_IMAGES CONFIGURE_DEPENDS resources/blocks/*.webp resources/blocks/thumbs/*.webp)
 set(NAMSAYIN_BLOCK_IMAGES_CPP ${CMAKE_CURRENT_BINARY_DIR}/generated/BlockImages.cpp)
 add_custom_command(
   OUTPUT ${NAMSAYIN_BLOCK_IMAGES_CPP}
@@ -217,7 +238,8 @@ dpf_add_plugin(namsayin
     src/ui/OpenUrl.cpp
     src/ui/PedalFaces.cpp
     src/ui/TextEdit.cpp
-    src/ui/Vsync.cpp)
+    src/ui/Vsync.cpp
+    src/ui/WebpImage.cpp)
 
 target_include_directories(namsayin PUBLIC src src/plugin)
 
@@ -225,7 +247,7 @@ target_include_directories(namsayin PUBLIC src src/plugin)
 if(MSVC)
   target_include_directories(dgl-system-libs-definitions BEFORE INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/deps/khronos)
 endif()
-target_link_libraries(namsayin PUBLIC namsayin-engine)
+target_link_libraries(namsayin PUBLIC namsayin-engine webpdecoder)
 if(WIN32)
   target_link_libraries(namsayin PUBLIC shell32 ole32) # ShellExecute (Fretbored link); IFileOpenDialog (folder picker)
 endif()
@@ -269,17 +291,20 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/TrackingTests.cpp
     tests/TunerTests.cpp
     tests/UndoStackTests.cpp
+    tests/WebpImageTests.cpp
+    src/ui/BackgroundImage.cpp
     src/ui/BlockGlyphs.cpp
     src/ui/FileLooks.cpp
     src/ui/ParamHelp.cpp
     src/ui/PedalFaces.cpp
-    src/ui/TextEdit.cpp)
+    src/ui/TextEdit.cpp
+    src/ui/WebpImage.cpp)
   target_include_directories(namsayin-tests PRIVATE tests deps/doctest src)
   if(APPLE)
     # the tests run on the machine that builds them: only its own architecture
     set_target_properties(namsayin-tests PROPERTIES OSX_ARCHITECTURES ${CMAKE_HOST_SYSTEM_PROCESSOR})
   endif()
-  target_link_libraries(namsayin-tests PRIVATE namsayin-engine)
+  target_link_libraries(namsayin-tests PRIVATE namsayin-engine webpdecoder)
   target_compile_options(namsayin-tests PRIVATE ${NAMSAYIN_WARNINGS})
   target_compile_definitions(namsayin-tests PRIVATE NAMSAYIN_EXAMPLE_MODELS="${NAM_DIR}/example_models"
     NAMSAYIN_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/recordings" NAMSAYIN_RECORDINGS_WAV="${CMAKE_BINARY_DIR}/recordings"
