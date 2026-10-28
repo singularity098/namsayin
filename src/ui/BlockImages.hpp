@@ -11,8 +11,9 @@ struct BuiltinImage
     unsigned int size;
 };
 
-// The built-in image (PNG bytes) of a block type, or { nullptr, 0 } if it has none. BlockImages.cpp is generated
-// from resources/blocks/ by tools/embed_block_images.py.
+// The built-in image (JPEG bytes) of a block type, or { nullptr, 0 } if it has none, and its small copy for the tiles and
+// lists. BlockImages.cpp is generated at build time from resources/blocks/ by cmake/EmbedBlockImages.cmake.
 BuiltinImage builtinBlockImage(const char* typeId);
+BuiltinImage builtinBlockThumb(const char* typeId);
 
 } // namespace namsayin

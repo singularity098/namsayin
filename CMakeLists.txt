@@ -186,6 +186,18 @@ if(APPLE)
   list(APPEND NAMSAYIN_FORMATS au)
 endif()
 
+# The built-in block images: the JPEGs in resources/blocks/ (made by tools/prepare_block_image.py), embedded as byte
+# arrays at build time, so only the JPEGs are committed
+file(GLOB NAMSAYIN_BLOCK_IMAGES CONFIGURE_DEPENDS resources/blocks/*.jpg resources/blocks/thumbs/*.jpg)
+set(NAMSAYIN_BLOCK_IMAGES_CPP ${CMAKE_CURRENT_BINARY_DIR}/generated/BlockImages.cpp)
+add_custom_command(
+  OUTPUT ${NAMSAYIN_BLOCK_IMAGES_CPP}
+  COMMAND ${CMAKE_COMMAND} -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/resources/blocks -DOUT=${NAMSAYIN_BLOCK_IMAGES_CPP}
+          -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedBlockImages.cmake
+  DEPENDS ${NAMSAYIN_BLOCK_IMAGES} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedBlockImages.cmake
+  COMMENT "Embedding the block images"
+  VERBATIM)
+
 dpf_add_plugin(namsayin
   TARGETS ${NAMSAYIN_FORMATS}
   USE_FILE_BROWSER
@@ -193,7 +205,7 @@ dpf_add_plugin(namsayin
     src/plugin/NAMsayinPlugin.cpp
   FILES_UI
     src/ui/BlockGlyphs.cpp
-    src/ui/BlockImages.cpp
+    ${NAMSAYIN_BLOCK_IMAGES_CPP}
     src/ui/FileLooks.cpp
     src/ui/FolderPicker.cpp
     src/ui/FontData.cpp
@@ -269,6 +281,7 @@ if(NAMSAYIN_BUILD_TESTS)
   target_link_libraries(namsayin-tests PRIVATE namsayin-engine)
   target_compile_options(namsayin-tests PRIVATE ${NAMSAYIN_WARNINGS})
   target_compile_definitions(namsayin-tests PRIVATE NAMSAYIN_EXAMPLE_MODELS="${NAM_DIR}/example_models"
-    NAMSAYIN_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/recordings" NAMSAYIN_RECORDINGS_WAV="${CMAKE_BINARY_DIR}/recordings")
+    NAMSAYIN_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/recordings" NAMSAYIN_RECORDINGS_WAV="${CMAKE_BINARY_DIR}/recordings"
+    NAMSAYIN_BLOCK_IMAGES="${CMAKE_CURRENT_SOURCE_DIR}/resources/blocks")
   add_test(NAME namsayin-tests COMMAND namsayin-tests)
 endif()

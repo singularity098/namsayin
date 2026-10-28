@@ -172,6 +172,7 @@ enum class Hit {
     MetroGrouping, // next beat grouping
     MetroResetAccents,
     Tap,          // tap tempo
+    FaceSwitch,   // a pedal image's footswitch; index = position in the chain: turn the block on or off
     Fretbored,    // open the Fretbored web app
     GitHub,       // open the project's GitHub page
     A2Size,       // index = position in the chain
@@ -664,6 +665,7 @@ protected:
         fWidth = getWidth() / scale;
         fHeight = getHeight() / scale;
         fHits.clear();
+        ++fFrame;
 
         save();
         this->scale(scale, scale);
@@ -813,6 +815,7 @@ protected:
             return true;
 
         case Hit::TileBypass:
+        case Hit::FaceSwitch:
             toggleBlockBypass(hit->index);
             return true;
 
@@ -2491,8 +2494,8 @@ private:
         return it->second->isValid() ? it->second.get() : nullptr;
     }
 
-    // The sidecar image of a block's file if it has one, else its type's built-in image if that has one
-    NanoImage* blockImage(const BlockState& block)
+    // The sidecar image of a block's file if it has one, else its type's built-in image (or its thumbnail) if it has one
+    NanoImage* blockImage(const BlockState& block, bool thumb = false)
     {
         const std::string path = block.config.value("path", std::string());
         if (!path.empty())
@@ -2503,7 +2506,7 @@ private:
             if (NanoImage* img = image(it->second))
                 return img;
         }
-        return builtinImage(block.typeId);
+        return thumb ? builtinThumb(block.typeId) : builtinImage(block.typeId);
     }
 
     // What picks a block's own look in the placeholder art: its file's path
@@ -2512,18 +2515,68 @@ private:
     // The window: plain black behind the panels
     void drawBackground() { fillRect(0, 0, fWidth, fHeight, theme::background); }
 
-    // A block type's built-in image (resources/blocks/), if it has one
+    // A block type's built-in image (resources/blocks/), if it has one. Decoded when first drawn; the least recently
+    // drawn ones beyond kMaxFullImages are freed (never one drawn this frame: NanoVG renders at the frame's end).
     NanoImage* builtinImage(const std::string& typeId)
     {
         auto it = fBuiltinImages.find(typeId);
         if (it == fBuiltinImages.end())
         {
-            it = fBuiltinImages.emplace(typeId, std::make_unique<NanoImage>()).first;
             const BuiltinImage builtin = builtinBlockImage(typeId.c_str());
+            it = fBuiltinImages.emplace(typeId, CachedImage { std::make_unique<NanoImage>(), 0 }).first;
+            if (builtin.data != nullptr)
+                *it->second.image = createImageFromMemory(builtin.data, builtin.size, IMAGE_GENERATE_MIPMAPS);
+            if (!it->second.image->isValid())
+                return nullptr; // stays in the map, empty, so it isn't looked up again
+            evictBuiltinImages(typeId);
+        }
+        it->second.lastFrame = fFrame;
+        return it->second.image->isValid() ? it->second.image.get() : nullptr;
+    }
+
+    void evictBuiltinImages(const std::string& keep)
+    {
+        for (;;)
+        {
+            size_t loaded = 0;
+            auto oldest = fBuiltinImages.end();
+            for (auto it = fBuiltinImages.begin(); it != fBuiltinImages.end(); ++it)
+            {
+                if (!it->second.image->isValid())
+                    continue;
+                ++loaded;
+                if (it->first != keep && it->second.lastFrame < fFrame
+                    && (oldest == fBuiltinImages.end() || it->second.lastFrame < oldest->second.lastFrame))
+                    oldest = it;
+            }
+            if (loaded <= kMaxFullImages || oldest == fBuiltinImages.end())
+                return;
+            fBuiltinImages.erase(oldest);
+        }
+    }
+
+    // A block type's built-in thumbnail (resources/blocks/thumbs/), for the tiles and lists, if it has one
+    NanoImage* builtinThumb(const std::string& typeId)
+    {
+        auto it = fBuiltinThumbs.find(typeId);
+        if (it == fBuiltinThumbs.end())
+        {
+            it = fBuiltinThumbs.emplace(typeId, std::make_unique<NanoImage>()).first;
+            const BuiltinImage builtin = builtinBlockThumb(typeId.c_str());
             if (builtin.data != nullptr)
                 *it->second = createImageFromMemory(builtin.data, builtin.size, IMAGE_GENERATE_MIPMAPS);
         }
         return it->second->isValid() ? it->second.get() : nullptr;
+    }
+
+    // Whether an image is a block type's built-in one (full or thumbnail), so its face's knobs and LEDs fit it
+    bool isBuiltinImage(const NanoImage& img, const char* typeId) const
+    {
+        const auto full = fBuiltinImages.find(typeId);
+        if (full != fBuiltinImages.end() && full->second.image.get() == &img)
+            return true;
+        const auto thumb = fBuiltinThumbs.find(typeId);
+        return thumb != fBuiltinThumbs.end() && thumb->second.get() == &img;
     }
 
     // Draws an image scaled to fit the rect, centred, keeping its aspect ratio; returns where it went
@@ -2543,15 +2596,22 @@ private:
     }
 
     // Draws a block's image, and if it's its type's built-in one, the knobs on its face (PedalFaces.cpp), turned to
-    // the slot's values (slot < 0: the defaults). Interactive ones (the block panel's) turn the same host parameters
-    // as the panel's knobs, so either turns both. Its LEDs show `led` (Led::None: as the image has them).
+    // the slot's values (slot < 0: the defaults). Interactive ones (the block panel's, `block` its position in the
+    // chain) turn the same host parameters as the panel's knobs, so either turns both, and their footswitch turns the
+    // block on or off. Its LEDs show `led` (Led::None: as the image has them).
     void drawBlockImage(NanoImage& img, const BlockDescriptor* type, int slot, float x, float y, float w, float h,
-                        float radius, bool interactive, Led led = Led::None)
+                        float radius, bool interactive, Led led = Led::None, int block = -1)
     {
         const Rect r = drawImageFit(img, x, y, w, h, radius);
         const PedalFace* face = type ? pedalFace(type->typeId) : nullptr;
-        if (face == nullptr || r.w <= 0.0f || &img != builtinImage(type->typeId))
+        if (face == nullptr || r.w <= 0.0f || !isBuiltinImage(img, type->typeId))
             return;
+        if (interactive && block >= 0 && face->footswitch.radius > 0.0f)
+        {
+            const float sr = face->footswitch.radius * r.w;
+            const float sx = r.x + face->footswitch.x * r.w, sy = r.y + face->footswitch.y * r.h;
+            fHits.push_back({ { sx - sr, sy - sr, 2 * sr, 2 * sr }, Hit::FaceSwitch, block });
+        }
         if (led != Led::None)
         {
             for (const FaceLed& faceLed : face->leds)
@@ -2572,7 +2632,7 @@ private:
             const uint32_t index = slot >= 0 ? slotParam(slot, param) : 0;
             const float n = slot >= 0 ? normalized(index) : spec.toNormalized(spec.def);
             const float cx = r.x + knob.x * r.w, cy = r.y + knob.y * r.h, kr = knob.radius * r.w;
-            drawFaceKnob(cx, cy, kr, n);
+            drawFaceKnob(cx, cy, kr, n, face->rim);
             if (!interactive || slot < 0)
                 continue;
             if (fLearnParam == static_cast<int>(index))
@@ -2628,6 +2688,19 @@ private:
         fill();
     }
 
+    // What a photo's colour part (LedImages.cpp, the rim knob) is tinted with to turn it `color`: the colour's hue at its
+    // saturation, white where it's grey
+    static Color photoTint(const Color& color)
+    {
+        const float hi = std::max({ color.red, color.green, color.blue });
+        const float lo = std::min({ color.red, color.green, color.blue });
+        if (hi - lo <= 1e-4f)
+            return Color(1.0f, 1.0f, 1.0f);
+        const float sat = (hi - lo) / hi;
+        return Color((color.red - lo) / (hi - lo) * sat + 1.0f - sat, (color.green - lo) / (hi - lo) * sat + 1.0f - sat,
+                     (color.blue - lo) / (hi - lo) * sat + 1.0f - sat);
+    }
+
     // An LED on a pedal's face, over the image's own (radius r): the photographed LED (LedImages.cpp) in its chrome
     // bezel, and while lit its lens, bloom and glass added over it. The photos are hot pink; their colour parts are
     // tinted with `color`, so any colour works. Falls back to drawLed() if the images don't load.
@@ -2651,16 +2724,7 @@ private:
         constexpr float kLensWhite = 0.25f, kLensColour = 1.2f, kBloom = 1.0f, kGlass = 0.3f;
         const float br = r * kBezelScale, lensR = br * kLensFraction;
 
-        // the colour parts' tint: the colour's hue at its saturation, white where it's grey
-        const float hi = std::max({ color.red, color.green, color.blue });
-        const float lo = std::min({ color.red, color.green, color.blue });
-        Color tint(1.0f, 1.0f, 1.0f);
-        if (hi - lo > 1e-4f)
-        {
-            const float sat = (hi - lo) / hi;
-            tint = Color((color.red - lo) / (hi - lo) * sat + 1.0f - sat, (color.green - lo) / (hi - lo) * sat + 1.0f - sat,
-                         (color.blue - lo) / (hi - lo) * sat + 1.0f - sat);
-        }
+        const Color tint = photoTint(color);
 
         const auto layer = [&](int index, float half, const Color& paint, bool add) {
             Paint p = imagePattern(cx - half, cy - half, half * 2.0f, half * 2.0f, 0.0f, fLedImages[index], 1.0f);
@@ -2706,8 +2770,9 @@ private:
     }
 
     // A knob on a pedal's face: the knob image turned to the value (pointing up at the middle of the range, like the
-    // panel's knobs), its sheen over it unturned so the light stays put, on a soft shadow
-    void drawFaceKnob(float cx, float cy, float r, float n)
+    // panel's knobs), its sheen over it unturned so the light stays put, on a soft shadow. With a lit `rim`, the knob
+    // with the glowing rim, the rim tinted that colour (like the face LEDs: the colour part added tinted); else black.
+    void drawFaceKnob(float cx, float cy, float r, float n, FaceRim rim = {})
     {
         if (!fKnobImagesTried)
         {
@@ -2715,7 +2780,11 @@ private:
             const BuiltinImage knob = knobImage(), sheen = knobSheenImage();
             fKnobImage = createImageFromMemory(knob.data, knob.size, IMAGE_GENERATE_MIPMAPS);
             fKnobSheen = createImageFromMemory(sheen.data, sheen.size, IMAGE_GENERATE_MIPMAPS);
+            const BuiltinImage rimKnob = rimKnobImage(), rimColour = rimKnobColourImage();
+            fRimKnob = createImageFromMemory(rimKnob.data, rimKnob.size, IMAGE_GENERATE_MIPMAPS);
+            fRimKnobColour = createImageFromMemory(rimColour.data, rimColour.size, IMAGE_GENERATE_MIPMAPS);
         }
+        const bool rimmed = rim.lit() && fRimKnob.isValid() && fRimKnobColour.isValid();
         constexpr float kSheenStrength = 0.2f;
         const float drop = r * 0.08f;
         beginPath();
@@ -2728,6 +2797,24 @@ private:
         save();
         translate(cx, cy);
         rotate(angle);
+        if (rimmed)
+        {
+            const float half = r * kRimKnobGlow;
+            beginPath();
+            rect(-half, -half, 2 * half, 2 * half);
+            fillPaint(imagePattern(-half, -half, 2 * half, 2 * half, 0.0f, fRimKnob, 1.0f));
+            fill();
+            Paint p = imagePattern(-half, -half, 2 * half, 2 * half, 0.0f, fRimKnobColour, 1.0f);
+            p.innerColor = p.outerColor = photoTint(Color(rim.r, rim.g, rim.b));
+            nvgGlobalCompositeBlendFuncSeparate(getContext(), NVG_ONE, NVG_ONE, NVG_ZERO, NVG_ONE);
+            beginPath();
+            rect(-half, -half, 2 * half, 2 * half);
+            fillPaint(p);
+            fill();
+            nvgGlobalCompositeOperation(getContext(), NVG_SOURCE_OVER);
+            restore();
+            return;
+        }
         beginPath();
         circle(0.0f, 0.0f, r);
         if (fKnobImage.isValid())
@@ -4861,7 +4948,7 @@ private:
         const BlockDescriptor* type = BlockRegistry::builtin().find(block.typeId);
         globalAlpha(bypassed || missing || notRunning ? 0.35f : 1.0f);
         const Led led = bypassed || missing || notRunning ? Led::Off : Led::On;
-        if (NanoImage* img = blockImage(block))
+        if (NanoImage* img = blockImage(block, true))
             drawBlockImage(*img, type, static_cast<int>(block.slot), 16, 24, kTileSize - 32, 58, 4.0f, false, led);
         else
             drawBlockArt(type, 16, 24, kTileSize - 32, 58, false, fileLookKey(block), led);
@@ -4973,7 +5060,7 @@ private:
             const Led led = bypassed ? Led::Off : Led::On;
             if (img)
                 drawBlockImage(*img, type, static_cast<int>(block.slot), imageX + kImagePad, imageY + kImagePad,
-                               imageW - 2 * kImagePad, imageH - 2 * kImagePad, 6.0f, true, led);
+                               imageW - 2 * kImagePad, imageH - 2 * kImagePad, 6.0f, true, led, fSelected);
             else
                 drawBlockArt(type, imageX + imageW * 0.1f, imageY + imageH * 0.1f, imageW * 0.8f, imageH * 0.8f, true,
                              fileLookKey(block), led);
@@ -5143,7 +5230,7 @@ private:
                 continue;
             const bool inside = fMouseY >= listTop && fMouseY < listBottom;
             surface(r.x, r.y, r.w, r.h, 8.0f, Surface::Tile, inside && r.contains(fMouseX, fMouseY));
-            if (NanoImage* img = items[i].type ? builtinImage(items[i].type->typeId) : nullptr)
+            if (NanoImage* img = items[i].type ? builtinThumb(items[i].type->typeId) : nullptr)
                 drawBlockImage(*img, items[i].type, -1, r.x + 10.0f, r.y + 6.0f, thumbW, r.h - 12.0f, 3.0f, false);
             else
                 drawBlockArt(items[i].type, r.x + 10.0f, r.y + 8.0f, thumbW, r.h - 16.0f, false);
@@ -5537,7 +5624,7 @@ private:
                 continue;
             }
 
-            NanoImage* img = row.entry ? image(row.entry->image) : builtinImage(row.type->typeId);
+            NanoImage* img = row.entry ? image(row.entry->image) : builtinThumb(row.type->typeId);
             if (img)
                 drawBlockImage(*img, row.type, -1, r.x + 8.0f, r.y + 4.0f, thumbW, r.h - 8.0f, 3.0f, false);
             else
@@ -6094,9 +6181,19 @@ private:
     bool fScanned = false;
 
     std::map<std::string, std::unique_ptr<NanoImage>> fImages;        // by image path
-    std::map<std::string, std::unique_ptr<NanoImage>> fBuiltinImages; // by block typeId
+    // The built-in block images (BlockImages.cpp), by typeId: the full ones (the block panel's) are freed once a few
+    // others have been drawn since, so browsing every block doesn't keep every image in memory; thumbnails stay.
+    struct CachedImage {
+        std::unique_ptr<NanoImage> image;
+        uint64_t lastFrame = 0; // the frame it was last drawn in
+    };
+    static constexpr size_t kMaxFullImages = 4;
+    std::map<std::string, CachedImage> fBuiltinImages;
+    std::map<std::string, std::unique_ptr<NanoImage>> fBuiltinThumbs;
+    uint64_t fFrame = 0;
     std::map<std::string, std::string> fSidecars;             // block file path -> its image path
     NanoImage fKnobImage, fKnobSheen; // the pedal faces' knob and its lighting (KnobImages.cpp)
+    NanoImage fRimKnob, fRimKnobColour; // the knob with a glowing rim, tinted per pedal (KnobImages.cpp)
     bool fKnobImagesTried = false;
     static constexpr int kLedLayers = 7;
     NanoImage fLedImages[kLedLayers]; // the pedal faces' LED, in layers (LedImages.cpp)

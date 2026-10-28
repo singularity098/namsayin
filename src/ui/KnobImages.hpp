@@ -12,4 +12,11 @@ namespace namsayin {
 BuiltinImage knobImage();
 BuiltinImage knobSheenImage();
 
+// The knob with a glowing rim, in two parts: the neutral knob (with alpha, out to the rim) and the rim's colour and glow
+// (grey), added tinted with the pedal's colour (PedalFaces.cpp). The rim's outer edge is 1 / kRimKnobGlow of the
+// images' half-width.
+constexpr float kRimKnobGlow = 1.08f;
+BuiltinImage rimKnobImage();
+BuiltinImage rimKnobColourImage();
+
 } // namespace namsayin

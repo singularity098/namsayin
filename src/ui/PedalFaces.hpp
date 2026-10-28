@@ -22,10 +22,24 @@ struct FaceLed {
     unsigned char r, g, b;
 };
 
+// The image's latching footswitch (for a treadle, its toe): clicking it turns the block on or off
+struct FaceSwitch {
+    float x, y, radius;
+};
+
+// The colour of the face knobs' glowing rim, tinted from the blue-rim knob (resources/knobs/rim.png); all zero:
+// plain black knobs (knob.png)
+struct FaceRim {
+    unsigned char r, g, b;
+    bool lit() const { return r != 0 || g != 0 || b != 0; }
+};
+
 struct PedalFace {
     const char* typeId;
     std::vector<FaceKnob> knobs;
     std::vector<FaceLed> leds;
+    FaceSwitch footswitch;
+    FaceRim rim;
 };
 
 // A block type's face knobs and LEDs, or nullptr if its image has none

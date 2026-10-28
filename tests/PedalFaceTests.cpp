@@ -6,7 +6,9 @@
 #include "engine/BlockRegistry.hpp"
 #include "ui/PedalFaces.hpp"
 
+#include <cmath>
 #include <cstring>
+#include <filesystem>
 #include <string>
 
 using namespace namsayin;
@@ -20,6 +22,7 @@ TEST_CASE("pedal face knobs turn real knob parameters, inside their image")
         REQUIRE(type != nullptr);
         CHECK(pedalFace(face.typeId) == &face);
         REQUIRE(!face.knobs.empty());
+        CHECK(face.knobs.size() <= 3);
         for (const FaceKnob& knob : face.knobs)
         {
             CAPTURE(std::string(knob.param));
@@ -54,6 +57,42 @@ TEST_CASE("pedal face LEDs sit inside their image")
             CHECK(led.y < 1.0f);
         }
     }
-    REQUIRE(pedalFace("polychip") != nullptr);
-    CHECK(pedalFace("polychip")->leds.size() == 2);
+}
+
+TEST_CASE("every pedal has an image with its knobs, power LED and footswitch")
+{
+    const std::filesystem::path images = NAMSAYIN_BLOCK_IMAGES;
+    for (const BlockDescriptor* type : BlockRegistry::builtin().types())
+    {
+        const std::string typeId = type->typeId;
+        CAPTURE(typeId);
+        if (typeId == "nam" || typeId == "ir")
+            continue; // these get a look per file (FileLooks.cpp)
+        CHECK(std::filesystem::exists(images / (typeId + ".jpg")));
+        CHECK(std::filesystem::exists(images / "thumbs" / (typeId + ".jpg")));
+        const PedalFace* face = pedalFace(type->typeId);
+        REQUIRE(face != nullptr);
+        CHECK(face->leds.size() == 1);
+        const FaceSwitch& sw = face->footswitch;
+        CHECK(sw.radius > 0.0f);
+        CHECK(sw.x - sw.radius >= 0.0f);
+        CHECK(sw.x + sw.radius <= 1.0f);
+        CHECK(sw.y > 0.0f);
+        CHECK(sw.y < 1.0f);
+
+        // nothing on the face overlaps (the images are 1:2, so y distances count twice the x ones)
+        const auto apart = [](float x1, float y1, float r1, float x2, float y2, float r2) {
+            return std::hypot(x1 - x2, (y1 - y2) * 2.0f) >= r1 + r2;
+        };
+        for (size_t i = 0; i < face->knobs.size(); ++i)
+        {
+            const FaceKnob& a = face->knobs[i];
+            CAPTURE(std::string(a.param));
+            for (size_t j = i + 1; j < face->knobs.size(); ++j)
+                CHECK(apart(a.x, a.y, a.radius, face->knobs[j].x, face->knobs[j].y, face->knobs[j].radius));
+            CHECK(apart(a.x, a.y, a.radius, sw.x, sw.y, sw.radius));
+            for (const FaceLed& led : face->leds)
+                CHECK(apart(a.x, a.y, a.radius, led.x, led.y, led.radius));
+        }
+    }
 }
