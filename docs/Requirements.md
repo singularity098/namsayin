@@ -1,5 +1,5 @@
 ### Xythos
-- Named Xythos (owner, 2026-10-29; was NAMsayin), and hosts list its developer as Xythos too (was the owner's username). Its logo is the owner's pick from 36 concepts: a glowing violet crop circle (six satellites growing in size, like six strings) left of the wordmark, thin geometric letters with a moon on the O. It's shown big in the top bar
+- Named Xythos (owner, 2026-10-29; was NAMsayin), and hosts list its developer as Xythos too (was the owner's username). Its logo is the owner's pick from 36 concepts: a glowing violet crop circle (six satellites growing in size, like six strings) left of the wordmark, thin geometric letters (the moon on the O was removed at the owner's request, 2026-10-29). It's shown big in the top bar
 - An LV2/VST3 plugin (and AU on macOS) written in C++ using DPF and NeuralAmpModelerCore (no standalone application for now)
 - The plugin is ultra-light, fast, and snappy
 - Zero latency by default: latency (plugin delay compensation, PDC) is only introduced by blocks that require it, and is reported to the host

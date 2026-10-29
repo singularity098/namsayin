@@ -5,13 +5,6 @@
       <feGaussianBlur in="SourceGraphic" stdDeviation="2.2" result="a"/><feGaussianBlur in="SourceGraphic" stdDeviation="7" result="b"/>
       <feMerge><feMergeNode in="b"/><feMergeNode in="a"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
-    <filter id="moonGlow" x="-500%" y="-500%" width="1100%" height="1100%">
-      <feGaussianBlur in="SourceGraphic" stdDeviation="1.6" result="a"/><feGaussianBlur in="SourceGraphic" stdDeviation="4" result="b"/>
-      <feMerge><feMergeNode in="b"/><feMergeNode in="a"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-    <mask id="moonGap" maskUnits="userSpaceOnUse" x="0" y="40" width="400" height="140">
-      <rect x="0" y="40" width="400" height="140" fill="#fff"/><circle cx="310.01" cy="90.55" r="5.31" fill="#000"/>
-    </mask>
   </defs>
   <g transform="translate(6 6)" fill="none" stroke="#a77bff" filter="url(#glow)">
     <circle cx="60" cy="60" r="54" stroke-width=".9" stroke-dasharray="22 6"/>
@@ -24,8 +17,7 @@
     <g fill="none" stroke="#f4f6fb" stroke-width="4.2">
       <path d="M30 85L78 145M78 85L30 145"/><path d="M90 85L113 115L136 85M113 115V145"/>
       <path d="M146 87.1H190M168 87.1V145"/><path d="M200.6 85V145M247.4 85V145M202 115H246"/>
-      <circle cx="288" cy="115" r="27.9" mask="url(#moonGap)"/><path d="M357.47 92.33A14 12.276 0 1 0 346 111.652A17 15.624 0 1 1 332.07 136.24"/>
+      <circle cx="288" cy="115" r="27.9"/><path d="M357.47 92.33A14 12.276 0 1 0 346 111.652A17 15.624 0 1 1 332.07 136.24"/>
     </g>
-    <circle cx="310.01" cy="90.55" r="3.28" fill="#c9a6ff" filter="url(#moonGlow)"/>
   </g>
 </svg>
