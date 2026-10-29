@@ -33,6 +33,7 @@
 #include "state/Preset.hpp"
 #include "state/Settings.hpp"
 #include "state/UndoStack.hpp"
+#include "state/UserImages.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -221,6 +222,10 @@ enum class Hit {
     PresetRow,      // Presets dialog: index = row in fPresetRows
     PresetDefault,  // index = row in fPresetRows: make it the default (again: no default)
     PresetDelete,   // index = row in fPresetRows: the first click asks, the second deletes
+    BlockImage,     // the block panel's Image button: index = position in the chain
+    ImageChoose,    // Images dialog: index = image in fImageList, -1 for the stock image
+    ImageDelete,    // index = image in fImageList: the first click asks, the second deletes
+    ImageAdd,       // add an image file to the library and use it
 };
 
 // What a context or preset menu item does
@@ -263,10 +268,10 @@ enum Field {
     kFieldCount
 };
 
-enum class Dialog { None, AddBlock, Settings, Menu, SavePreset, Presets };
+enum class Dialog { None, AddBlock, Settings, Menu, SavePreset, Presets, Images };
 
 // What a file picked in the file browser is for
-enum class BrowseTarget { AddBlock, NamDir, IrDir, OpenPreset, ExportPreset, Locate };
+enum class BrowseTarget { AddBlock, NamDir, IrDir, OpenPreset, ExportPreset, Locate, AddImage };
 
 struct HitArea {
     Rect rect;
@@ -646,6 +651,9 @@ protected:
         case BrowseTarget::Locate:
             locateFile(fLocateIndex, filename);
             return;
+        case BrowseTarget::AddImage:
+            addImageFile(filename);
+            return;
         default:
             break;
         }
@@ -710,6 +718,8 @@ protected:
             drawSavePresetDialog();
         else if (fDialog == Dialog::Presets)
             drawPresetsDialog();
+        else if (fDialog == Dialog::Images)
+            drawImagesDialog();
         drawHelp();
         if (fShowFps)
             drawFps(drawStart);
@@ -1094,6 +1104,46 @@ protected:
 
         case Hit::SettingsAccent:
             updateSettings([accent = hit->index](Settings& settings) { settings.accent = accent; });
+            return true;
+
+        case Hit::BlockImage:
+            openImagesDialog(hit->index);
+            return true;
+
+        case Hit::ImageChoose:
+            if (const BlockState* block = imagesBlock())
+            {
+                const std::string id = hit->index >= 0 && hit->index < static_cast<int>(fImageList.size())
+                                           ? fImageList[hit->index].id
+                                           : std::string();
+                if (id != block->image)
+                    setBlockImage(fImagesBlock, id);
+            }
+            closeDialog();
+            return true;
+
+        case Hit::ImageDelete:
+            if (hit->index >= 0 && hit->index < static_cast<int>(fImageList.size()))
+            {
+                const UserImage image = fImageList[hit->index];
+                if (fImageDeleteArmed != image.id)
+                {
+                    fImageDeleteArmed = image.id;
+                    repaint();
+                    return true;
+                }
+                fImageDeleteArmed.clear();
+                // blocks that use it show their stock image again
+                if (!deleteUserImage(fImageKind, image.id))
+                    showToast("Couldn't delete the image " + image.name);
+                fImages.erase(image.path);
+                fImageList = listUserImages(fImageKind);
+                repaint();
+            }
+            return true;
+
+        case Hit::ImageAdd:
+            browse(BrowseTarget::AddImage, "Add an image (PNG, JPEG or WebP)", fImageBrowseDir);
             return true;
 
 
@@ -1810,6 +1860,57 @@ private:
     }
 
     // Add Block, opened on the block's own category: the block picked there takes this one's place
+    // The Images dialog for the block at `block`: its kind's library (amps, cabs or pedals) and its stock image
+    void openImagesDialog(int block)
+    {
+        if (block < 0 || block >= static_cast<int>(fChain.blocks.size()))
+            return;
+        fImagesBlock = block;
+        fImageKind = imageKindFor(fChain.blocks[block].typeId);
+        fImageList = listUserImages(fImageKind);
+        fImageDeleteArmed.clear();
+        openDialog(Dialog::Images);
+    }
+
+    const BlockState* imagesBlock() const
+    {
+        return fImagesBlock >= 0 && fImagesBlock < static_cast<int>(fChain.blocks.size()) ? &fChain.blocks[fImagesBlock]
+                                                                                          : nullptr;
+    }
+
+    // Shows block `index` with the user's image `id` ("" for its stock image); undoable, and saved with the chain
+    void setBlockImage(int index, const std::string& id)
+    {
+        beginEdit();
+        fChain.blocks[index].image = id;
+        sendChain();
+    }
+
+    // The file browser picked an image for the Images dialog's block: copy it into the library and use it
+    void addImageFile(const std::string& filename)
+    {
+        fImageBrowseDir = pathToUtf8(pathFromUtf8(filename).parent_path());
+        std::string error;
+        const std::optional<std::string> id = importUserImage(fImageKind, filename, &error);
+        if (!id)
+        {
+            showToast("Couldn't add the image: " + error);
+            return;
+        }
+        const std::string path = userImagePath(fImageKind, *id);
+        fImages.erase(path); // a deleted image's name may be used again, by other content
+        if (image(path) == nullptr)
+        {
+            deleteUserImage(fImageKind, *id);
+            showToast("Couldn't show " + fileStem(filename) + ": use an 8-bit PNG, a JPEG or a WebP");
+            return;
+        }
+        fImageList = listUserImages(fImageKind);
+        if (const BlockState* block = imagesBlock(); block && block->image != *id)
+            setBlockImage(fImagesBlock, *id);
+        closeDialog();
+    }
+
     void openReplaceDialog(int block)
     {
         fReplaceSlot = fChain.blocks[block].slot;
@@ -2057,7 +2158,6 @@ private:
         config["path"] = path;
         if (const std::optional<std::string> hash = hashLibraryFile(path))
             config["hash"] = *hash;
-        fSidecars.erase(path);
         sendChain();
     }
 
@@ -2521,7 +2621,7 @@ private:
         return best;
     }
 
-    // An image file (8-bit PNG or JPEG, also inside a zip), loaded once; nullptr if it can't be loaded
+    // An image file (8-bit PNG, JPEG or WebP), loaded once; nullptr if it can't be loaded
     NanoImage* image(const std::string& path)
     {
         if (path.empty())
@@ -2530,31 +2630,27 @@ private:
         if (it == fImages.end())
         {
             it = fImages.emplace(path, std::make_unique<NanoImage>()).first;
-            if (const std::optional<std::string> bytes = readLibraryFile(path))
-            {
-                *it->second = createImageFromMemory(reinterpret_cast<const uchar*>(bytes->data()),
-                                                    static_cast<uint>(bytes->size()), IMAGE_GENERATE_MIPMAPS);
-            }
+            if (const std::optional<std::string> bytes = readFile(pathFromUtf8(path)))
+                loadImage(*it->second, reinterpret_cast<const uchar*>(bytes->data()), static_cast<uint>(bytes->size()));
             // DPF's image decoder is an older stb_image: 8-bit PNG and JPEG work, 16-bit PNG doesn't
             if (!it->second->isValid())
-                d_stderr2("NAMsayin: can't load image %s (use an 8-bit PNG or a JPEG)", path.c_str());
+                d_stderr2("NAMsayin: can't load image %s (use an 8-bit PNG, a JPEG or a WebP)", path.c_str());
         }
         return it->second->isValid() ? it->second.get() : nullptr;
     }
 
-    // The sidecar image of a block's file if it has one, else its type's built-in image (or its thumbnail) if it has one
+    // The user's own image for a block (UserImages.hpp) if it has one and it's still in the library, else its
+    // type's built-in image (or its thumbnail) if it has one
     NanoImage* blockImage(const BlockState& block, bool thumb = false)
     {
-        const std::string path = block.config.value("path", std::string());
-        if (!path.empty())
-        {
-            auto it = fSidecars.find(path);
-            if (it == fSidecars.end())
-                it = fSidecars.emplace(path, findSidecarImage(path)).first;
-            if (NanoImage* img = image(it->second))
-                return img;
-        }
+        if (NanoImage* img = userImage(block))
+            return img;
         return thumb ? builtinThumb(block.typeId) : builtinImage(block.typeId);
+    }
+
+    NanoImage* userImage(const BlockState& block)
+    {
+        return block.image.empty() ? nullptr : image(userImagePath(imageKindFor(block.typeId), block.image));
     }
 
     // What picks a block's own look in the placeholder art: its file's path
@@ -3465,6 +3561,16 @@ private:
             return { "Lookahead", kLookaheadHelp };
         case Hit::A2Size:
             return { "A2 Full/Lite", kA2SizeHelp };
+        case Hit::BlockImage:
+            return { "Image",
+                     "Shows this block with an image of your own instead of its stock one, from your library of amp, "
+                     "cab or pedal images. Add a photo of your real gear (PNG, JPEG or WebP) and pick it. Your "
+                     "images are shown as they are, with no knobs, power light or footswitch on them. Deleting an "
+                     "image from the library puts the stock image back on the blocks that used it." };
+        case Hit::ImageAdd:
+            return { "Add Image",
+                     "Picks an image file (8-bit PNG, JPEG or WebP) and copies it into your library, so it stays "
+                     "even if you move or delete the original, and shows it on this block." };
         case Hit::Split:
             return { "Split",
                      "Splits the chain here into two parallel paths, A and B, which both start empty. Add blocks to "
@@ -5235,11 +5341,15 @@ private:
             globalAlpha(1.0f);
         }
 
-        // Header: name and file, above the controls
+        // Header: name and file, above the controls, and the Image button (the user's own images) on the right
         const float textX = showImage ? imageX + imageW + kPanelMargin : left + kPanelMargin;
         const std::string path = block.config.value("path", std::string());
-        label(textX, top + 28.0f, path.empty() ? type->displayName : fileStem(path).c_str(), theme::text, 16.0f,
-              ALIGN_LEFT | ALIGN_MIDDLE);
+        const Rect imageButton { left + width - kPanelMargin - 92.0f, top + 14.0f, 92.0f, 28.0f };
+        drawButton(imageButton, "Image…", userImage(block) != nullptr, theme::accent, Hit::BlockImage, fSelected);
+        fontSize(16.0f);
+        const std::string name = fitText(path.empty() ? type->displayName : fileStem(path),
+                                         std::max(0.0f, imageButton.x - 12.0f - textX));
+        label(textX, top + 28.0f, name.c_str(), theme::text, 16.0f, ALIGN_LEFT | ALIGN_MIDDLE);
         // the slot names the block's parameters in the DAW ("Slot 05 P2")
         char slotText[32];
         std::snprintf(slotText, sizeof(slotText), "Slot %02d", block.slot + 1);
@@ -5800,7 +5910,7 @@ private:
                 continue;
             }
 
-            NanoImage* img = row.entry ? image(row.entry->image) : builtinThumb(row.type->typeId);
+            NanoImage* img = row.entry ? nullptr : builtinThumb(row.type->typeId);
             if (img)
                 drawBlockImage(*img, row.type, -1, r.x + 8.0f, r.y + 4.0f, thumbW, r.h - 8.0f, 3.0f, false);
             else
@@ -6004,6 +6114,127 @@ private:
         else
             label(saveButton.x + saveButton.w / 2, saveButton.y + saveButton.h / 2, "Save", theme::textDim, 13.0f,
                   ALIGN_CENTER | ALIGN_MIDDLE);
+    }
+
+    // The user's images for the selected block (its kind's library), and its stock image: click one to show it on
+    // the block; Delete asks again, and blocks that used the image show their stock one again
+    void drawImagesDialog()
+    {
+        const BlockState* block = imagesBlock();
+        const BlockDescriptor* type = block ? BlockRegistry::builtin().find(block->typeId) : nullptr;
+        if (type == nullptr)
+        {
+            closeDialog();
+            return;
+        }
+        fHits.push_back({ { 0, 0, fWidth, fHeight }, Hit::DialogBackdrop, 0 });
+        fillRect(0, 0, fWidth, fHeight, theme::overlay);
+
+        const float w = std::min(760.0f, fWidth - 64.0f);
+        const float h = std::min(540.0f, fHeight - 48.0f);
+        const float x = (fWidth - w) / 2, y = (fHeight - h) / 2;
+        surface(x, y, w, h, 12.0f, Surface::Dialog);
+        fHits.push_back({ { x, y, w, h }, Hit::DialogPanel, 0 });
+
+        const std::string title = std::string(imageKindName(fImageKind)) + " Images";
+        label(x + 20.0f, y + 26.0f, title.c_str(), theme::text, 16.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        const Rect close { x + w - 40.0f, y + 10.0f, 30.0f, 30.0f };
+        label(close.x + 15.0f, close.y + 15.0f, "×", theme::textDim, 22.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        fHits.push_back({ close, Hit::DialogClose, 0 });
+        const std::string folderText = pathToUtf8(userImagesDir(fImageKind));
+        label(x + 20.0f, y + 48.0f, folderText.c_str(), theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+
+        // a grid of tiles: the stock image first, then the library's
+        constexpr float tileW = 120.0f, tileH = 188.0f, gap = 10.0f, thumbH = 140.0f;
+        const float listX = x + 16.0f, listY = y + 66.0f, listH = h - 66.0f - 64.0f;
+        float listW = w - 32.0f;
+        const int count = static_cast<int>(fImageList.size()) + 1;
+        const auto columnsFor = [&](float width) { return std::max(1, static_cast<int>((width + gap) / (tileW + gap))); };
+        const auto heightFor = [&](int columns) { return ((count + columns - 1) / columns) * (tileH + gap) - gap; };
+        int columns = columnsFor(listW);
+        float contentH = heightFor(columns);
+        if (contentH > listH)
+        {
+            listW -= kListBarWidth + 4.0f;
+            columns = columnsFor(listW);
+            contentH = heightFor(columns);
+        }
+        fListScroll = std::clamp(fListScroll, 0.0f, std::max(0.0f, contentH - listH));
+        if (contentH > listH)
+            drawListScrollBar(listX + listW + 4.0f, listY, listH, contentH);
+
+        save();
+        scissor(listX, listY, listW, listH);
+        for (int i = 0; i < count; ++i)
+        {
+            const int image = i - 1; // -1: the stock image
+            const Rect r { listX + (i % columns) * (tileW + gap), listY + (i / columns) * (tileH + gap) - fListScroll,
+                           tileW, tileH };
+            if (r.y + r.h < listY || r.y > listY + listH)
+                continue;
+            const bool hover = r.contains(fMouseX, fMouseY) && fMouseY >= listY && fMouseY < listY + listH;
+            surface(r.x, r.y, r.w, r.h, 6.0f, Surface::Item, hover);
+            const bool current = image < 0 ? userImage(*block) == nullptr : fImageList[image].id == block->image;
+            if (current)
+            {
+                beginPath();
+                roundedRect(r.x + 0.5f, r.y + 0.5f, r.w - 1.0f, r.h - 1.0f, 6.0f);
+                strokeColor(theme::accent);
+                strokeWidth(1.5f);
+                stroke();
+            }
+
+            const Rect thumb { r.x + 8.0f, r.y + 8.0f, r.w - 16.0f, thumbH };
+            std::string name;
+            if (image < 0)
+            {
+                name = "Stock";
+                if (NanoImage* img = builtinThumb(type->typeId))
+                    drawBlockImage(*img, type, -1, thumb.x, thumb.y, thumb.w, thumb.h, 3.0f, false);
+                else
+                    drawBlockArt(type, thumb.x, thumb.y + 10.0f, thumb.w, thumb.h - 20.0f, false, fileLookKey(*block));
+            }
+            else
+            {
+                name = fImageList[image].name;
+                if (NanoImage* img = this->image(fImageList[image].path))
+                    drawImageFit(*img, thumb.x, thumb.y, thumb.w, thumb.h, 3.0f);
+                else
+                    label(thumb.x + thumb.w / 2, thumb.y + thumb.h / 2, "Can't show it", theme::bad, 11.0f,
+                          ALIGN_CENTER | ALIGN_MIDDLE);
+            }
+            fontSize(12.0f);
+            name = fitText(name, r.w - 12.0f);
+            label(r.x + r.w / 2, r.y + r.h - 22.0f, name.c_str(), current ? theme::accent : theme::text, 12.0f,
+                  ALIGN_CENTER | ALIGN_MIDDLE);
+
+            // only what's inside the list area is clickable
+            const auto clipped = [&](const Rect& b) {
+                const float top = std::max(b.y, listY), bottom = std::min(b.y + b.h, listY + listH);
+                return Rect { b.x, top, b.w, std::max(0.0f, bottom - top) };
+            };
+            fHits.push_back({ clipped(r), Hit::ImageChoose, image });
+            const bool armed = image >= 0 && fImageList[image].id == fImageDeleteArmed;
+            if (image >= 0 && (hover || armed))
+            {
+                const Rect del { r.x + r.w - 70.0f, r.y + 6.0f, 64.0f, 24.0f };
+                drawButton(del, armed ? "Delete?" : "Delete", armed, theme::bad, Hit::ImageDelete, image);
+                fHits.back().rect = clipped(del);
+            }
+        }
+        restore();
+        if (fImageList.empty())
+        {
+            label(listX + tileW + gap + 8.0f, listY + 20.0f, "No images of your own here yet. Add one below.",
+                  theme::textDim, 13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        }
+
+        const Rect add { x + w - 24.0f - 120.0f, y + h - 48.0f, 120.0f, 30.0f };
+        drawButton(add, "Add Image…", false, theme::accent, Hit::ImageAdd, 0);
+        label(x + 20.0f, y + h - 40.0f, "Your images are shown as they are: no knobs, power light or footswitch on them.",
+              theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        label(x + 20.0f, y + h - 24.0f, "Delete asks again. Blocks that used a deleted image show their stock image.",
+              theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
     }
 
     // The saved presets, by folder: click one to load it; Default marks the one new plugin instances start with
@@ -6367,7 +6598,6 @@ private:
     std::map<std::string, CachedImage> fBuiltinImages;
     std::map<std::string, std::unique_ptr<NanoImage>> fBuiltinThumbs;
     uint64_t fFrame = 0;
-    std::map<std::string, std::string> fSidecars;             // block file path -> its image path
     NanoImage fKnobImage, fKnobPointer, fKnobSheen; // the pedal faces' knob, its pointer and its lighting (KnobImages.cpp)
     NanoImage fRimKnob, fRimKnobPointer, fRimKnobColour; // the knob with a glowing rim, tinted per pedal (KnobImages.cpp)
     bool fKnobImagesTried = false;
@@ -6435,6 +6665,12 @@ private:
         std::string name;
     };
     std::vector<PresetRow> fPresetRows;       // drawn last, for hit indices
+    // Images dialog: the user's images for the block at fImagesBlock (its kind's library)
+    int fImagesBlock = -1;
+    ImageKind fImageKind = ImageKind::Pedal;
+    std::vector<UserImage> fImageList;
+    std::string fImageDeleteArmed;            // the image whose Delete was clicked once
+    std::string fImageBrowseDir;              // where the last added image was
 
     std::chrono::steady_clock::time_point fChainChangedAt = std::chrono::steady_clock::now();
     bool fStatusPending = true;

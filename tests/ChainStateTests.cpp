@@ -18,6 +18,9 @@ TEST_CASE("chain state round-trips through JSON")
     block.params[0] = 0.25f;
     block.bypass = true;
     chain.blocks.push_back(block);
+    block.slot = 4;
+    block.image = "My Pedal.png";
+    chain.blocks.push_back(block);
 
     const std::optional<ChainState> parsed = ChainState::fromJson(chain.toJson());
     REQUIRE(parsed);

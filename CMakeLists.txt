@@ -188,7 +188,8 @@ add_library(namsayin-engine STATIC
   src/state/LibraryScanner.cpp
   src/state/Paths.cpp
   src/state/Preset.cpp
-  src/state/Settings.cpp)
+  src/state/Settings.cpp
+  src/state/UserImages.cpp)
 target_include_directories(namsayin-engine PUBLIC src)
 # Whole archive: NAM Core registers its model architectures from static initializers, which the linker would
 # otherwise drop ("No config parser registered for architecture")
@@ -291,6 +292,7 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/TrackingTests.cpp
     tests/TunerTests.cpp
     tests/UndoStackTests.cpp
+    tests/UserImageTests.cpp
     tests/WebpImageTests.cpp
     src/ui/BackgroundImage.cpp
     src/ui/BlockGlyphs.cpp

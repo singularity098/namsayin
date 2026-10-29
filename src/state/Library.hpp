@@ -14,7 +14,7 @@
 
 namespace namsayin {
 
-// The NAM and IR library: scanning folders (also inside .zip files), content hashes, sidecar images.
+// The NAM and IR library: scanning folders (also inside .zip files), content hashes.
 //
 // A file inside a zip is addressed as "<archive path>!/<path inside the archive>", e.g.
 // "/home/me/NAM/Pack.zip!/Amps/Clean.nam". Blocks can use such paths directly: they're extracted to the cache
@@ -37,7 +37,6 @@ struct LibraryEntry {
     std::string name;   // file name without extension
     std::string folder; // folder relative to the library root ('/'-separated, a zip counts as a folder), "" at the top
     std::string hash;   // content hash: XXH3-128 of the file's bytes, 32 hex digits
-    std::string image;  // sidecar image (same path form), empty if none
     std::string info;   // short description from the file's metadata, e.g. "Fender Deluxe · amp"
     uint64_t size = 0;  // bytes
     int64_t mtime = 0;  // modification time (of the archive, for zip entries)
@@ -57,10 +56,6 @@ std::optional<std::string> hashLibraryFile(const std::string& path);
 // A path that can be opened directly: a plain path is returned as is; a file inside a zip is extracted to the
 // cache directory first (and reused while it's there). Non-RT; may take a while for large files.
 std::optional<std::string> materializeLibraryFile(const std::string& path);
-
-// The sidecar image of a library file: the same name with .png, .jpg or .jpeg, next to it (inside the same zip for
-// a zip entry). Empty if there is none.
-std::string findSidecarImage(const std::string& path);
 
 // Cache of hashes and metadata from the last scan, so a rescan only reads new or changed files.
 // One index per library kind, stored as JSON in the cache directory.

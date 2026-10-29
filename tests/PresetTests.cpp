@@ -8,6 +8,7 @@
 #include "state/Library.hpp"
 #include "state/Paths.hpp"
 #include "state/Preset.hpp"
+#include "state/UserImages.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -26,10 +27,10 @@ struct PresetFixture {
         fs::remove_all(root);
         fs::create_directories(root / "lib");
         testing::setEnv("NAMSAYIN_CACHE_DIR", pathToUtf8(root / "cache"));
+        testing::setEnv("NAMSAYIN_CONFIG_DIR", pathToUtf8(root / "config"));
         model = pathToUtf8(root / "lib" / "Amp.nam");
         ir = pathToUtf8(root / "lib" / "Cab.wav");
         std::ofstream(pathFromUtf8(model), std::ios::binary) << "model bytes";
-        std::ofstream(root / "lib" / "Amp.png", std::ios::binary) << "image bytes";
         std::ofstream(pathFromUtf8(ir), std::ios::binary) << "ir bytes";
     }
 
@@ -93,7 +94,7 @@ TEST_CASE("missing files come from the embedded copies, then the library, else s
     // the files disappear
     fs::remove_all(fixture.root / "lib");
 
-    SUBCASE("embedded copies are extracted, with the sidecar image next to them")
+    SUBCASE("embedded copies are extracted")
     {
         const std::optional<LoadedPreset> loaded = loadPresetFile(embedded, nullptr);
         REQUIRE(loaded);
@@ -102,7 +103,6 @@ TEST_CASE("missing files come from the embedded copies, then the library, else s
         const std::string path = loaded->preset.chain.blocks[0].config["path"];
         CHECK(readFile(pathFromUtf8(path)) == "model bytes");
         CHECK(fs::path(pathFromUtf8(path)).filename() == "Amp.nam");
-        CHECK(readFile(pathFromUtf8(findSidecarImage(path))) == "image bytes");
     }
 
     SUBCASE("without embedded copies, a library file with the same content is used")
@@ -199,4 +199,57 @@ TEST_CASE("deleting a preset: only preset files inside the preset folder")
     CHECK_FALSE(deletePreset(dir, pathToUtf8(dir / "Clean"))); // a folder
     CHECK(fs::exists(dir / "Clean"));
     fs::remove_all(root);
+}
+
+TEST_CASE("exported presets carry the user's block images, which go into the library when loaded")
+{
+    PresetFixture fixture;
+    const std::string png = std::string("\x89PNG\r\n\x1a\n", 8) + std::string(16, '\0') + "\x08 amp image";
+    const std::string jpeg = "\xff\xd8\xff pedal image";
+    REQUIRE(addUserImage(ImageKind::Amp, "My Amp.png", png) == "My Amp.png");
+    REQUIRE(addUserImage(ImageKind::Pedal, "Delay.jpg", jpeg) == "Delay.jpg");
+    Preset preset = fixture.preset();
+    preset.chain.blocks[0].image = "My Amp.png";
+    preset.chain.blocks[2].image = "Delay.jpg";
+    const std::string embedded = pathToUtf8(fixture.root / "Embedded.namsayin");
+    const std::string plain = pathToUtf8(fixture.root / "Plain.namsayin");
+    REQUIRE(savePresetFile(embedded, preset, true));
+    REQUIRE(savePresetFile(plain, preset, false));
+    CHECK(readLibraryFile(embedded + "!/images/amps/My Amp.png") == png);
+    CHECK(readLibraryFile(embedded + "!/images/pedals/Delay.jpg") == jpeg);
+    CHECK_FALSE(readLibraryFile(plain + "!/images/amps/My Amp.png"));
+
+    SUBCASE("the library has them: they're used as they are")
+    {
+        const std::optional<LoadedPreset> loaded = loadPresetFile(embedded, nullptr);
+        REQUIRE(loaded);
+        CHECK(loaded->preset.chain.blocks[0].image == "My Amp.png");
+        CHECK(listUserImages(ImageKind::Amp).size() == 1);
+    }
+
+    SUBCASE("deleted: an embedded one comes back, a saved preset's block keeps the id and shows the stock image")
+    {
+        REQUIRE(deleteUserImage(ImageKind::Amp, "My Amp.png"));
+        const std::optional<LoadedPreset> fromPlain = loadPresetFile(plain, nullptr);
+        REQUIRE(fromPlain);
+        CHECK(fromPlain->preset.chain.blocks[0].image == "My Amp.png");
+        CHECK(userImagePath(ImageKind::Amp, "My Amp.png").empty());
+
+        const std::optional<LoadedPreset> loaded = loadPresetFile(embedded, nullptr);
+        REQUIRE(loaded);
+        CHECK(loaded->preset.chain.blocks[0].image == "My Amp.png");
+        CHECK(readFile(pathFromUtf8(userImagePath(ImageKind::Amp, "My Amp.png"))) == png);
+    }
+
+    SUBCASE("another image has the name: the embedded one is added under a new name")
+    {
+        REQUIRE(deleteUserImage(ImageKind::Amp, "My Amp.png"));
+        const std::string other = png + " other";
+        REQUIRE(addUserImage(ImageKind::Amp, "My Amp.png", other) == "My Amp.png");
+        const std::optional<LoadedPreset> loaded = loadPresetFile(embedded, nullptr);
+        REQUIRE(loaded);
+        CHECK(loaded->preset.chain.blocks[0].image == "My Amp 2.png");
+        CHECK(readFile(pathFromUtf8(userImagePath(ImageKind::Amp, "My Amp 2.png"))) == png);
+        CHECK(loaded->preset.chain.blocks[2].image == "Delay.jpg");
+    }
 }

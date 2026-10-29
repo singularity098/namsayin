@@ -25,6 +25,8 @@ std::string ChainState::toJson() const
         });
         if (block.branch != kBranchA)
             blocksJson.back()["branch"] = block.branch;
+        if (!block.image.empty())
+            blocksJson.back()["image"] = block.image;
     }
     json midiJson = json::array();
     for (const MidiMapping& mapping : midi)
@@ -65,6 +67,7 @@ std::optional<ChainState> ChainState::fromJson(std::string_view text, std::strin
             block.config = item.value("config", json::object());
             block.bypass = item.value("bypass", false);
             block.branch = item.value("branch", 0);
+            block.image = item.value("image", std::string());
             if (const auto params = item.find("params"); params != item.end())
             {
                 for (size_t i = 0; i < params->size() && i < block.params.size(); ++i)

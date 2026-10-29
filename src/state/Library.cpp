@@ -24,7 +24,6 @@ using nlohmann::json;
 
 namespace {
 
-constexpr const char* kImageExtensions[] = { ".png", ".jpg", ".jpeg" };
 
 std::string lower(std::string text)
 {
@@ -226,35 +225,6 @@ std::optional<std::string> materializeLibraryFile(const std::string& path)
     return pathToUtf8(target);
 }
 
-std::string findSidecarImage(const std::string& path)
-{
-    if (const std::optional<ArchivePath> archive = splitArchivePath(path))
-    {
-        Zip zip(pathFromUtf8(archive->archive));
-        if (!zip.isOpen())
-            return "";
-        const size_t dot = archive->entry.find_last_of('.');
-        const std::string base = archive->entry.substr(0, dot);
-        for (const char* ext : kImageExtensions)
-        {
-            if (zip.find(base + ext) >= 0)
-                return archive->archive + std::string(kArchiveSeparator) + base + ext;
-        }
-        return "";
-    }
-
-    std::error_code ec;
-    const fs::path file = pathFromUtf8(path);
-    for (const char* ext : kImageExtensions)
-    {
-        fs::path image = file;
-        image.replace_extension(ext);
-        if (fs::is_regular_file(image, ec))
-            return pathToUtf8(image);
-    }
-    return "";
-}
-
 fs::path LibraryIndex::defaultPath(LibraryKind kind)
 {
     return cacheDir() / (kind == LibraryKind::Nam ? "library-nam.json" : "library-ir.json");
@@ -353,10 +323,7 @@ std::vector<LibraryEntry> scanLibrary(const fs::path& root, LibraryKind kind, Li
             entry.size = file.file_size(fileEc);
             entry.mtime = modificationTime(file.path());
             if (complete(entry, [&] { return readFile(file.path()); }))
-            {
-                entry.image = findSidecarImage(path);
                 found.push_back(std::move(entry));
-            }
             continue;
         }
 
@@ -387,15 +354,6 @@ std::vector<LibraryEntry> scanLibrary(const fs::path& root, LibraryKind kind, Li
             if (!complete(entry, [&] { return zip.read(i); }))
                 continue;
 
-            const std::string base = entryName.substr(0, entryName.find_last_of('.'));
-            for (const char* imageExt : kImageExtensions)
-            {
-                if (zip.find(base + imageExt) >= 0)
-                {
-                    entry.image = path + std::string(kArchiveSeparator) + base + imageExt;
-                    break;
-                }
-            }
             found.push_back(std::move(entry));
         }
     }

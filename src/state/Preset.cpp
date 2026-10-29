@@ -6,6 +6,7 @@
 #include "engine/Params.hpp"
 #include "state/Library.hpp"
 #include "state/Paths.hpp"
+#include "state/UserImages.hpp"
 
 #include <miniz.h>
 #include <nlohmann/json.hpp>
@@ -78,6 +79,12 @@ private:
     mz_zip_archive fZip {};
     bool fOk = false;
 };
+
+// Where a block's own image is in a preset file: images/<amps|cabs|pedals>/<id>
+std::string imageEntry(ImageKind kind, const std::string& id)
+{
+    return "images/" + pathToUtf8(userImagesDir(kind).filename()) + "/" + id;
+}
 
 } // namespace
 
@@ -155,12 +162,24 @@ bool savePresetFile(const std::string& path, const Preset& preset, bool embedFil
         const std::string dir = "files/" + hash + "/";
         if (!zip.add(dir + fileName(file), *bytes))
             return fail(error, "can't write the preset");
-        // the sidecar image goes in the same folder, so it's found next to the extracted file
-        const std::string image = findSidecarImage(file);
-        if (!image.empty())
+    }
+
+    // the user's own block images; one the library no longer has is left out (the block shows its stock image)
+    if (embedFiles)
+    {
+        for (const BlockState& block : saved.chain.blocks)
         {
-            if (const std::optional<std::string> imageBytes = readLibraryFile(image))
-                zip.add(dir + fileName(image), *imageBytes);
+            if (block.image.empty())
+                continue;
+            const std::string entry = imageEntry(imageKindFor(block.typeId), block.image);
+            const std::string image = userImagePath(imageKindFor(block.typeId), block.image);
+            if (image.empty() || !written.insert(entry).second)
+                continue;
+            if (const std::optional<std::string> bytes = readFile(pathFromUtf8(image)))
+            {
+                if (!zip.add(entry, *bytes))
+                    return fail(error, "can't write the preset");
+            }
         }
     }
 
@@ -198,20 +217,11 @@ std::optional<LoadedPreset> loadPresetFile(const std::string& path,
             const std::string embedded = archive + "files/" + hash + "/" + fileName(file);
             if (!hash.empty() && readLibraryFile(embedded))
             {
-                // extract next to its sidecar image, under the content hash so presets share copies
-                const fs::path dir = cacheDir() / "presets" / hash;
-                const fs::path target = dir / pathFromUtf8(fileName(file));
+                // extracted under the content hash, so presets share copies
+                const fs::path target = cacheDir() / "presets" / hash / pathFromUtf8(fileName(file));
                 std::error_code ec;
                 if (!fs::exists(target, ec))
-                {
                     writeFileAtomic(target, *readLibraryFile(embedded));
-                    const std::string image = findSidecarImage(embedded);
-                    if (!image.empty())
-                    {
-                        if (const std::optional<std::string> bytes = readLibraryFile(image))
-                            writeFileAtomic(dir / pathFromUtf8(fileName(image)), *bytes);
-                    }
-                }
                 if (fs::exists(target, ec))
                 {
                     block.config["path"] = pathToUtf8(target);
@@ -229,6 +239,18 @@ std::optional<LoadedPreset> loadPresetFile(const std::string& path,
             }
         }
         loaded.sources.push_back(source);
+
+        // an embedded image of the user's goes into their library (where an identical one is reused, and one with
+        // the same name but other content gets a new name)
+        if (!block.image.empty())
+        {
+            const ImageKind kind = imageKindFor(block.typeId);
+            if (const std::optional<std::string> bytes = readLibraryFile(archive + imageEntry(kind, block.image)))
+            {
+                if (const std::optional<std::string> id = addUserImage(kind, block.image, *bytes))
+                    block.image = *id;
+            }
+        }
     }
     preset->chain.preset = path;
     loaded.preset = std::move(*preset);

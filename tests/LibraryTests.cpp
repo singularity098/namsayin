@@ -42,8 +42,8 @@ const std::string kAmpA = R"({"version": "0.5.0", "metadata": {"gear_make": "Fen
 const std::string kAmpB = R"({"version": "0.5.0", "metadata": {"name": "Pedal B", "gear_type": "pedal"}})";
 const std::string kAmpC = R"({"version": "0.5.0"})";
 
-// A library folder with a plain file, a file with a sidecar image in a subfolder, and a zip with a file, its
-// image and an IR
+// A library folder with a plain file, a file and an image (ignored) in a subfolder, and a zip with a file, an image
+// and an IR
 struct LibraryFixture {
     fs::path root = fs::temp_directory_path() / "namsayin-test-library";
 
@@ -75,7 +75,7 @@ TEST_CASE("archive paths")
     CHECK(split->entry == "x/y.nam");
 }
 
-TEST_CASE("library scan finds files in folders and zips, with hashes, info and sidecar images")
+TEST_CASE("library scan finds files in folders and zips, with hashes and info")
 {
     LibraryFixture fixture;
     const fs::path lib = fixture.root / "lib";
@@ -87,18 +87,15 @@ TEST_CASE("library scan finds files in folders and zips, with hashes, info and s
     CHECK(nam[0].folder == "");
     CHECK(nam[0].hash == hashBytes(kAmpA));
     CHECK(nam[0].info == "Fender Deluxe · amp");
-    CHECK(nam[0].image.empty());
 
     CHECK(nam[1].name == "c");
     CHECK(nam[1].folder == "Pack/Amps");
     CHECK(nam[1].path == pathToUtf8(lib / "Pack.zip") + "!/Amps/c.nam");
     CHECK(nam[1].hash == hashBytes(kAmpC));
-    CHECK(nam[1].image == pathToUtf8(lib / "Pack.zip") + "!/Amps/c.jpg");
 
     CHECK(nam[2].name == "b");
     CHECK(nam[2].folder == "sub");
     CHECK(nam[2].info == "Pedal B · pedal");
-    CHECK(nam[2].image == pathToUtf8(lib / "sub" / "b.png"));
 
     LibraryIndex irIndex;
     const std::vector<LibraryEntry> ir = scanLibrary(lib, LibraryKind::Ir, irIndex);
@@ -168,11 +165,6 @@ TEST_CASE("library files inside zips can be read, hashed and extracted")
 
     const std::string plain = pathToUtf8(fixture.root / "lib" / "A Amp.nam");
     CHECK(materializeLibraryFile(plain) == plain);
-
-    CHECK(findSidecarImage(zipped) == pathToUtf8(fixture.root / "lib" / "Pack.zip") + "!/Amps/c.jpg");
-    CHECK(findSidecarImage(pathToUtf8(fixture.root / "lib" / "sub" / "b.nam"))
-          == pathToUtf8(fixture.root / "lib" / "sub" / "b.png"));
-    CHECK(findSidecarImage(plain).empty());
 }
 
 TEST_CASE("a NAM block loads a model from inside a zip")

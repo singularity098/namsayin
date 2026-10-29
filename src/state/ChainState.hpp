@@ -29,6 +29,7 @@ struct BlockState {
     std::array<float, kParamsPerSlot> params {};   // normalized 0..1 values, for presets and undo
     bool bypass = false;
     int branch = kBranchA;                         // which branch, for blocks inside the split; 0 elsewhere
+    std::string image {};                          // the user's own image for it (UserImages.hpp), "" for the stock one
 
     bool operator==(const BlockState&) const = default;
 };

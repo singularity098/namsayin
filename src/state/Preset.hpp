@@ -18,7 +18,8 @@ namespace namsayin {
 // A preset: the chain (blocks, values, MIDI map) plus the global controls that belong to a sound.
 //
 // File (.namsayin): a zip with preset.json and, when saved with "embed files", every file the chain uses
-// (NAM models, IRs and their sidecar images) under files/<content hash>/<file name>, so it can be shared.
+// (NAM models and IRs) under files/<content hash>/<file name>, and the user's own block images it uses under
+// images/<amps|cabs|pedals>/<id>, so it can be shared.
 struct Preset {
     static constexpr int kVersion = 1;
     static constexpr const char* kExtension = ".namsayin";
@@ -46,7 +47,8 @@ struct LoadedPreset {
 
 // Loads a preset file and resolves each block's file: the original path if it still exists, else the embedded
 // copy (extracted to the cache directory), else a library file with the same content hash (`findByHash` returns
-// its path or ""), else the block keeps its path and is reported Missing.
+// its path or ""), else the block keeps its path and is reported Missing. Embedded block images are added to the
+// user's image libraries (UserImages.hpp), and the blocks take their ids there.
 std::optional<LoadedPreset> loadPresetFile(const std::string& path,
                                            const std::function<std::string(const std::string& hash)>& findByHash,
                                            std::string* error = nullptr);
