@@ -236,8 +236,26 @@ const std::vector<Scene>& scenes()
     return all;
 }
 
+// A 5-string bass, down to its low B (31 Hz), and a 7-string's drop A (55 Hz) on the way (owner, 2026-10-29)
+const std::vector<Scene>& bassScenes()
+{
+    static const std::vector<Scene> all = [] {
+        std::vector<Scene> s;
+        auto add = [&](const char* name, std::vector<guitar::Note> notes, double seconds) {
+            guitar::Performance p = guitar::perform(notes, seconds);
+            std::vector<float> amped = guitar::throughAmp(p.signal);
+            s.push_back({ name, std::move(p), std::move(amped) });
+        };
+        add("bass notes", guitar::bassNotes(), 15.0);
+        add("bass line", guitar::bassLine(), 9.0);
+        return s;
+    }();
+    return all;
+}
+
 // Runs every scene clean and through the amp (tracking the amp's output, or the clean rig input when `rig`)
-std::vector<Score> bench(const char* name, const Tracker& tracker, bool amped, bool rig, bool print = true)
+std::vector<Score> bench(const char* name, const Tracker& tracker, bool amped, bool rig, bool print = true,
+                         const std::vector<Scene>& list = scenes())
 {
     std::vector<Score> scores;
     auto printf = [print](const char* format, auto... args) {
@@ -248,7 +266,7 @@ std::vector<Score> bench(const char* name, const Tracker& tracker, bool amped, b
     printf("  %-18s %5s %6s %9s %9s %6s %8s %7s %9s %8s\n", "scene", "notes", "missed", "delay ms", "worst ms",
                 "wrong", "wrong ms", "phantom", "phant. ms", "drop ms");
     Score total;
-    for (const Scene& scene : scenes())
+    for (const Scene& scene : list)
     {
         const std::vector<float>& block = amped ? scene.amped : scene.performance.signal;
         std::vector<Played> out;
@@ -285,6 +303,9 @@ TEST_CASE("tracking benchmark" * doctest::skip(std::getenv("NAMSAYIN_TRACKING_BE
     bench("note tracker", noteTracker(0.0f, 0.0, true), true, true);
     bench("note tracker, lookahead 15 ms", noteTracker(0.0f, 15.0, false), false, false);
     bench("note tracker, lookahead 15 ms, pick filter 15 ms", noteTracker(15.0f, 15.0, false), false, false);
+    bench("note tracker, bass", noteTracker(0.0f, 0.0, false), false, false, true, bassScenes());
+    bench("note tracker, bass", noteTracker(0.0f, 0.0, false), true, false, true, bassScenes());
+    bench("note tracker, bass, lookahead 15 ms", noteTracker(0.0f, 15.0, false), false, false, true, bassScenes());
 }
 
 TEST_CASE("tracking debug" * doctest::skip(std::getenv("NAMSAYIN_TRACKING_DEBUG") == nullptr))
@@ -315,6 +336,21 @@ TEST_CASE("the note tracker plays the benchmark's notes with few wrong or phanto
     CHECK(ahead[0].medianDelayMs <= 4.0);
     CHECK(ahead.back().wrong <= total.wrong);
     CHECK(ahead.back().missed <= 4);
+}
+
+TEST_CASE("the note tracker plays a 5-string bass down to its low B")
+{
+    // (owner, 2026-10-29: a 7-string's drop A, 55 Hz, wasn't tracked at all: the tracker stopped at 60 Hz. Before
+    // the range went down to 28 Hz, 37 of these 53 notes were missed.)
+    const std::vector<Score> clean = bench("note tracker, bass", noteTracker(0.0f, 0.0, false), false, false, false,
+                                           bassScenes());
+    CHECK(clean.back().missed == 0);
+    CHECK(clean.back().wrong <= 20);
+    CHECK(clean.back().phantom <= 10);
+    CHECK(clean[0].medianDelayMs <= 50.0); // a low note needs about two of its periods (B0's are 32 ms)
+    const std::vector<Score> amped = bench("note tracker, bass", noteTracker(0.0f, 0.0, false), true, false, false,
+                                           bassScenes());
+    CHECK(amped.back().missed == 0);
 }
 
 TEST_CASE("the note tracker doesn't chirp when the pick stops the string")
@@ -439,3 +475,4 @@ TEST_CASE("with lookahead, a synth's notes start with the pick")
     CHECK(onTime < 3.0);
     CHECK(onTime > -1.0);
 }
+

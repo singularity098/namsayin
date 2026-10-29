@@ -25,13 +25,7 @@ struct Rig {
     std::vector<float> outL = std::vector<float>(kBuffer, 0.0f);
     std::vector<float> outR = std::vector<float>(kBuffer, 0.0f);
 
-    // plainMerge: the merge doesn't invert branch A (it does by default), set before prepare() so its gains start there
-    explicit Rig(bool plainMerge = false)
-    {
-        if (plainMerge)
-            engine.setParameter(kParamMergeInvertA, 0.0f);
-        engine.prepare(kRate, kBuffer);
-    }
+    Rig() { engine.prepare(kRate, kBuffer); }
 
     void run(int buffers = 40)
     {
@@ -402,9 +396,6 @@ TEST_CASE("a split sums its branches at the merge")
     rig.run();
     const float a = 0.25f * dbToGain(-6.0f);
     const float b = 0.25f * dbToGain(-12.0f);
-    CHECK(rig.left() == doctest::Approx(b - a).epsilon(0.001)); // Invert A is on by default (owner, 2026-10-29)
-    rig.engine.setParameter(kParamMergeInvertA, 0.0f);
-    rig.run();
     CHECK(rig.left() == doctest::Approx(a + b).epsilon(0.001));
 
     SUBCASE("balance")
@@ -453,7 +444,7 @@ TEST_CASE("a split sums its branches at the merge")
 
 TEST_CASE("Merge Align delays one branch, by fractions of a sample too")
 {
-    Rig rig { true };
+    Rig rig;
     rig.engine.setParameter(kParamLimiter, 0.0f);
     rig.engine.setParameter(slotParam(1, 0), gainParam(0.0f));
     rig.engine.setParameter(slotParam(2, 0), gainParam(0.0f));
@@ -496,7 +487,7 @@ TEST_CASE("Merge Align delays one branch, by fractions of a sample too")
 
 TEST_CASE("in Mono mode the chain turns stereo at a stereo block")
 {
-    Rig rig { true };
+    Rig rig;
     rig.engine.setParameter(kParamLimiter, 0.0f);
     rig.engine.setParameter(slotParam(0, 0), gainParam(0.0f));
     rig.engine.setParameter(slotParam(2, 0), gainParam(0.0f));
@@ -521,7 +512,7 @@ TEST_CASE("in Mono mode the chain turns stereo at a stereo block")
 
 TEST_CASE("empty branches carry the signal; blocks before and after the split run in series")
 {
-    Rig rig { true };
+    Rig rig;
     rig.engine.setParameter(kParamLimiter, 0.0f);
     rig.engine.setParameter(slotParam(0, 0), gainParam(-6.0f));
     rig.engine.setParameter(slotParam(3, 0), gainParam(-6.0f));
@@ -537,7 +528,7 @@ TEST_CASE("empty branches carry the signal; blocks before and after the split ru
 
 TEST_CASE("branches with different latencies are time-aligned at the merge")
 {
-    Rig rig { true };
+    Rig rig;
     rig.engine.setParameter(kParamLimiter, 0.0f);
     rig.engine.setParameter(slotParam(1, 0), gainParam(0.0f));
     rig.engine.setParameter(slotParam(2, 0), gainParam(0.0f));

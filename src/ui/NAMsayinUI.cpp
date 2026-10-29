@@ -7,7 +7,6 @@
 #include "BlockGlyphs.hpp"
 #include "BackgroundImage.hpp"
 #include "BlockImages.hpp"
-#include "Blur.hpp"
 #include "WebpImage.hpp"
 #include "FileLooks.hpp"
 #include "FontData.hpp"
@@ -18,7 +17,6 @@
 #include "OpenUrl.hpp"
 #include "ParamHelp.hpp"
 #include "PedalFaces.hpp"
-#include "ReadPixels.hpp"
 #include "TextEdit.hpp"
 #include "Vsync.hpp"
 #include "engine/BlockRegistry.hpp"
@@ -68,11 +66,11 @@ const Color background(0x00, 0x00, 0x00);
 // 90% let next to nothing of the dark background through)
 const Color panelFill(0x00, 0x00, 0x00, 0.5f);  // bars, panels, tiles, buttons, the tuner and the metronome
 const Color itemFill(0x00, 0x00, 0x00, 0.55f);  // items listed in dialogs, a little darker
-// Popups over the chain stay nearly opaque, over a blur of what's behind them, so they read clearly (owner, 2026-10-29;
-// was 90% with no blur): tooltips, dropdown and right-click menus, Add Block and Settings, and the other dialogs (Save
-// Preset, Manage Presets, Images, Cab Image; were 50%) and the toast (was 50%). The rule (owner, 2026-10-29): what the
-// window shows in its base state is 50% with no blur; everything that appears over it is popupFill over a blur.
-const Color popupFill(0x00, 0x00, 0x00, 0.93f);
+// Popups over the chain stay nearly opaque so they read clearly (owner, 2026-10-29: 95%, no blur; a blur of what's
+// behind them was tried and dropped): tooltips, dropdown and right-click menus, Add Block and Settings, the other
+// dialogs (Save Preset, Manage Presets, Images, Cab Image) and the toast. The rule: what the window shows in its base
+// state is 50%; everything that appears over it is popupFill.
+const Color popupFill(0x00, 0x00, 0x00, 0.95f);
 const Color popupItemFill(0x00, 0x00, 0x00, 0.97f); // the blocks in Add Block
 const Color tile(0x16, 0x16, 0x1a);       // small grey fills (hover in lists, meter boxes)
 const Color tileHover(0x1d, 0x1d, 0x22);
@@ -712,7 +710,6 @@ protected:
         fHeight = getHeight() / scale;
         fHits.clear();
         ++fFrame;
-        fBlurCount = 0;
 
         save();
         this->scale(scale, scale);
@@ -3519,62 +3516,6 @@ private:
         fill();
     }
 
-    // Draws a blur of what's drawn so far into the rounded rect x, y, w, h, under a popup, so what's behind it reads
-    // as a soft blur rather than as text through tinted glass (owner, 2026-10-29). It flushes the frame to read the
-    // window back, which resets NanoVG's state, so call it only where no save() of the draw functions is open (as
-    // the popups are drawn); it puts back onNanoDisplay()'s scaling.
-    void blurBehind(float x, float y, float w, float h, float radius)
-    {
-        constexpr float kMargin = 24.0f;    // read past the popup's edges, so the blur doesn't clamp there
-        constexpr float kSampleSize = 4.0f; // logical pixels per blurred sample
-        constexpr int kRadius = 3, kPasses = 3; // about a 14 px Gaussian
-        const float scale = static_cast<float>(getScaleFactor());
-        const int fbW = static_cast<int>(getWidth()), fbH = static_cast<int>(getHeight());
-        const int x0 = std::clamp(static_cast<int>(std::floor((x - kMargin) * scale)), 0, fbW);
-        const int x1 = std::clamp(static_cast<int>(std::ceil((x + w + kMargin) * scale)), 0, fbW);
-        const int y0 = std::clamp(static_cast<int>(std::floor((y - kMargin) * scale)), 0, fbH);
-        const int y1 = std::clamp(static_cast<int>(std::ceil((y + h + kMargin) * scale)), 0, fbH);
-        if (x1 <= x0 || y1 <= y0)
-            return;
-
-        NanoVG::endFrame(); // the widget hides these (it wraps the frame itself)
-        readFramebuffer(x0, fbH - y1, x1 - x0, y1 - y0, fBlurRead); // GL counts rows from the bottom
-        NanoVG::beginFrame(static_cast<uint>(fbW), static_cast<uint>(fbH));
-        save();
-        this->scale(scale, scale);
-
-        const int factor = std::max(1, static_cast<int>(std::lround(kSampleSize * scale)));
-        blurDownsampled(fBlurRead.data(), x1 - x0, y1 - y0, factor, kRadius, kPasses, true, fBlurred);
-        if (fBlurCount >= fBlurImages.size())
-            fBlurImages.push_back({});
-        BlurImage& img = fBlurImages[fBlurCount++];
-        NVGcontext* const ctx = getContext();
-        if (img.id != 0 && (img.width != fBlurred.width || img.height != fBlurred.height))
-        {
-            nvgDeleteImage(ctx, img.id);
-            img.id = 0;
-        }
-        if (img.id == 0)
-        {
-            img.id = nvgCreateImageRGBA(ctx, fBlurred.width, fBlurred.height, 0, fBlurred.pixels.data());
-            img.width = fBlurred.width;
-            img.height = fBlurred.height;
-        }
-        else
-        {
-            nvgUpdateImage(ctx, img.id, fBlurred.pixels.data());
-        }
-        if (img.id == 0)
-            return;
-
-        const NVGpaint paint = nvgImagePattern(ctx, x0 / scale, y0 / scale, fBlurred.width * factor / scale,
-                                               fBlurred.height * factor / scale, 0.0f, img.id, 1.0f);
-        beginPath();
-        roundedRect(x, y, w, h, radius);
-        nvgFillPaint(ctx, paint);
-        fill();
-    }
-
     // A box: translucent black inside (the background image shows through) with a 1 px grey outline that brightens on hover. Bars are black with one dividing line on
     // their inner edge.
     void surface(float x, float y, float w, float h, float radius, Surface kind, bool hover = false)
@@ -3592,8 +3533,6 @@ private:
         case Surface::Popup: alpha = 0.16f; break;
         case Surface::PopupItem: alpha = hover ? 0.30f : 0.14f; break;
         }
-        if (kind == Surface::Popup || kind == Surface::Dialog)
-            blurBehind(x, y, w, h, radius);
         Color fill = theme::panelFill;
         switch (kind)
         {
@@ -4054,7 +3993,6 @@ private:
         if (y + h > fHeight - 8.0f)
             y = std::max(8.0f, r.y - h - 6.0f);
 
-        blurBehind(x, y, width, h, 8.0f);
         beginPath();
         roundedRect(x, y, width, h, 8.0f);
         fillColor(theme::popupFill);
@@ -6415,7 +6353,6 @@ private:
         Rectangle<float> bounds;
         const float w = textBounds(0, 0, fToast.c_str(), nullptr, bounds) + 32.0f;
         const float x = (fWidth - w) / 2, y = fHeight - kBottomBarHeight - 52.0f;
-        blurBehind(x, y, w, 32.0f, 8.0f);
         fillRect(x, y, w, 32.0f, theme::popupFill, 8.0f);
         beginPath();
         roundedRect(x, y, w, 32.0f, 8.0f);
@@ -7199,17 +7136,6 @@ private:
     static constexpr std::chrono::milliseconds kHelpDelay { 600 };
     int fHelpKind = -1;
     uintptr_t fVsyncDrawable = 0;
-
-    // blurBehind(): the window read back, its blurred copy, and one NanoVG image per blur in a frame
-    struct BlurImage {
-        int id = 0;
-        int width = 0;
-        int height = 0;
-    };
-    std::vector<uint8_t> fBlurRead;
-    BlurredImage fBlurred;
-    std::vector<BlurImage> fBlurImages;
-    size_t fBlurCount = 0;
 
     // frame-rate readout (NAMSAYIN_SHOW_FPS)
     const bool fShowFps = [] {

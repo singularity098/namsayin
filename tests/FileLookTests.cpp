@@ -164,7 +164,7 @@ TEST_CASE("the cab size in a file's name")
     CHECK(cabSizeInName("") == "");
 }
 
-TEST_CASE("each IR gets a cab image from its hash, of the size its name gives")
+TEST_CASE("each IR gets a 4x12 cab image from its hash, or one of the size its name gives")
 {
     const std::vector<std::string> ids = cabIds();
     REQUIRE_FALSE(ids.empty());
@@ -175,7 +175,9 @@ TEST_CASE("each IR gets a cab image from its hash, of the size its name gives")
     const std::string hash = "00112233445566778899aabbccddeeff";
     CHECK(defaultCabImage(hash, "Room", ids) == defaultCabImage(hash, "Room", ids));
 
-    // spread over every image; a size in the name keeps it to that size
+    // spread over every 4x12; a size in the name keeps it to that size
+    const std::vector<std::string> fours = cabImagesOfSize(ids, "4x12");
+    REQUIRE_FALSE(fours.empty());
     std::map<std::string, int> uses;
     for (int i = 0; i < 4000; ++i)
     {
@@ -183,7 +185,10 @@ TEST_CASE("each IR gets a cab image from its hash, of the size its name gives")
         ++uses[defaultCabImage(key, "Some IR", ids)];
         CHECK(cabImageSize(defaultCabImage(key, "Some 2x10 IR", ids)) == "2x10");
     }
-    CHECK(uses.size() == ids.size());
+    CHECK(uses.size() == fours.size());
     for (const auto& [id, n] : uses)
-        CHECK(n > 4000 / static_cast<int>(ids.size()) / 3);
+    {
+        CHECK(cabImageSize(id) == "4x12");
+        CHECK(n > 4000 / static_cast<int>(fours.size()) / 3);
+    }
 }

@@ -382,6 +382,51 @@ inline std::vector<Note> longDecay()
     return notes;
 }
 
+// A 5-string bass and a 7-string's low end: single notes every semitone from the bass's low B (B0, 31 Hz) up to
+// G2, each picked, held and muted
+inline std::vector<Note> bassNotes()
+{
+    std::vector<Note> notes;
+    double time = 0.1;
+    for (int midi = 23; midi <= 43; ++midi)
+    {
+        Note note;
+        note.midi = midi;
+        note.start = time;
+        note.length = 0.5;
+        note.string = midi % 2;
+        note.velocity = 0.6f + 0.4f * static_cast<float>((midi * 7) % 5) / 4.0f;
+        notes.push_back(note);
+        time += 0.7;
+    }
+    return notes;
+}
+
+// A bass line in eighths at 110 BPM on the low strings (each note muted by the next), with a hammer-on
+inline std::vector<Note> bassLine()
+{
+    static const int line[] = { 23, 23, 35, 23, 28, 28, 33, 35, 26, 26, 38, 26, 31, 33, 33, 23 };
+    std::vector<Note> notes;
+    const double eighth = 60.0 / 110.0 / 2.0;
+    double time = 0.1;
+    for (int bar = 0; bar < 2; ++bar)
+        for (size_t i = 0; i < std::size(line); ++i)
+        {
+            Note note;
+            note.midi = line[i];
+            note.start = time;
+            note.length = eighth * 0.9;
+            note.string = 0;
+            note.velocity = i % 2 == 0 ? 1.0f : 0.75f;
+            note.legato = i == 13; // the second A1 hammered from the G
+            if (note.legato)
+                notes.back().length = eighth;
+            notes.push_back(note);
+            time += eighth;
+        }
+    return notes;
+}
+
 // Open chords strummed down (12 ms from string to string), each held, then muted
 inline std::vector<Note> strummedChords()
 {

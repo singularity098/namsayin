@@ -8,7 +8,7 @@
 namespace namsayin {
 
 // Poly Chip: a polyphonic chip synth. Instead of tracking one pitch, it splits the guitar into one narrow band per
-// semitone (C2..E6) and plays each note it finds as an 8-bit voice at that semitone, so chords work. Peaks across
+// semitone (B0..E6) and plays each note it finds as an 8-bit voice at that semitone, so chords work. Peaks across
 // the bands are the notes; Focus drops peaks that are the harmonics of a lower note; Voices keeps the loudest few.
 // Arp plays the held notes one after another instead of together. Quantize off plays each note at the pitch measured
 // in its band (bends, vibrato). Pick Filter makes a new note wait a few ms, so the pick attack doesn't sound. Low

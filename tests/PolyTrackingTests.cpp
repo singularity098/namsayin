@@ -21,7 +21,7 @@ using namespace namsayin;
 
 namespace {
 
-using Notes = std::bitset<64>; // one bit per band (MIDI note - 36)
+using Notes = std::bitset<128>; // one bit per band (MIDI note - PolyNoteFinder::kFirstNote)
 
 constexpr float kAudible = 0.01f; // a voice's level (band level x 5, as the Poly Chip plays it)
 
@@ -33,9 +33,10 @@ struct PolyScene {
     std::vector<Notes> truth, dontCare;
 };
 
-const std::vector<PolyScene>& polyScenes()
+// The scenes, or with `bass` a 5-string bass's (owner, 2026-10-29)
+const std::vector<PolyScene>& polyScenes(bool bass = false)
 {
-    static const std::vector<PolyScene> all = [] {
+    static const std::vector<PolyScene> guitarScenes = [] {
         std::vector<PolyScene> scenes;
         auto add = [&](const char* name, std::vector<guitar::Note> notes, double seconds) {
             PolyScene scene { name, notes, seconds, guitar::perform(notes, seconds), {}, {} };
@@ -64,9 +65,13 @@ const std::vector<PolyScene>& polyScenes()
         add("ringing arpeggio", guitar::ringingArpeggio(), 4.5);
         add("palm mutes", guitar::palmMutes(), 6.5);
         add("fast run", guitar::fastRun(), 3.5);
+        add("bass notes", guitar::bassNotes(), 15.0);
+        add("bass line", guitar::bassLine(), 9.0);
         return scenes;
     }();
-    return all;
+    static const std::vector<PolyScene> guitarOnly(guitarScenes.begin(), guitarScenes.end() - 2);
+    static const std::vector<PolyScene> bassOnly(guitarScenes.end() - 2, guitarScenes.end());
+    return bass ? bassOnly : guitarOnly;
 }
 
 struct PolyScore {
@@ -198,7 +203,7 @@ PolyScore polyScore(const PolyScene& scene, const std::vector<Notes>& out, size_
     return s;
 }
 
-std::vector<PolyScore> polyBench(const char* name, const PolyTracker& tracker, bool print = true)
+std::vector<PolyScore> polyBench(const char* name, const PolyTracker& tracker, bool print = true, bool bass = false)
 {
     const bool debug = std::getenv("NAMSAYIN_TRACKING_DEBUG") != nullptr;
     if (print)
@@ -209,7 +214,7 @@ std::vector<PolyScore> polyBench(const char* name, const PolyTracker& tracker, b
     }
     std::vector<PolyScore> scores;
     PolyScore total;
-    for (const PolyScene& scene : polyScenes())
+    for (const PolyScene& scene : polyScenes(bass))
     {
         std::vector<Notes> out;
         const size_t latency = tracker(scene.performance.signal, out);
@@ -237,6 +242,8 @@ TEST_CASE("poly tracking benchmark" * doctest::skip(std::getenv("NAMSAYIN_TRACKI
 {
     polyBench("poly note finder", finderTracker(0.0));
     polyBench("poly note finder, lookahead 20 ms", finderTracker(20.0));
+    polyBench("poly note finder, bass", finderTracker(0.0), true, true);
+    polyBench("poly note finder, bass, lookahead 20 ms", finderTracker(20.0), true, true);
 }
 
 TEST_CASE("the poly note finder plays chords with few extra notes and no flicker")
@@ -259,6 +266,16 @@ TEST_CASE("the poly note finder plays chords with few extra notes and no flicker
     CHECK(ahead.back().missed <= 21);
     CHECK(ahead.back().extraMs <= 8800.0);
     CHECK(ahead[2].medianDelayMs <= 10.0); // single notes start nearly on time
+}
+
+TEST_CASE("the poly note finder plays a 5-string bass down to its low B")
+{
+    // (owner, 2026-10-29: the bands started at C2, so a 7-string's drop A and a bass's low notes weren't found)
+    const auto bass = polyBench("poly note finder, bass", finderTracker(0.0), false, true);
+    CHECK(bass.back().missed == 0);
+    CHECK(bass[0].extraMs <= 1500.0); // single notes: little but their release
+    CHECK(bass.back().extraMs <= 8000.0); // a bright bass line: mostly the note before ending late, and harmonics
+                                          // sounding while a low note's band rings up
 }
 
 TEST_CASE("the poly note finder plays notes over a live input's hiss and hum to the end, and not the hum")
@@ -304,3 +321,4 @@ TEST_CASE("the poly note finder plays notes over a live input's hiss and hum to 
     CHECK(humNotes == 0);
     CHECK(lastA3 > 3.3); // to the end: 3 s on, 36 dB down
 }
+

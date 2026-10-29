@@ -116,17 +116,14 @@ std::string defaultCabImage(std::string_view key, std::string_view fileName, con
         const std::vector<std::string> fours = cabImagesOfSize(ids, "4x12");
         return fours.empty() ? ids.front() : fours.front();
     }
+    // most IRs are of a 4x12, so the rest only when the name says so (owner, 2026-10-29; was any size)
     std::vector<std::string> pool;
     if (const std::string_view size = cabSizeInName(fileName); !size.empty())
         pool = cabImagesOfSize(ids, size);
     if (pool.empty())
-    {
-        for (const char* size : kCabSizes)
-            for (std::string& id : cabImagesOfSize(ids, size))
-                pool.push_back(std::move(id));
-        if (pool.empty())
-            pool = ids;
-    }
+        pool = cabImagesOfSize(ids, "4x12");
+    if (pool.empty())
+        pool = ids;
     Dice dice(key);
     return pool[static_cast<size_t>(dice.below(static_cast<int>(pool.size())))];
 }

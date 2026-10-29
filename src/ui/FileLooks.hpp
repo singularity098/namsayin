@@ -64,7 +64,7 @@ std::string_view cabSizeInName(std::string_view name);
 
 // The cab image an IR shows until the user picks another: picked from `ids` by `key` (the IR's content hash), so
 // the same file always gets the same cab; among the cabs of the size its file name gives, if it gives one and there
-// are some. An empty key (no file) gets the first 4x12. "" if `ids` is empty.
+// are some, else among the 4x12s. An empty key (no file) gets the first 4x12. "" if `ids` is empty.
 std::string defaultCabImage(std::string_view key, std::string_view fileName, const std::vector<std::string>& ids);
 
 } // namespace namsayin

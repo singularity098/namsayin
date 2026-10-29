@@ -232,6 +232,8 @@ private:
                                                 // last 32 ms' (the string isn't being stopped)
     static constexpr float kPickRise = 1.25f;  // a click is a pick once the level rises this much,
     static constexpr float kPickHold = 0.3f;   // or once it has held over this share of its level for 12 ms
+    static constexpr double kHumWidth = 0.2;  // semitones around 50 and 60 Hz where a new note needs a pick (G1 is
+                                               // 0.37 under 50 Hz, A#1 and B1 0.5 around 60 Hz)
 
     Note& at(int64_t time)
     {
@@ -314,8 +316,12 @@ private:
                 fCandidate = Candidate { hz, 1, fTime, aperiodicity };
             }
         }
+        // (at the mains' 50 or 60 Hz, between the notes, a new note needs a pick: after an amp the hum is loud
+        // enough to start notes in the silence, now that the tracker goes down to a bass's low B)
+        const bool hum = !fPickPending && !fOn
+                      && (semitones(fCandidate.hz, 50.0) < kHumWidth || semitones(fCandidate.hz, 60.0) < kHumWidth);
         const bool confirmed = !fMuted && fCandidate.count >= needed() && fTime - fCandidate.start >= fPickHold
-                            && fClickTime < 0 && (fPickPending || fEnvelope >= kLegatoLevel * recentLevel());
+                            && fClickTime < 0 && (fPickPending || fEnvelope >= kLegatoLevel * recentLevel()) && !hum;
         if (fOn && (confirmed || fMisses >= kMaxMisses))
             end(fFirstMiss - static_cast<int64_t>(0.004 * fSampleRate), EndReason::OtherPitch);
         if (confirmed)

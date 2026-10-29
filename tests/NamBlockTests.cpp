@@ -185,7 +185,6 @@ TEST_CASE("two NAM amps in a split, panned hard in stereo mode, each reach only 
     auto renderChain = [](const ChainState& chain, bool parallel) {
         Engine engine;
         engine.setParallelProcessing(parallel);
-        engine.setParameter(kParamMergeInvertA, 0.0f); // compared with A alone
         engine.prepare(kRate, kBuffer);
         engine.setParameter(kParamInputMode, 1.0f);
         engine.setParameter(kParamLimiter, 0.0f);

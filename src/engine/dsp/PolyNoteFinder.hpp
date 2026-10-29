@@ -15,9 +15,13 @@
 
 namespace namsayin {
 
-// Finds the notes of chords (the Poly Chip and the MIDI Out's Poly mode): one band per semitone, C2..E6 (53 bands,
-// each two SVF band-passes in series at Q 8, widening to Q 5 over the octave below C3 so the low strings ring up
-// faster), and above them up to C8 for their harmonics. Every ~0.7 ms (a hop) it finds the notes one at a time
+// Finds the notes of chords (the Poly Chip and the MIDI Out's Poly mode): one band per semitone, B0..E6 (66 bands, each
+// two SVF band-passes in series at Q 8, widening to Q 5 over the octave below C3 so the low strings ring up faster, and
+// on to Q 3.5 at B0, a 5-string bass's low B), and above them up to C8 for their harmonics. The bass bands under C2 are
+// too wide to tell a semitone apart alone, so a note there also needs its 2nd harmonic's band to hold a peak, its
+// fundamental within 9 dB of its loudest harmonic (a strum's thump fills in a chord's octave below), and its 9th to
+// 12th harmonics are explained too; just after a pick, a new note waits while a bass band an octave, a twelfth or two
+// octaves below it still rings up (its harmonics ring up first). Every ~0.7 ms (a hop) it finds the notes one at a time
 // (Klapuri's iterative estimation): each candidate scores the weighted sum of its first eight harmonics' levels; the
 // best is a note, preferring one an octave, a twelfth or two octaves below that is there too (the low strings'
 // fundamentals are weak in a DI signal: the owner's open G has G3 12 dB over G2), and what it explains is taken out
@@ -31,7 +35,7 @@ namespace namsayin {
 // note), for bends.
 //
 // Like the single-note tracker (NoteTracker.hpp), it also follows the input's own level (a peak follower that holds
-// for the lowest note's period, then falls fast) and its noise floor: a band louder than the input itself is only
+// for a low E's period, half a low B bass's, then falls fast; holding for the bass's whole period did worse) and its noise floor: a band louder than the input itself is only
 // ringing on in its filters (after a mute), so its note ends at once. Each band also has a noise floor of its own
 // (learnt in the first 250 ms while the input is quiet, then down quickly and up slowly), and a note needs to stand
 // 12 dB over its band's, so the hiss and hum of a live input don't cut short notes well over them (the input's own
@@ -46,7 +50,7 @@ namespace namsayin {
 // written back over its pick-filter wait and its band's ring-up, so it starts on time.
 class PolyNoteFinder {
 public:
-    static constexpr int kFirstNote = 36; // C2 (MIDI), below drop tunings
+    static constexpr int kFirstNote = 23; // B0 (MIDI), a 5-string bass's low B (owner, 2026-10-29; was C2)
     static constexpr int kLastNote = 88;  // E6, the top of a 24-fret guitar
     static constexpr int kBands = kLastNote - kFirstNote + 1;
     static constexpr int kMaxVoices = 6;
@@ -74,8 +78,7 @@ public:
         for (int m = 0; m < kMeasured; ++m)
         {
             const double hz = 440.0 * std::exp2((kFirstNote + m - 69) / 12.0);
-            const double wide = std::max(0.0, 1.0 - static_cast<double>(m) / kWideBands);
-            const double q = kStageQ + (kLowStageQ - kStageQ) * wide;
+            const double q = stageQ(kFirstNote + m);
             for (Svf& stage : fFilters[m].stages)
                 stage.set(sampleRate, hz, q);
             // how much of a note a semitone away the band lets through (two stages)
@@ -156,6 +159,7 @@ public:
         fOnset.reset();
         fClick.reset();
         fClickFilter.reset();
+        fLastLevel.fill(0.0f);
         fEnvelope = 0.0f;
         fHold = 0;
         fFloor = 0.0003f;
@@ -246,8 +250,18 @@ private:
     }
 
     static constexpr double kStageQ = 8.0;
-    static constexpr double kLowStageQ = 5.0;
-    static constexpr int kWideBands = 12;
+    static constexpr double kLowStageQ = 5.0;  // at C2, widening from C3
+    static constexpr double kBassStageQ = 3.5; // at B0, widening from C2 (a bass's low notes ring up in time)
+
+    // The Q of each of a band's two stages
+    static double stageQ(int note)
+    {
+        if (note >= 48)
+            return kStageQ;
+        if (note >= 36)
+            return kLowStageQ + (kStageQ - kLowStageQ) * (note - 36) / 12.0;
+        return kBassStageQ + (kLowStageQ - kBassStageQ) * (note - kFirstNote) / (36.0 - kFirstNote);
+    }
     static constexpr float kFloor = 0.0002f;   // band level a note needs (about -74 dBFS; DI recordings are quiet)
     static constexpr float kRelative = 0.12f;  // a note's score against the first note's (-18 dB)
     static constexpr float kRelativeLevel = 0.35f; // its first three partials against the loudest band (-9 dB)
@@ -273,7 +287,11 @@ private:
     // Semitones from a note up to its 1st..8th harmonics (the 7th, 33.7, rounds to 34)
     static constexpr int kPartials = 8;
     static constexpr int kPartialSteps[kPartials] = { 0, 12, 19, 24, 28, 31, 34, 36 };
+    static constexpr int kBassPartialSteps[4] = { 38, 40, 42, 43 }; // the 9th to 12th (41.5 rounds up)
     static constexpr float kFundamental = 0.05f; // a note's own band against its loudest harmonic (-26 dB)
+    static constexpr int kBassNote = 36;           // under C2 (a bass's, a 7-string's low notes): -9 dB, as a
+    static constexpr float kBassFundamental = 0.35f; // chord's octave below gets some from a strum's thump
+    static constexpr float kRingingUp = 0.3f;      // a bass band ringing up holds back notes above it once this loud
     static constexpr float kOwnShare = 0.3f;     // ... and what the notes found before leave of it
     static constexpr float kOdd = 0.25f;         // its 3rd or 5th against its 2nd (else only a strong fundamental
     static constexpr float kStrongFundamental = 0.5f; // makes it a note: it's below one)
@@ -314,6 +332,15 @@ private:
             if (h < 3)
                 loudest = std::max(loudest, take);
         }
+        // a bass note's 9th to 12th harmonics too: they're still in the guitar's range, and loud from a bright bass
+        if (kFirstNote + b < kBassNote)
+            for (const int step : kBassPartialSteps)
+            {
+                const int m = b + step;
+                rest[m] = 0.0f;
+                rest[m - 1] = std::max(0.0f, rest[m - 1] - fLeak[m - 1] * level[m]);
+                rest[m + 1] = std::max(0.0f, rest[m + 1] - fLeak[m + 1] * level[m]);
+            }
         fBands[b].level = std::max(level[b], loudest);
     }
 
@@ -385,6 +412,20 @@ private:
         }
     }
 
+    // A bass band an octave, a twelfth or two octaves under band b still ringing up after a pick
+    bool ringingUpBelow(int b, const std::array<float, kMeasured>& level) const
+    {
+        const int since = fPickPending ? 0 : fSincePick + 1;
+        for (const int d : { 12, 19, 24 })
+        {
+            const int low = b - d;
+            if (low >= 0 && kFirstNote + low < kBassNote && since <= fRingUpHops[low] && level[low] > fLastLevel[low]
+                && level[low] > gate(low) && level[low] > kRingingUp * level[b])
+                return true;
+        }
+        return false;
+    }
+
     // The level a note in band b must be over
     float gate(int b) const { return std::max({ kFloor, kFloorGate * fBands[b].floor, kInputFloorGate * fFloor }); }
 
@@ -422,6 +463,11 @@ private:
                     continue;
                 const float hold = fBands[b].on ? kHold : 1.0f;
                 const float self = level[b] * (fBands[b].sounding ? kHold : 1.0f);
+                // just after a pick, a bass note's harmonics ring up in their bands well before its fundamental
+                // does in its own: a new note waits while a bass band an octave, a twelfth or two octaves below
+                // still rings up
+                if (!fBands[b].sounding && ringingUpBelow(b, level))
+                    continue;
                 // (the lowest band has no neighbour below: it must stand clearly over the one above, or a palm
                 // mute's thump is a C2)
                 if (!(self > (b > 0 ? level[b - 1] : level[b + 1]) && self >= level[b + 1]) || level[b] * hold <= gate(b)
@@ -441,7 +487,12 @@ private:
                 // its first three partials within reach of the loudest band
                 if (low * hold < kRelativeLevel * loudest)
                     continue;
-                if (level[b] < kFundamental * strongest)
+                if (level[b] < (kFirstNote + b < kBassNote ? kBassFundamental : kFundamental) * strongest)
+                    continue;
+                // the bass bands are too wide to tell a semitone apart by themselves (a note rings in its neighbours
+                // nearly as loud, and a pick's thump in all of them): its 2nd harmonic's band must hold a peak too
+                if (kFirstNote + b < kBassNote
+                    && !(level[b + 12] * hold > level[b + 11] && level[b + 12] * hold >= level[b + 13]))
                     continue;
                 // a note below one played (or under a muted strum's thump) has only even harmonics there: a real one
                 // has its 3rd or 5th, or a strong fundamental of its own
@@ -568,6 +619,8 @@ private:
                 at.velocity[b] = band.pending > 0.0f ? std::max(band.pending, band.level) : band.level;
             }
         }
+        for (int b = 0; b < kBassNote - kFirstNote; ++b)
+            fLastLevel[b] = level[b];
         ++fHopCount;
     }
 
@@ -585,6 +638,7 @@ private:
     std::array<std::array<float, kPartials>, kBands> fWeight {};
     std::array<Band, kBands> fBands;
     std::array<int, kBands> fRingUpHops {};
+    std::array<float, kBands> fLastLevel {}; // the bass bands' levels the hop before
     std::vector<Frame> fFrames;
     int64_t fHopCount = 0;
 
