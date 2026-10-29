@@ -3591,7 +3591,7 @@ private:
         case Surface::Popup: alpha = 0.16f; break;
         case Surface::PopupItem: alpha = hover ? 0.30f : 0.14f; break;
         }
-        if (kind == Surface::Popup)
+        if (kind == Surface::Popup || kind == Surface::Dialog)
             blurBehind(x, y, w, h, radius);
         Color fill = theme::panelFill;
         switch (kind)
