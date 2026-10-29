@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Sympathetic Strings: twelve strings tuned to a key and a tuning, which ring along when you play their notes (or
 // notes whose harmonics they share), like the drone strings of a sitar or the strings of a harp left undamped. Each
@@ -38,4 +38,4 @@ enum JawariParam {
     kJawariParamCount
 };
 
-} // namespace namsayin
+} // namespace xythos

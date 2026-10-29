@@ -7,7 +7,7 @@
 
 #include <cstdint>
 
-namespace namsayin {
+namespace xythos {
 
 // Looper: one loop of up to 60 s (at 48 kHz; the buffer is a fixed number of samples). Footswitch-style controls
 // (momentary parameters: map footswitches to them with MIDI learn):
@@ -56,4 +56,4 @@ struct LooperStatus {
     }
 };
 
-} // namespace namsayin
+} // namespace xythos

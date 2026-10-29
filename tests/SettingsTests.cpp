@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <filesystem>
 
-using namespace namsayin;
+using namespace xythos;
 
 TEST_CASE("settings round-trip through JSON and a file")
 {
@@ -22,15 +22,15 @@ TEST_CASE("settings round-trip through JSON and a file")
     settings.accent = 3;
     settings.favorites = { "00112233445566778899aabbccddeeff", "ffeeddccbbaa99887766554433221100" };
     settings.embedFiles = false;
-    settings.recentPresets = { "/a.namsayin", "/b.namsayin" };
-    settings.defaultPreset = "/presets/Clean/Twin.namsayin";
+    settings.recentPresets = { "/a.xythos", "/b.xythos" };
+    settings.defaultPreset = "/presets/Clean/Twin.xythos";
     settings.checkUpdates = false;
     settings.dismissedUpdate = "1.2.0";
     settings.cabImages = { { "00112233445566778899aabbccddeeff", "4x12-3" }, { "/irs/no hash.wav", "1x10-1" } };
 
     CHECK(Settings::fromJson(settings.toJson()) == settings);
 
-    const auto path = std::filesystem::temp_directory_path() / "namsayin-test-settings" / "settings.json";
+    const auto path = std::filesystem::temp_directory_path() / "xythos-test-settings" / "settings.json";
     std::filesystem::remove_all(path.parent_path());
     REQUIRE(settings.save(path));
     CHECK(Settings::load(path) == settings);
@@ -41,7 +41,7 @@ TEST_CASE("settings fall back to defaults for missing or broken values")
     CHECK(Settings::fromJson("") == Settings {});
     CHECK(Settings::fromJson("not json") == Settings {});
     CHECK(Settings::fromJson("[1, 2]") == Settings {});
-    CHECK(Settings::load(std::filesystem::temp_directory_path() / "namsayin-no-such-settings.json") == Settings {});
+    CHECK(Settings::load(std::filesystem::temp_directory_path() / "xythos-no-such-settings.json") == Settings {});
 
     const Settings partial = Settings::fromJson(R"({"namDir": "/nam", "accent": "purple", "a2Lite": true})");
     CHECK(partial.namDir == "/nam");

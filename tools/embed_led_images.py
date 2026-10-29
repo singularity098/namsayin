@@ -87,7 +87,7 @@ lines = [
     "",
     '#include "LedImages.hpp"',
     "",
-    "namespace namsayin {",
+    "namespace xythos {",
     "",
     "namespace {",
     "",
@@ -105,5 +105,5 @@ for name, _, pixels, mode in layers:
 lines += ["} // namespace", ""]
 for name, function, _, _ in layers:
     lines += ["BuiltinImage %s() { return { %s, sizeof(%s) }; }" % (function, name, name), ""]
-lines += ["} // namespace namsayin", ""]
+lines += ["} // namespace xythos", ""]
 OUT.write_text("\n".join(lines))

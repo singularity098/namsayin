@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 // State variable filter, topology-preserving transform (Zavalishin). Stays stable and smooth when the cutoff moves
 // every sample, which the wah, envelope filter and synth need. All three outputs come from one step.
@@ -98,4 +98,4 @@ private:
     float fEnv = 0.0f;
 };
 
-} // namespace namsayin
+} // namespace xythos

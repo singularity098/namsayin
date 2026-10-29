@@ -7,7 +7,7 @@
 
 #include <algorithm>
 
-namespace namsayin {
+namespace xythos {
 
 using nlohmann::json;
 
@@ -281,4 +281,4 @@ void ChainState::removeSplit()
     split.reset();
 }
 
-} // namespace namsayin
+} // namespace xythos

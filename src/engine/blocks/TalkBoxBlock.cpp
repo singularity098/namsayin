@@ -10,7 +10,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -193,4 +193,4 @@ const BlockDescriptor kTalkBoxBlockDescriptor = {
     [] { return std::unique_ptr<Block>(new TalkBoxBlock()); },
 };
 
-} // namespace namsayin
+} // namespace xythos

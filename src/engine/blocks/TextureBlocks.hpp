@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Chaos Mod: a Lorenz attractor (the "butterfly" of chaos theory) moves a resonant low-pass (Filter, around
 // Cutoff), the volume (Volume) and the pitch (Pitch, a vibrato from a moving delay). The motion is smooth but never
@@ -45,4 +45,4 @@ enum AcousticParam {
     kAcousticParamCount
 };
 
-} // namespace namsayin
+} // namespace xythos

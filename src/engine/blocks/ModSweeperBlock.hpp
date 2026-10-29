@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Modulation Sweeper: two or three modulation effects (chorus, flanger, phaser, vibrato) that it moves between
 // over time. Every Sweep Rate step it glides to the next effect in the pattern (Back & Forth: 1 2 3 2 1...,
@@ -36,4 +36,4 @@ enum ModSweeperParam {
 enum class SweeperEffect { Chorus, Flanger, Phaser, Vibrato };
 enum class SweeperPattern { BackAndForth, Cycle };
 
-} // namespace namsayin
+} // namespace xythos

@@ -12,7 +12,7 @@
 #include <array>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -774,4 +774,4 @@ const BlockDescriptor kPianoBlockDescriptor = {
     true,
 };
 
-} // namespace namsayin
+} // namespace xythos

@@ -7,7 +7,7 @@
 
 #include <cstring>
 
-namespace namsayin {
+namespace xythos {
 
 bool isWebp(const unsigned char* data, size_t size)
 {
@@ -31,4 +31,4 @@ bool decodeWebp(const unsigned char* data, size_t size, RgbaImage& out)
     return true;
 }
 
-} // namespace namsayin
+} // namespace xythos

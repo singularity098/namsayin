@@ -5,9 +5,9 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
-// MIDI Out: turns your playing into MIDI notes for a synth plugin after NAMsayin (in Reaper, the next plugin in the
+// MIDI Out: turns your playing into MIDI notes for a synth plugin after Xythos (in Reaper, the next plugin in the
 // FX chain). Mono follows single notes (dsp/NoteTracker.hpp): a note on at each note's start, at a velocity from
 // how hard it was picked (Dynamics), a note off when it ends, and pitch bend for bends and vibrato (Bend: the range
 // the synth is set to; Off sends plain notes). Poly finds the notes of chords (dsp/PolyNoteFinder.hpp: Focus and
@@ -33,4 +33,4 @@ enum MidiOutParam {
 // The MIDI velocity for a level (the input's peak at the pick), with Dynamics 0..1: 0 sends 100 for every note
 int midiVelocity(float level, float dynamics);
 
-} // namespace namsayin
+} // namespace xythos

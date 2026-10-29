@@ -7,7 +7,7 @@
 
 #include <nlohmann/json.hpp>
 
-namespace namsayin {
+namespace xythos {
 
 using nlohmann::json;
 
@@ -163,4 +163,4 @@ void UpdateChecker::stop()
     fThread.join();
 }
 
-} // namespace namsayin
+} // namespace xythos

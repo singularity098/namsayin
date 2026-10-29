@@ -3,9 +3,9 @@
 
 #pragma once
 
-namespace namsayin {
+namespace xythos {
 
 // Opens a web page in the default browser (xdg-open on Linux, ShellExecute on Windows)
 void openUrl(const char* url);
 
-} // namespace namsayin
+} // namespace xythos

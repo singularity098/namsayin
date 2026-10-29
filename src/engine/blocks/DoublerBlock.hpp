@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Doubler: one or two extra "takes" of the part, made from short delays whose time drifts randomly (slightly off
 // in time and pitch, like a second performance). In stereo they're panned out by Width; best after the amp and
@@ -22,4 +22,4 @@ enum DoublerParam {
     kDoublerParamCount
 };
 
-} // namespace namsayin
+} // namespace xythos

@@ -9,7 +9,7 @@
 #include <cmath>
 #include <vector>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -235,4 +235,4 @@ const BlockDescriptor kLooperBlockDescriptor = {
     MeterStyle::Looper,
 };
 
-} // namespace namsayin
+} // namespace xythos

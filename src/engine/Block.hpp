@@ -13,7 +13,7 @@
 #include <cstdint>
 #include <memory>
 
-namespace namsayin {
+namespace xythos {
 
 // Add Block dialog categories, in display order
 enum class Category {
@@ -161,4 +161,4 @@ struct BlockDescriptor {
     bool stereo = false;
 };
 
-} // namespace namsayin
+} // namespace xythos

@@ -14,7 +14,7 @@
 #include <cmath>
 #include <vector>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -534,4 +534,4 @@ const BlockDescriptor kBeatRepeatBlockDescriptor = {
     false,
 };
 
-} // namespace namsayin
+} // namespace xythos

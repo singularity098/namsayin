@@ -5,7 +5,7 @@
 
 #include <cstdint>
 
-namespace namsayin {
+namespace xythos {
 
 constexpr int kMaxBlocks = 32;
 constexpr int kParamsPerSlot = 16;
@@ -158,4 +158,4 @@ struct GlobalParamSpec {
 // Spec for any parameter that isn't a slot parameter (globals and later parameters)
 const GlobalParamSpec& globalParamSpec(uint32_t index);
 
-} // namespace namsayin
+} // namespace xythos

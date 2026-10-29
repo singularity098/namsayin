@@ -6,7 +6,7 @@
 
 #include "FontData.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 const unsigned char kUiFontLight[] = {
     0, 1, 0, 0, 0, 16, 1, 0, 0, 4, 0, 0, 71, 68, 69, 70, 2, 39, 3, 237,
@@ -6123,4 +6123,4 @@ const unsigned char kUiFontRegular[] = {
 };
 const unsigned int kUiFontRegularSize = sizeof(kUiFontRegular);
 
-} // namespace namsayin
+} // namespace xythos

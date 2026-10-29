@@ -10,7 +10,7 @@
 #include <string_view>
 #include <vector>
 
-namespace namsayin {
+namespace xythos {
 
 // Global per-user settings and favorites, shared by every plugin instance: one JSON file in configDir().
 // Every open UI reloads it when it changes on disk.
@@ -45,4 +45,4 @@ struct Settings {
     bool operator==(const Settings&) const = default;
 };
 
-} // namespace namsayin
+} // namespace xythos

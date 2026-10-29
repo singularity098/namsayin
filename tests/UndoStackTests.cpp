@@ -5,7 +5,7 @@
 
 #include "state/UndoStack.hpp"
 
-using namespace namsayin;
+using namespace xythos;
 
 namespace {
 

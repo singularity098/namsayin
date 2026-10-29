@@ -12,7 +12,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -161,4 +161,4 @@ const BlockDescriptor kWarbleBlockDescriptor = {
     [] { return std::unique_ptr<Block>(new WarbleBlock()); },
 };
 
-} // namespace namsayin
+} // namespace xythos

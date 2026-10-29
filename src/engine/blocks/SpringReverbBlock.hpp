@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Spring reverb: two springs, each a feedback loop with a long chain of stretched allpass filters that delays
 // low frequencies more than high ones (dispersion), which gives the spring's "drip" and chirp. Based on Välimäki,
@@ -24,4 +24,4 @@ enum SpringParam {
     kSpringParamCount
 };
 
-} // namespace namsayin
+} // namespace xythos

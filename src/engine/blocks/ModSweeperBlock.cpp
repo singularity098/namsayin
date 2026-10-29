@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -362,4 +362,4 @@ const BlockDescriptor kModSweeperBlockDescriptor = {
     true,
 };
 
-} // namespace namsayin
+} // namespace xythos

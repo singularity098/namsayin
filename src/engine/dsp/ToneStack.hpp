@@ -10,7 +10,7 @@
 #include <cmath>
 #include <cstdint>
 
-namespace namsayin {
+namespace xythos {
 
 // Bass / Middle / Treble EQ: the global one at the end of the chain, and each NAM block's. At 0 dB on all three it is
 // bypassed exactly.
@@ -117,4 +117,4 @@ private:
     bool fDirty = true;
 };
 
-} // namespace namsayin
+} // namespace xythos

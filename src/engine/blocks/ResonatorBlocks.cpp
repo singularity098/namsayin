@@ -13,7 +13,7 @@
 #include <array>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -302,4 +302,4 @@ const BlockDescriptor kJawariBlockDescriptor = {
     [] { return std::unique_ptr<Block>(new JawariBlock()); },
 };
 
-} // namespace namsayin
+} // namespace xythos

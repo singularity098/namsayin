@@ -12,7 +12,7 @@
 #include <cmath>
 #include <cstdint>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -390,4 +390,4 @@ const BlockDescriptor kRobotFilterBlockDescriptor = {
     true,
 };
 
-} // namespace namsayin
+} // namespace xythos

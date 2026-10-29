@@ -7,7 +7,7 @@
 #include <cmath>
 #include <limits>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -342,4 +342,4 @@ void Metronome::render(float* out, uint32_t from, uint32_t to)
     }
 }
 
-} // namespace namsayin
+} // namespace xythos

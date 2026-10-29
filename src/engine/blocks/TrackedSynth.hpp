@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 // What the synths share: the note tracker (TrackedInput: Track From, the Pick Filter and Lookahead) with glide and
 // the octave, and an amplitude that follows your playing with Attack and Release. A synth renders one stereo sample
@@ -161,4 +161,4 @@ private:
     bool fSnap = true;
 };
 
-} // namespace namsayin
+} // namespace xythos

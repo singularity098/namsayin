@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Filter: a resonant low-pass, band-pass, high-pass or notch, swept by an LFO (sine, triangle, saws, square, or
 // random steps for a sample-and-hold "step filter"). Tempo sync. No config.
@@ -41,4 +41,4 @@ enum RobotFilterParam {
     kRobotParamCount
 };
 
-} // namespace namsayin
+} // namespace xythos

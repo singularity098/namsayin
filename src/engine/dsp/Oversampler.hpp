@@ -7,7 +7,7 @@
 #include <cmath>
 #include <cstdint>
 
-namespace namsayin {
+namespace xythos {
 
 // Polyphase IIR half-band filters (two parallel chains of first-order allpasses, as in Laurent de Soras' HIIR),
 // used to run nonlinear stages at 2x or 4x the sample rate. They're minimum-phase-like IIR filters: a few samples of
@@ -150,4 +150,4 @@ private:
     halfband::Chains<kLight> fUp2, fDown2;
 };
 
-} // namespace namsayin
+} // namespace xythos

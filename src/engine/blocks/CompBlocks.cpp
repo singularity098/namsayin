@@ -13,7 +13,7 @@
 #include <array>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -748,4 +748,4 @@ const BlockDescriptor kSquashCompBlockDescriptor = {
     36.0f,
 };
 
-} // namespace namsayin
+} // namespace xythos

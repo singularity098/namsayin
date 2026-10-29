@@ -13,7 +13,7 @@
 #include <array>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -218,4 +218,4 @@ const BlockDescriptor kSpringReverbBlockDescriptor = {
     [] { return std::unique_ptr<Block>(new SpringReverbBlock()); },
 };
 
-} // namespace namsayin
+} // namespace xythos

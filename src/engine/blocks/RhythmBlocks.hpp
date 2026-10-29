@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Slicer: a step sequencer for volume. Each step plays at its own level, one step per Time; Steps sets how many of
 // the eight are used before the pattern starts again. Tempo sync locks the steps to the beat. No config.
@@ -46,4 +46,4 @@ enum KillSwitchParam {
     kKillParamCount
 };
 
-} // namespace namsayin
+} // namespace xythos

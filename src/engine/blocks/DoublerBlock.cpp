@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -179,4 +179,4 @@ const BlockDescriptor kDoublerBlockDescriptor = {
     [] { return std::unique_ptr<Block>(new DoublerBlock()); },
 };
 
-} // namespace namsayin
+} // namespace xythos

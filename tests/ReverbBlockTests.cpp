@@ -9,7 +9,7 @@
 #include <cmath>
 #include <vector>
 
-using namespace namsayin;
+using namespace xythos;
 
 namespace {
 

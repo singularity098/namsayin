@@ -13,16 +13,16 @@
 #include <string_view>
 #include <vector>
 
-namespace namsayin {
+namespace xythos {
 
 // A preset: the chain (blocks, values, MIDI map) plus the global controls that belong to a sound.
 //
-// File (.namsayin): a zip with preset.json and, when saved with "embed files", every file the chain uses
+// File (.xythos): a zip with preset.json and, when saved with "embed files", every file the chain uses
 // (NAM models and IRs) under files/<content hash>/<file name>, and the user's own block images it uses under
 // images/<amps|cabs|pedals>/<id>, so it can be shared.
 struct Preset {
     static constexpr int kVersion = 1;
-    static constexpr const char* kExtension = ".namsayin";
+    static constexpr const char* kExtension = ".xythos";
 
     ChainState chain;
     std::map<std::string, float> globals; // by parameter symbol (see presetGlobalParams)
@@ -82,4 +82,4 @@ bool deletePreset(const std::filesystem::path& dir, const std::string& path);
 // Whether `path` is somewhere inside `dir`
 bool isInsideDir(const std::filesystem::path& dir, const std::filesystem::path& path);
 
-} // namespace namsayin
+} // namespace xythos

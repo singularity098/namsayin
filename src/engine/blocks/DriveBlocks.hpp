@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // The drive pedals. Each runs its clipping at 4x the sample rate (zero-latency IIR oversampling) to keep aliasing
 // down; filters around it run at the normal rate. No config.
@@ -94,4 +94,4 @@ enum GatedFuzzParam {
     kGatedFuzzParamCount
 };
 
-} // namespace namsayin
+} // namespace xythos

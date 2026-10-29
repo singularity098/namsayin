@@ -10,7 +10,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -418,4 +418,4 @@ const BlockDescriptor kReverbBlockDescriptor = {
     [] { return std::unique_ptr<Block>(new ReverbBlock()); },
 };
 
-} // namespace namsayin
+} // namespace xythos

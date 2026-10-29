@@ -6,6 +6,7 @@
 
 #include "BlockGlyphs.hpp"
 #include "BackgroundImage.hpp"
+#include "LogoImage.hpp"
 #include "BlockImages.hpp"
 #include "WebpImage.hpp"
 #include "FileLooks.hpp"
@@ -54,7 +55,7 @@
 
 START_NAMESPACE_DISTRHO
 
-using namespace namsayin;
+using namespace xythos;
 
 namespace {
 
@@ -123,7 +124,7 @@ enum class Led { None, Off, On };
 // Kinds of box, for surface(): each has its own outline brightness
 enum class Surface { Bar, Panel, Tile, Button, Dialog, Inset, Item, Popup, PopupItem };
 
-constexpr float kTopBarHeight = 60.0f;
+constexpr float kTopBarHeight = 80.0f; // room for the big logo (owner, 2026-10-29; was 60 with the text logo)
 constexpr float kFontScale = 1.69f; // text is drawn this much larger than layout sizes (see fontSize())
 constexpr float kBottomBarHeight = 132.0f;
 constexpr float kTileSize = 120.0f;
@@ -325,7 +326,7 @@ struct ChainLayout {
 };
 
 constexpr const char* kFretboredUrl = "https://singularity098.github.io/fretbored/";
-constexpr const char* kGitHubUrl = "https://github.com/singularity098/namsayin";
+constexpr const char* kGitHubUrl = "https://github.com/singularity098/xythos";
 constexpr double kTapTimeout = 2.0; // seconds between taps before tap tempo starts over
 constexpr int kNoteValues[4] = { 2, 4, 8, 16 };
 
@@ -565,10 +566,10 @@ std::vector<AddItem> addItems(Category category)
 
 } // namespace
 
-class NAMsayinUI : public UI
+class XythosUI : public UI
 {
 public:
-    NAMsayinUI()
+    XythosUI()
         : UI(DISTRHO_UI_DEFAULT_WIDTH, DISTRHO_UI_DEFAULT_HEIGHT)
     {
         loadSharedResources();
@@ -596,7 +597,7 @@ public:
         fUpdateCacheTime = fileTime(UpdateCache::defaultPath());
 
         const double scaleFactor = getScaleFactor();
-        setGeometryConstraints(NAMSAYIN_UI_MIN_WIDTH * scaleFactor, NAMSAYIN_UI_MIN_HEIGHT * scaleFactor, false);
+        setGeometryConstraints(XYTHOS_UI_MIN_WIDTH * scaleFactor, XYTHOS_UI_MIN_HEIGHT * scaleFactor, false);
         if (d_isNotEqual(scaleFactor, 1.0))
             setSize(DISTRHO_UI_DEFAULT_WIDTH * scaleFactor, DISTRHO_UI_DEFAULT_HEIGHT * scaleFactor);
     }
@@ -2537,7 +2538,7 @@ private:
             openDialog(Dialog::Presets);
             break;
         case MenuAction::PresetOpen:
-            browse(BrowseTarget::OpenPreset, "Open a NAMsayin preset (.namsayin)", presetDir());
+            browse(BrowseTarget::OpenPreset, "Open a Xythos preset (.xythos)", presetDir());
             break;
         case MenuAction::PresetSave:
             // presets opened from elsewhere are saved into the preset folder with Save As
@@ -2651,7 +2652,7 @@ private:
         const bool foldersChanged = settings.namDir != fSettings.namDir || settings.irDir != fSettings.irDir;
         fSettings = settings;
         if (!fSettings.save())
-            d_stderr2("NAMsayin: can't save settings to %s", pathToUtf8(Settings::defaultPath()).c_str());
+            d_stderr2("Xythos: can't save settings to %s", pathToUtf8(Settings::defaultPath()).c_str());
         fSettingsTime = fileTime(Settings::defaultPath());
         applySettings();
         if (foldersChanged)
@@ -2821,7 +2822,7 @@ private:
                 loadImage(*it->second, reinterpret_cast<const uchar*>(bytes->data()), static_cast<uint>(bytes->size()));
             // DPF's image decoder is an older stb_image: 8-bit PNG and JPEG work, 16-bit PNG doesn't
             if (!it->second->isValid())
-                d_stderr2("NAMsayin: can't load image %s (use an 8-bit PNG, a JPEG or a WebP)", path.c_str());
+                d_stderr2("Xythos: can't load image %s (use an 8-bit PNG, a JPEG or a WebP)", path.c_str());
         }
         return it->second->isValid() ? it->second.get() : nullptr;
     }
@@ -3202,7 +3203,7 @@ private:
             load(fRimKnobColour, rimKnobColourImage());
         }
         const bool rimmed = rim.lit() && fRimKnob.isValid() && fRimKnobPointer.isValid() && fRimKnobColour.isValid();
-        constexpr float kSheenStrength = 0.2f;
+        constexpr float kSheenStrength = 0.06f; // dim, to suit the dark room (owner, 2026-10-29; was 0.2)
         const float drop = r * 0.08f;
         beginPath();
         circle(cx, cy + drop, r * 1.25f);
@@ -3355,7 +3356,7 @@ private:
     void sendChain()
     {
         const std::string json = fChain.toJson();
-#ifndef NAMSAYIN_TEST_NO_STATE_MESSAGE // test builds only: behave like a host that drops state messages
+#ifndef XYTHOS_TEST_NO_STATE_MESSAGE // test builds only: behave like a host that drops state messages
         setState("chain", json.c_str());
 #endif
 
@@ -3893,7 +3894,7 @@ private:
                      "highlight colour, and the daily check for a new version." };
         case Hit::UpdateOpen:
             return { "New Version",
-                     "A newer version of NAMsayin has been released. Click to open its release page in your web "
+                     "A newer version of Xythos has been released. Click to open its release page in your web "
                      "browser, where you can read what's new and download it. Close your DAW before installing. "
                      "Your presets and projects keep working." };
         case Hit::UpdateDismiss:
@@ -3902,12 +3903,12 @@ private:
                      "Check for updates in the settings." };
         case Hit::SettingsUpdates:
             return { "Check for Updates",
-                     "Once a day, NAMsayin asks GitHub for the version number of its latest release and shows a "
+                     "Once a day, Xythos asks GitHub for the version number of its latest release and shows a "
                      "notice in the top bar when there's a newer one. Nothing else is sent, and nothing is "
                      "downloaded or installed. Turn it off to never contact the internet." };
         case Hit::GitHub:
-            return { "NAMsayin on GitHub",
-                     "Opens NAMsayin's page on GitHub in your web browser: the source code, new releases, and the "
+            return { "Xythos on GitHub",
+                     "Opens Xythos's page on GitHub in your web browser: the source code, new releases, and the "
                      "place to report a bug or suggest a feature." };
         case Hit::Fretbored:
             return { "Fretbored",
@@ -3931,7 +3932,7 @@ private:
         return fDragParam >= 0 || fPressTile >= 0;
     }
 
-    // Frame-rate readout (NAMSAYIN_SHOW_FPS=1 in the host's environment), to see how often the host lets the UI run
+    // Frame-rate readout (XYTHOS_SHOW_FPS=1 in the host's environment), to see how often the host lets the UI run
     // and redraw: idle ticks and frames per second, the longest gap between frames, and the CPU time of a draw
     void drawFps(std::chrono::steady_clock::time_point drawStart)
     {
@@ -4642,13 +4643,11 @@ private:
     void drawTopBar()
     {
         surface(0, 0, fWidth, kTopBarHeight, 0.0f, Surface::Bar);
-        fontSize(24.0f); // the logo: large Jost Light
-        fillColor(theme::text);
-        textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
-        const float logoRight = text(16.0f, kTopBarHeight / 2, "NAMsayin", nullptr);
+        // the logo at full size from ~1000 px wide; narrower windows shrink it so the links still fit (see below)
+        const float logoRight = drawLogo(10.0f, kTopBarHeight / 2, fWidth - 682.0f);
 
         // preset menu with the preset's name (• when changed since it was saved or opened)
-        constexpr float by = 12.0f, bh = 36.0f;
+        constexpr float bh = 36.0f, by = (kTopBarHeight - bh) / 2;
         const std::string preset = presetName() + (presetModified() ? " •" : "");
         // narrower on a small window, so the icon buttons on the right (316 px with both links) still fit
         const float presetWidth = std::clamp(fWidth - 316.0f - 12.0f - (logoRight + 28.0f) - 8.0f - 158.0f, 160.0f,
@@ -4710,13 +4709,42 @@ private:
             drawIconButton(github, Icon::GitHub, false, Hit::GitHub, 0);
     }
 
-    // "NAMsayin 1.2.0 is out" (shorter when space is tight) and a ×, between x and maxX; returns where it ends
+    // The logo (LogoImage.cpp: the crop circle and the wordmark, with their glow), its left edge at x and centred on
+    // y, ending by maxRight if it can (down to 70% of its size); returns where it ends. Its image has room around it
+    // for the glow, so it's drawn a little past the bar's padding.
+    float drawLogo(float x, float y, float maxRight)
+    {
+        constexpr float kLogoHeight = 76.0f; // the image's height, glow included: letters 36 px high, crop circle 54 across
+        if (!fLogoTried)
+        {
+            fLogoTried = true;
+            loadImage(fLogo, kLogoImage, kLogoImageSize);
+        }
+        const Size<uint> size = fLogo.getSize();
+        if (!fLogo.isValid() || size.getHeight() == 0)
+        {
+            fontSize(24.0f);
+            fillColor(theme::text);
+            textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
+            return text(x + 6.0f, y, "Xythos", nullptr);
+        }
+        const float aspect = static_cast<float>(size.getWidth()) / size.getHeight();
+        const float h = std::clamp((maxRight - x) / (aspect - 0.06f), kLogoHeight * 0.7f, kLogoHeight);
+        const float w = h * aspect, top = y - h / 2;
+        beginPath();
+        rect(x, top, w, h);
+        fillPaint(imagePattern(x, top, w, h, 0.0f, fLogo, 1.0f));
+        fill();
+        return x + w - h * 0.06f; // less the glow's margin on the right
+    }
+
+    // "Xythos 1.2.0 is out" (shorter when space is tight) and a ×, between x and maxX; returns where it ends
     float drawUpdateBanner(float x, float maxX, float y, float h, const std::string& version)
     {
         constexpr float closeW = 30.0f;
         fontSize(13.0f);
         Rectangle<float> bounds;
-        std::string text = "NAMsayin " + version + " is out";
+        std::string text = "Xythos " + version + " is out";
         float textW = textBounds(0, 0, text.c_str(), nullptr, bounds);
         if (x + textW + 24.0f + closeW > maxX)
         {
@@ -6838,7 +6866,7 @@ private:
         restore();
 
         label(x + 20.0f, y + h - 20.0f,
-              "Click a preset to load it. The Default preset loads when you add NAMsayin to a track. "
+              "Click a preset to load it. The Default preset loads when you add Xythos to a track. "
               "Delete asks again before it deletes.",
               theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
     }
@@ -7137,9 +7165,9 @@ private:
     int fHelpKind = -1;
     uintptr_t fVsyncDrawable = 0;
 
-    // frame-rate readout (NAMSAYIN_SHOW_FPS)
+    // frame-rate readout (XYTHOS_SHOW_FPS)
     const bool fShowFps = [] {
-        const char* value = std::getenv("NAMSAYIN_SHOW_FPS");
+        const char* value = std::getenv("XYTHOS_SHOW_FPS");
         return value != nullptr && value[0] != '\0' && value[0] != '0';
     }();
     int fIdleCount = 0;
@@ -7162,6 +7190,8 @@ private:
     bool fDefaultPending = false; // the default preset may still be loaded (a new instance)
     NanoImage fBackground;
     bool fBackgroundTried = false;
+    NanoImage fLogo;
+    bool fLogoTried = false;
     bool fDimControls = false; // drawing a bypassed block's controls (dimmed())
     std::vector<int> fNamToneSlots; // the host's chain had NAM blocks without tone controls (slots): send flat ones
     std::chrono::steady_clock::time_point fOpenedAt = std::chrono::steady_clock::now();
@@ -7192,12 +7222,12 @@ private:
     std::chrono::steady_clock::time_point fChainChangedAt = std::chrono::steady_clock::now();
     bool fStatusPending = true;
 
-    DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NAMsayinUI)
+    DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(XythosUI)
 };
 
 UI* createUI()
 {
-    return new NAMsayinUI();
+    return new XythosUI();
 }
 
 END_NAMESPACE_DISTRHO

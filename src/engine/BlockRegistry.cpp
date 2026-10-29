@@ -48,7 +48,7 @@
 #include "engine/blocks/WahBlocks.hpp"
 #include "engine/blocks/WarbleBlock.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 const char* categoryName(Category category)
 {
@@ -191,4 +191,4 @@ const BlockDescriptor* BlockRegistry::find(std::string_view typeId) const
     return nullptr;
 }
 
-} // namespace namsayin
+} // namespace xythos

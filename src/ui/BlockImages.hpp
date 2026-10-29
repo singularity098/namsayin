@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace namsayin {
+namespace xythos {
 
 struct BuiltinImage
 {
@@ -26,4 +26,4 @@ BuiltinImage builtinCabImage(const char* id);
 BuiltinImage builtinCabThumb(const char* id);
 const std::vector<std::string>& builtinCabIds();
 
-} // namespace namsayin
+} // namespace xythos

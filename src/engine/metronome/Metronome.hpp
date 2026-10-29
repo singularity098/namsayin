@@ -7,7 +7,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace namsayin {
+namespace xythos {
 
 enum class MetroSubdivision {
     Quarter,      // no subdivision
@@ -142,4 +142,4 @@ private:
     double fLastSyncBeat = 0.0;
 };
 
-} // namespace namsayin
+} // namespace xythos

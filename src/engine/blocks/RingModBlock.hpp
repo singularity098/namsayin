@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Ring modulator: the signal times a carrier (sine or square), giving sum and difference tones: bells, robots and
 // clangs. An LFO can sweep the carrier's frequency. No config.
@@ -20,4 +20,4 @@ enum RingModParam {
     kRingParamCount
 };
 
-} // namespace namsayin
+} // namespace xythos

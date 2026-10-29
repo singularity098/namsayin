@@ -20,7 +20,7 @@
 #include <functional>
 #include <string>
 
-using namespace namsayin;
+using namespace xythos;
 
 namespace {
 
@@ -73,7 +73,7 @@ Tracker noteTracker(float pickMs, double lookaheadMs, bool rig)
         const std::vector<float>& x = rig ? *in.rig : *in.block;
         out.resize(x.size());
         static const char* const kReasons[] = { "none", "pick", "mute", "gate", "unclear", "other pitch" };
-        const bool debug = std::getenv("NAMSAYIN_TRACKING_ENDS") != nullptr;
+        const bool debug = std::getenv("XYTHOS_TRACKING_ENDS") != nullptr;
         for (size_t t = 0; t < out.size(); ++t)
         {
             const bool was = t > 0 && out[t - 1].on;
@@ -137,7 +137,7 @@ Score score(const guitar::Performance& p, const std::vector<Played>& out, size_t
                     if (!played(u).on)
                     {
                         s.dropoutMs += 1000.0 / guitar::kRate;
-                        if (gap++ == 0 && std::getenv("NAMSAYIN_TRACKING_DEBUG"))
+                        if (gap++ == 0 && std::getenv("XYTHOS_TRACKING_DEBUG"))
                             std::printf("    dropout in %.1f at %.3f s (level %.4f)\n", note.midi, u / guitar::kRate,
                                         played(u).level);
                     }
@@ -152,7 +152,7 @@ Score score(const guitar::Performance& p, const std::vector<Played>& out, size_t
         if (!found)
         {
             ++s.missed;
-            if (std::getenv("NAMSAYIN_TRACKING_DEBUG"))
+            if (std::getenv("XYTHOS_TRACKING_DEBUG"))
                 std::printf("    missed %.1f at %.3f s\n", note.midi, note.start);
         }
     }
@@ -164,7 +164,7 @@ Score score(const guitar::Performance& p, const std::vector<Played>& out, size_t
     }
 
     // wrong and phantom stretches: at least 3 ms long, gaps under 5 ms joined
-    const bool debug = std::getenv("NAMSAYIN_TRACKING_DEBUG") != nullptr;
+    const bool debug = std::getenv("XYTHOS_TRACKING_DEBUG") != nullptr;
     auto midiOf = [](double hz) { return hz > 0.0 ? 69.0 + 12.0 * std::log2(hz / 440.0) : 0.0; };
     auto report = [&](size_t begin, size_t end, int& count) {
         ++count;
@@ -292,7 +292,7 @@ std::vector<Score> bench(const char* name, const Tracker& tracker, bool amped, b
 
 } // namespace
 
-TEST_CASE("tracking benchmark" * doctest::skip(std::getenv("NAMSAYIN_TRACKING_BENCH") == nullptr))
+TEST_CASE("tracking benchmark" * doctest::skip(std::getenv("XYTHOS_TRACKING_BENCH") == nullptr))
 {
     bench("legacy, pick filter off", legacyTracker(0.0f), false, false);
     bench("legacy, pick filter 15 ms", legacyTracker(15.0f), false, false);
@@ -308,7 +308,7 @@ TEST_CASE("tracking benchmark" * doctest::skip(std::getenv("NAMSAYIN_TRACKING_BE
     bench("note tracker, bass, lookahead 15 ms", noteTracker(0.0f, 15.0, false), false, false, true, bassScenes());
 }
 
-TEST_CASE("tracking debug" * doctest::skip(std::getenv("NAMSAYIN_TRACKING_DEBUG") == nullptr))
+TEST_CASE("tracking debug" * doctest::skip(std::getenv("XYTHOS_TRACKING_DEBUG") == nullptr))
 {
     bench("note tracker", noteTracker(0.0f, 0.0, false), false, false);
     bench("note tracker", noteTracker(0.0f, 0.0, false), true, false);

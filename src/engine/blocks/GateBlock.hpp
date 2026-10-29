@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Noise gate: a hard gate or a downward expander, with hold, hysteresis and a choice of what it listens to: its
 // own input, or the rig input (the guitar before the chain), so a gate after a high-gain amp can follow the clean
@@ -27,4 +27,4 @@ enum GateParam {
 enum class GateType { Gate, Expander };
 enum class GateKey { Block, Rig };
 
-} // namespace namsayin
+} // namespace xythos

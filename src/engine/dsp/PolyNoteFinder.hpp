@@ -13,7 +13,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace namsayin {
+namespace xythos {
 
 // Finds the notes of chords (the Poly Chip and the MIDI Out's Poly mode): one band per semitone, B0..E6 (66 bands, each
 // two SVF band-passes in series at Q 8, widening to Q 5 over the octave below C3 so the low strings ring up faster, and
@@ -661,4 +661,4 @@ private:
     int fPicks = 0;
 };
 
-} // namespace namsayin
+} // namespace xythos

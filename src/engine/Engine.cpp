@@ -8,7 +8,7 @@
 #include <cstring>
 #include <unordered_set>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -792,4 +792,4 @@ void Engine::drainRetired()
         delete graph;
 }
 
-} // namespace namsayin
+} // namespace xythos

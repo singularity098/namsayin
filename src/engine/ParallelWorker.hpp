@@ -11,7 +11,7 @@
 #include <pthread.h>
 #endif
 
-namespace namsayin {
+namespace xythos {
 
 // A thread that runs one job at a time for the audio thread: branch B of a split runs here while the audio thread
 // runs branch A (docs/Architecture.md 4.4).
@@ -53,4 +53,4 @@ private:
 #endif
 };
 
-} // namespace namsayin
+} // namespace xythos

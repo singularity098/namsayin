@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -64,4 +64,4 @@ double rateNoteHz(int index, double bpm)
     return bpm / 60.0 / rateNoteBeats(index);
 }
 
-} // namespace namsayin
+} // namespace xythos

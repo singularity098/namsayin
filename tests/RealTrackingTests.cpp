@@ -4,8 +4,8 @@
 // The tracking benchmark on real playing: the owner's DI recordings (tests/recordings: chords, power chords, octaves,
 // a ringing arpeggio, a riff, palm-muted chugs, bends) against hand-made note lists (<clip>.notes). Decode them first
 // with tools/decode_recordings.sh (ffmpeg), then:
-//   NAMSAYIN_TRACKING_BENCH=1 ./build/namsayin-tests -tc="*real recordings*"
-// NAMSAYIN_TRACKING_DEBUG=1 lists each miss and stray note.
+//   XYTHOS_TRACKING_BENCH=1 ./build/xythos-tests -tc="*real recordings*"
+// XYTHOS_TRACKING_DEBUG=1 lists each miss and stray note.
 //
 // A .notes line is "start end notes" (seconds): a note listed is played and must sound (after a grace for its band
 // to ring up, scored as delay), ?X may sound or not (a doubling or harmonic the recording can't settle), A|B is one of
@@ -30,7 +30,7 @@
 #include <string>
 #include <vector>
 
-using namespace namsayin;
+using namespace xythos;
 
 namespace {
 
@@ -144,12 +144,12 @@ const std::vector<Clip>& clips()
 {
     static const std::vector<Clip> all = [] {
         std::vector<Clip> list;
-        const char* dir = std::getenv("NAMSAYIN_RECORDINGS");
-        const std::string wavs = dir ? dir : NAMSAYIN_RECORDINGS_WAV;
+        const char* dir = std::getenv("XYTHOS_RECORDINGS");
+        const std::string wavs = dir ? dir : XYTHOS_RECORDINGS_WAV;
         for (const char* name : { "open-g-chord", "open-d-chord", "power-chords", "octave-shapes", "ringing-arpeggio",
                                   "slow-riff", "chugging-riff", "string-bends" })
         {
-            Clip clip { name, {}, loadNotes(std::string(NAMSAYIN_RECORDINGS) + "/" + name + ".notes") };
+            Clip clip { name, {}, loadNotes(std::string(XYTHOS_RECORDINGS) + "/" + name + ".notes") };
             if (!loadWav(wavs + "/" + name + ".wav", clip.signal))
                 continue;
             list.push_back(std::move(clip));
@@ -393,7 +393,7 @@ RealTracker monoTracker(float pickMs, double lookaheadMs)
 
 std::vector<RealScore> realBench(const char* name, const RealTracker& tracker, bool mono, bool print = true)
 {
-    const bool debug = std::getenv("NAMSAYIN_TRACKING_DEBUG") != nullptr && print;
+    const bool debug = std::getenv("XYTHOS_TRACKING_DEBUG") != nullptr && print;
     if (print)
     {
         std::printf("\n%s\n", name);
@@ -440,7 +440,7 @@ std::vector<RealScore> realBench(const char* name, const RealTracker& tracker, b
 
 } // namespace
 
-TEST_CASE("tracking benchmark on real recordings" * doctest::skip(std::getenv("NAMSAYIN_TRACKING_BENCH") == nullptr))
+TEST_CASE("tracking benchmark on real recordings" * doctest::skip(std::getenv("XYTHOS_TRACKING_BENCH") == nullptr))
 {
     if (clips().empty())
     {

@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Talk box: three formant filters shape the guitar into vowels; Position moves through the chosen vowel path. It
 // follows the Position knob (an expression pedal through MIDI learn), your picking (Envelope) or an LFO. No config.
@@ -30,4 +30,4 @@ struct Formants {
 // The formants at `position` (0..1) along vowel path `path` (Vowels choice)
 Formants talkBoxFormants(int path, float position);
 
-} // namespace namsayin
+} // namespace xythos

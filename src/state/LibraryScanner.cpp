@@ -5,7 +5,7 @@
 
 #include "state/Paths.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -66,4 +66,4 @@ void LibraryScanner::stop()
     wait();
 }
 
-} // namespace namsayin
+} // namespace xythos

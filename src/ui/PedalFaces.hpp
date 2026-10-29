@@ -5,7 +5,7 @@
 
 #include <vector>
 
-namespace namsayin {
+namespace xythos {
 
 // Knobs drawn on a block's built-in image (resources/blocks/), each turning one of the block's parameters: the same
 // host parameter as its knob among the panel's controls, so turning either turns both. Positions are fractions of the
@@ -52,4 +52,4 @@ const PedalFace* pedalFace(const char* typeId);
 
 const std::vector<PedalFace>& pedalFaces();
 
-} // namespace namsayin
+} // namespace xythos

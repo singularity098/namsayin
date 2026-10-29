@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Bitcrusher / lo-fi: fewer bits (quantization grit) and a lower sample rate (aliasing, on purpose), then a
 // low-pass to tame it. No config.
@@ -19,4 +19,4 @@ enum BitcrusherParam {
     kCrushParamCount
 };
 
-} // namespace namsayin
+} // namespace xythos

@@ -9,7 +9,7 @@
 #include <string_view>
 #include <vector>
 
-namespace namsayin {
+namespace xythos {
 
 // Each NAM model and cab IR gets a look of its own in the placeholder art, picked from its file's path, so two amps
 // or two cabs side by side tell apart at a glance and a file looks the same wherever it appears (chain, library,
@@ -67,4 +67,4 @@ std::string_view cabSizeInName(std::string_view name);
 // are some, else among the 4x12s. An empty key (no file) gets the first 4x12. "" if `ids` is empty.
 std::string defaultCabImage(std::string_view key, std::string_view fileName, const std::vector<std::string>& ids);
 
-} // namespace namsayin
+} // namespace xythos

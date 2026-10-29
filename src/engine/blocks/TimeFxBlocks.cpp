@@ -13,7 +13,7 @@
 #include <array>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -557,4 +557,4 @@ const BlockDescriptor kPatternDelayBlockDescriptor = {
     false,
 };
 
-} // namespace namsayin
+} // namespace xythos

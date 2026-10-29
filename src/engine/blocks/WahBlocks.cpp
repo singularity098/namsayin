@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -262,4 +262,4 @@ const BlockDescriptor kAutoWahBlockDescriptor = {
     [] { return std::unique_ptr<Block>(new AutoWahBlock()); },
 };
 
-} // namespace namsayin
+} // namespace xythos

@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -164,4 +164,4 @@ const BlockDescriptor kCompressorBlockDescriptor = {
     "Reduction",
 };
 
-} // namespace namsayin
+} // namespace xythos

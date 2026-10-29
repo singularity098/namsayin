@@ -10,7 +10,7 @@
 #include <condition_variable>
 #include <filesystem>
 
-using namespace namsayin;
+using namespace xythos;
 
 namespace {
 
@@ -54,7 +54,7 @@ public:
 
 std::filesystem::path testCachePath()
 {
-    const auto dir = std::filesystem::temp_directory_path() / "namsayin-test-update";
+    const auto dir = std::filesystem::temp_directory_path() / "xythos-test-update";
     std::filesystem::remove_all(dir);
     return dir / "update-check.json";
 }

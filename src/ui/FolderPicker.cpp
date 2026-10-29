@@ -23,7 +23,7 @@
 extern char** environ;
 #endif
 
-namespace namsayin {
+namespace xythos {
 
 FolderPicker::~FolderPicker()
 {
@@ -502,4 +502,4 @@ void FolderPicker::run(std::string title, std::string startDir, uintptr_t window
 
 #endif
 
-} // namespace namsayin
+} // namespace xythos

@@ -12,7 +12,7 @@
 #include <array>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -378,4 +378,4 @@ const BlockDescriptor kSwarmBlockDescriptor = {
     [] { return std::unique_ptr<Block>(new SwarmBlock()); },
 };
 
-} // namespace namsayin
+} // namespace xythos

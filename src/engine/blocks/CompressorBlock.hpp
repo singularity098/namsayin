@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Studio-style feed-forward compressor: soft knee, stereo-linked peak detection, makeup gain and a parallel
 // (dry/wet) mix. Its meter() is the current gain reduction in dB (positive). No config.
@@ -25,4 +25,4 @@ enum CompressorParam {
 // Static gain curve: output level in dB for an input level in dB (no attack/release)
 float compressorCurve(float inputDb, float thresholdDb, float ratio, float kneeDb);
 
-} // namespace namsayin
+} // namespace xythos

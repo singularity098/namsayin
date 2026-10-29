@@ -7,7 +7,7 @@
 
 #include <nlohmann/json.hpp>
 
-namespace namsayin {
+namespace xythos {
 
 using nlohmann::json;
 
@@ -95,4 +95,4 @@ bool Settings::save(const std::filesystem::path& path) const
     return writeFileAtomic(path, toJson());
 }
 
-} // namespace namsayin
+} // namespace xythos

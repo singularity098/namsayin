@@ -7,7 +7,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace namsayin {
+namespace xythos {
 
 // Pitch detection with the McLeod Pitch Method (as in Fretbored), refined for sub-cent accuracy.
 //
@@ -62,4 +62,4 @@ private:
     std::vector<uint32_t> fBitReverse;
 };
 
-} // namespace namsayin
+} // namespace xythos

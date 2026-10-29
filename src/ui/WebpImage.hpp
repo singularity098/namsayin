@@ -7,7 +7,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace namsayin {
+namespace xythos {
 
 // A decoded image: 8-bit RGBA, rows top to bottom
 struct RgbaImage {
@@ -22,4 +22,4 @@ bool isWebp(const unsigned char* data, size_t size);
 // can check every embedded image decodes. False if it isn't one or is damaged.
 bool decodeWebp(const unsigned char* data, size_t size, RgbaImage& out);
 
-} // namespace namsayin
+} // namespace xythos

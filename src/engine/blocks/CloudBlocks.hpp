@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Grain Cloud: plays back short grains of the last couple of seconds of your playing, scattered in time (Spray),
 // some shifted in pitch (Pitch) and some backwards (Reverse), across the stereo field: single notes turn into a
@@ -44,4 +44,4 @@ enum SwarmParam {
     kSwarmParamCount
 };
 
-} // namespace namsayin
+} // namespace xythos

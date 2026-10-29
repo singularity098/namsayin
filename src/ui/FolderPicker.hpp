@@ -9,7 +9,7 @@
 #include <string>
 #include <thread>
 
-namespace namsayin {
+namespace xythos {
 
 // The system's folder picker, which DPF's file browser doesn't offer (it only picks files). It runs on its own
 // thread; the UI polls it from its idle callback. Linux: the desktop portal (org.freedesktop.portal.FileChooser),
@@ -51,4 +51,4 @@ private:
 #endif
 };
 
-} // namespace namsayin
+} // namespace xythos

@@ -5,7 +5,7 @@
 
 #include "ui/TextEdit.hpp"
 
-using namespace namsayin;
+using namespace xythos;
 
 namespace {
 

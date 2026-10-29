@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-using namespace namsayin;
+using namespace xythos;
 
 namespace {
 
@@ -83,7 +83,7 @@ TEST_CASE("pedal face LEDs sit inside their image")
 
 TEST_CASE("every pedal has an image with its knobs, power LED and footswitch")
 {
-    const std::filesystem::path images = NAMSAYIN_BLOCK_IMAGES;
+    const std::filesystem::path images = XYTHOS_BLOCK_IMAGES;
     for (const BlockDescriptor* type : BlockRegistry::builtin().types())
     {
         const std::string typeId = type->typeId;

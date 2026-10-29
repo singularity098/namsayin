@@ -10,7 +10,7 @@
 #include <array>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -300,4 +300,4 @@ const BlockDescriptor kMidiOutBlockDescriptor = {
     true,
 };
 
-} // namespace namsayin
+} // namespace xythos

@@ -29,7 +29,7 @@ lines = [
     "",
     '#include "FontData.hpp"',
     "",
-    "namespace namsayin {",
+    "namespace xythos {",
     "",
 ]
 for name, weight in WEIGHTS.items():
@@ -42,5 +42,5 @@ for name, weight in WEIGHTS.items():
         lines.append("    " + ", ".join(str(b) for b in data[i:i + 20]) + ",")
     lines += ["};", "const unsigned int %sSize = sizeof(%s);" % (name, name), ""]
     print("%s: Jost %d, %d bytes" % (name, weight, len(data)))
-lines += ["} // namespace namsayin", ""]
+lines += ["} // namespace xythos", ""]
 OUT.write_text("\n".join(lines))

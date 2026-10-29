@@ -14,7 +14,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -405,4 +405,4 @@ const BlockDescriptor kDuckingDelayBlockDescriptor = {
     30.0f,
 };
 
-} // namespace namsayin
+} // namespace xythos

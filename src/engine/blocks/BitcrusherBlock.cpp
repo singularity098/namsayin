@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -121,4 +121,4 @@ const BlockDescriptor kBitcrusherBlockDescriptor = {
     [] { return std::unique_ptr<Block>(new BitcrusherBlock()); },
 };
 
-} // namespace namsayin
+} // namespace xythos

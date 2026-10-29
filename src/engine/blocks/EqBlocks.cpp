@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -246,4 +246,4 @@ const BlockDescriptor kParametricEqBlockDescriptor = {
     [] { return std::unique_ptr<Block>(new ParametricEqBlock()); },
 };
 
-} // namespace namsayin
+} // namespace xythos

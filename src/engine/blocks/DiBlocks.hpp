@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // The DI category (owner, 2026-10-24): bass DI boxes and bass preamps, the box between a bass and the desk. Unlike
 // guitar amps they are a few stages each (a transformer, a tube or op-amp gain stage with its clipping, a tone stack,
@@ -79,4 +79,4 @@ enum BritishPreampParam {
 extern const BlockDescriptor kOptoDiBlockDescriptor;
 enum OptoDiParam { kOptoPeakReduction, kOptoGain, kOptoMix, kOptoBright, kOptoParamCount };
 
-} // namespace namsayin
+} // namespace xythos

@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -181,4 +181,4 @@ const BlockDescriptor kFlangerBlockDescriptor = {
     true,
 };
 
-} // namespace namsayin
+} // namespace xythos

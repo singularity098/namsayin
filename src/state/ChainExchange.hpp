@@ -7,7 +7,7 @@
 #include <optional>
 #include <string>
 
-namespace namsayin {
+namespace xythos {
 
 // A second route for the chain between UI and DSP, for hosts that don't deliver the UI's state messages to the
 // DSP (Reaper's LV2 hosting). The UI writes the chain to a per-instance file and bumps the Chain Revision parameter,
@@ -28,4 +28,4 @@ std::optional<std::string> readChainExchange(uint32_t instanceId);
 // Instance IDs and revisions travel as float parameters, so they stay below 2^24 (exact in a float)
 constexpr uint32_t kMaxExchangeValue = (1u << 24) - 1;
 
-} // namespace namsayin
+} // namespace xythos

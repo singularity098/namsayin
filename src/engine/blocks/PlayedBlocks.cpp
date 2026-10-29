@@ -15,7 +15,7 @@
 #include <array>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -666,4 +666,4 @@ const BlockDescriptor kDrumTriggerBlockDescriptor = {
     [] { return std::unique_ptr<Block>(new DrumTriggerBlock()); },
 };
 
-} // namespace namsayin
+} // namespace xythos

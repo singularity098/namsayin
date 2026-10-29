@@ -6,7 +6,7 @@
 #include <cmath>
 #include <cstdint>
 
-namespace namsayin {
+namespace xythos {
 
 // Zero-latency safety limiter on the output: instant attack (the output never exceeds the ceiling),
 // smooth release, stereo-linked.
@@ -50,4 +50,4 @@ private:
     float fGain = 1.0f;
 };
 
-} // namespace namsayin
+} // namespace xythos

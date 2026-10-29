@@ -10,7 +10,7 @@
 #include <map>
 #include <string>
 
-namespace namsayin {
+namespace xythos {
 
 bool Glyph::operator==(const Glyph& other) const
 {
@@ -914,4 +914,4 @@ const Glyph& categoryGlyph(Category category)
     return it->second;
 }
 
-} // namespace namsayin
+} // namespace xythos

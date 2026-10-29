@@ -12,7 +12,7 @@
 #include <thread>
 #include <vector>
 
-namespace namsayin {
+namespace xythos {
 
 // Scans the NAM and IR folders on a background thread, using and updating the index caches. The UI starts a
 // scan and polls for the result.
@@ -50,4 +50,4 @@ private:
     std::optional<Result> fResult;
 };
 
-} // namespace namsayin
+} // namespace xythos

@@ -33,7 +33,7 @@ public:
 // Test block: a gain (param 0, -24..24 dB) with optional latency and a configure() failure, set via config:
 // {"latency": samples, "fail": true}. Its meter() reports the host tempo it was given; sLastSongBeat the last song
 // position (-1 if none). sBreakNext breaks the next block to process: its state goes NaN, so it outputs NaN for good.
-class GainBlock : public namsayin::Block {
+class GainBlock : public xythos::Block {
 public:
     static inline int sCreated = 0;
     static inline double sLastSongBeat = -1.0;
@@ -90,17 +90,17 @@ private:
     size_t fPos = 0;
 };
 
-inline const namsayin::BlockDescriptor kGainDescriptor = {
+inline const xythos::BlockDescriptor kGainDescriptor = {
     "test.gain",
     "Test Gain",
-    namsayin::Category::Dynamics,
+    xythos::Category::Dynamics,
     1,
-    { namsayin::ParamSpec { "Gain", "dB", -24.0f, 24.0f, 0.0f, namsayin::ParamScale::Linear } },
-    [] { return std::unique_ptr<namsayin::Block>(new GainBlock()); },
+    { xythos::ParamSpec { "Gain", "dB", -24.0f, 24.0f, 0.0f, xythos::ParamScale::Linear } },
+    [] { return std::unique_ptr<xythos::Block>(new GainBlock()); },
 };
 
 // A stereo block (BlockDescriptor::stereo): flips the right channel's sign, so tests can see it ran in stereo
-class WidenBlock : public namsayin::Block {
+class WidenBlock : public xythos::Block {
 public:
     void prepare(double, uint32_t) override {}
     bool configure(const nlohmann::json&) override { return true; }
@@ -113,16 +113,16 @@ public:
     }
 };
 
-inline const namsayin::BlockDescriptor kWidenDescriptor = [] {
-    namsayin::BlockDescriptor type { "test.widen", "Test Widen", namsayin::Category::Dynamics, 0, {},
-                                     [] { return std::unique_ptr<namsayin::Block>(new WidenBlock()); } };
+inline const xythos::BlockDescriptor kWidenDescriptor = [] {
+    xythos::BlockDescriptor type { "test.widen", "Test Widen", xythos::Category::Dynamics, 0, {},
+                                     [] { return std::unique_ptr<xythos::Block>(new WidenBlock()); } };
     type.stereo = true;
     return type;
 }();
 
 // Processes `signal` (one vector per channel, 1 or 2, equal lengths) through a block in place, in buffers of
 // `bufferSize`. Adds the heap allocations made inside process() to `allocations`.
-inline void runBlock(namsayin::Block& block, std::vector<std::vector<float>>& signal, uint32_t bufferSize = 128,
+inline void runBlock(xythos::Block& block, std::vector<std::vector<float>>& signal, uint32_t bufferSize = 128,
                      int* allocations = nullptr)
 {
     const auto numChannels = static_cast<uint32_t>(signal.size());
@@ -139,10 +139,10 @@ inline void runBlock(namsayin::Block& block, std::vector<std::vector<float>>& si
 }
 
 // Sets every parameter of a freshly created block to its default
-inline std::unique_ptr<namsayin::Block> createWithDefaults(const namsayin::BlockDescriptor& type, double rate,
+inline std::unique_ptr<xythos::Block> createWithDefaults(const xythos::BlockDescriptor& type, double rate,
                                                            uint32_t maxFrames = 128)
 {
-    std::unique_ptr<namsayin::Block> block = type.create();
+    std::unique_ptr<xythos::Block> block = type.create();
     block->prepare(rate, maxFrames);
     block->configure(nlohmann::json::object());
     for (int p = 0; p < type.numParams; ++p)
@@ -167,9 +167,9 @@ inline void setEnv(const char* name, const std::string& value)
 #endif
 }
 
-inline const namsayin::BlockRegistry& testRegistry()
+inline const xythos::BlockRegistry& testRegistry()
 {
-    static const namsayin::BlockRegistry registry({ &kGainDescriptor, &kWidenDescriptor });
+    static const xythos::BlockRegistry registry({ &kGainDescriptor, &kWidenDescriptor });
     return registry;
 }
 

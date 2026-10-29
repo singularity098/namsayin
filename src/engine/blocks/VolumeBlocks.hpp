@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Volume pedal: map an expression pedal to Volume with MIDI learn. The audio taper feels even across the travel;
 // linear is there for swells that should come in late. No config.
@@ -32,4 +32,4 @@ enum SwellParam {
 // The audio taper: 0..1 travel to gain
 float volumeTaper(float travel);
 
-} // namespace namsayin
+} // namespace xythos

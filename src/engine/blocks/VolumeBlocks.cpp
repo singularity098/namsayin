@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -219,4 +219,4 @@ const BlockDescriptor kSwellBlockDescriptor = {
     [] { return std::unique_ptr<Block>(new SwellBlock()); },
 };
 
-} // namespace namsayin
+} // namespace xythos

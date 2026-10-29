@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Tremolo in six types: sine, triangle and square volume tremolo; opto (a square through a photocell's fast-on,
 // slow-off response, like a tube amp's tremolo); harmonic (lows and highs pulse in turns, like a brownface Fender);
@@ -23,4 +23,4 @@ enum TremoloParam {
 
 enum class TremoloType { Sine, Triangle, Square, Opto, Harmonic, Pan };
 
-} // namespace namsayin
+} // namespace xythos

@@ -10,7 +10,7 @@
 #include <memory>
 #include <vector>
 
-namespace namsayin {
+namespace xythos {
 
 // The tuner's analysis side (docs/Architecture.md 4.9). The audio thread copies the dry input into a lock-free
 // ring buffer with push(); analyze() runs on another thread and reads the latest audio from it.
@@ -49,4 +49,4 @@ private:
     std::vector<float> fSpan;
 };
 
-} // namespace namsayin
+} // namespace xythos

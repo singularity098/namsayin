@@ -3,11 +3,11 @@
 
 #pragma once
 
-namespace namsayin {
+namespace xythos {
 
 // The window background (WebP bytes, decodeWebp()). BackgroundImage.cpp is generated from resources/background/ by
 // tools/embed_background.py.
 extern const unsigned char kBackgroundImage[];
 extern const unsigned int kBackgroundImageSize;
 
-} // namespace namsayin
+} // namespace xythos

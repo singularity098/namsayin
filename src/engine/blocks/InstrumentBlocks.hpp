@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Instruments played from your notes (blocks/TrackedSynth.hpp: single notes, Track and Lookahead as in the synths).
 // Everything is synthesized in code.
@@ -93,4 +93,4 @@ enum PianoParam {
     kPianoParamCount
 };
 
-} // namespace namsayin
+} // namespace xythos

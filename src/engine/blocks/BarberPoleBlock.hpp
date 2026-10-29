@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Barber-pole phaser: a sweep that rises (or falls) forever. Three phasers sweep the same way, a third of a cycle
 // apart, each fading in at the bottom of its sweep and out at the top, like the stripes on a barber's pole. Tempo
@@ -23,4 +23,4 @@ enum BarberPoleParam {
     kBarberParamCount
 };
 
-} // namespace namsayin
+} // namespace xythos

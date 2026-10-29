@@ -17,7 +17,7 @@
 #include <set>
 #include <system_error>
 
-namespace namsayin {
+namespace xythos {
 
 using nlohmann::json;
 namespace fs = std::filesystem;
@@ -198,7 +198,7 @@ std::optional<LoadedPreset> loadPresetFile(const std::string& path,
     const std::optional<std::string> text = readLibraryFile(archive + kPresetEntry);
     if (!text)
     {
-        fail(error, "not a NAMsayin preset: " + path);
+        fail(error, "not a Xythos preset: " + path);
         return std::nullopt;
     }
     std::optional<Preset> preset = Preset::fromJson(*text, error);
@@ -381,4 +381,4 @@ bool isInsideDir(const fs::path& dir, const fs::path& path)
     return !ec && !relative.empty() && *relative.begin() != ".." && relative != ".";
 }
 
-} // namespace namsayin
+} // namespace xythos

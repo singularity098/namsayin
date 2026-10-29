@@ -1,10 +1,15 @@
-# NAMsayin
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="resources/logo/xythos.png">
+    <img src="resources/logo/xythos-light.png" alt="Xythos" width="460">
+  </picture>
+</h1>
 
 **A free, open source guitar rig plugin for Linux, Windows and macOS.** Load your [Neural Amp Modeler](https://github.com/sdatkinson/NeuralAmpModelerCore) captures and cab IRs, put them in a chain with over 60 built-in pedals, and play. VST3 and LV2, plus AU on macOS.
 
-![NAMsayin](docs/images/screenshot.png)
+![Xythos](docs/images/screenshot.png)
 
-> **Status: pre-release.** Everything below works and is tested, but v1.0 isn't out yet: there are no release downloads, so for now you build it yourself (it's easy, see [Building](#building)), or grab the latest build from the [Actions](https://github.com/singularity098/namsayin/actions) tab. Bug reports and ideas are welcome in [Issues](https://github.com/singularity098/namsayin/issues).
+> **Status: pre-release.** Everything below works and is tested, but v1.0 isn't out yet: there are no release downloads, so for now you build it yourself (it's easy, see [Building](#building)), or grab the latest build from the [Actions](https://github.com/singularity098/xythos/actions) tab. Bug reports and ideas are welcome in [Issues](https://github.com/singularity098/xythos/issues).
 
 ## Features
 
@@ -48,7 +53,7 @@ Delay times and modulation rates can sync to your DAW's tempo, and synced LFOs l
 - **Metronome**: 20–300 BPM, tap tempo, odd meters with beat grouping (7/8 as 2+2+3), per-beat accents, subdivisions including swing, tempo and gap trainers, and DAW sync. Sample-accurate.
 
 **Everything else**
-- Presets: save them into your own folders, set a default for new instances, and export a preset with its NAM files, IRs and images embedded to share it. If a file is missing when a preset loads, NAMsayin finds it in your library by its content.
+- Presets: save them into your own folders, set a default for new instances, and export a preset with its NAM files, IRs and images embedded to share it. If a file is missing when a preset loads, Xythos finds it in your library by its content.
 - Undo and redo (200 steps) for every chain edit and block setting.
 - Every block control can be automated in your DAW and mapped to MIDI (right-click → MIDI Learn). Automation and MIDI follow the block when you move it.
 - Hover over any knob, button or pedal for a plain-English explanation of what it does.
@@ -58,7 +63,7 @@ Delay times and modulation rates can sync to your DAW's tempo, and synced LFOs l
 
 - **Linux or Windows**, 64-bit x86, or **macOS 11** (Big Sur) or later, on Apple Silicon or Intel.
 - **On x86 (including Intel Macs), a CPU with AVX2 and FMA**: Intel Haswell (2013) or newer, AMD Excavator or Zen or newer.
-- **A DAW that hosts VST3, LV2 or (on macOS) AU plugins.** NAMsayin is mainly tested in [Reaper](https://www.reaper.fm/). In Reaper on Linux, the VST3 version redraws more smoothly than the LV2 one.
+- **A DAW that hosts VST3, LV2 or (on macOS) AU plugins.** Xythos is mainly tested in [Reaper](https://www.reaper.fm/). In Reaper on Linux, the VST3 version redraws more smoothly than the LV2 one.
 
 ## Installing
 
@@ -66,17 +71,17 @@ Copy the plugin bundles (built below, in `build/bin/`) to your plugin folders:
 
 | | VST3 | LV2 | AU |
 | --- | --- | --- | --- |
-| Linux | `~/.vst3/namsayin.vst3` | `~/.lv2/namsayin.lv2` | |
-| Windows | `C:\Program Files\Common Files\VST3\namsayin.vst3` | `%APPDATA%\LV2\namsayin.lv2` | |
-| macOS | `~/Library/Audio/Plug-Ins/VST3/namsayin.vst3` | `~/Library/Audio/Plug-Ins/LV2/namsayin.lv2` | `~/Library/Audio/Plug-Ins/Components/namsayin.component` |
+| Linux | `~/.vst3/xythos.vst3` | `~/.lv2/xythos.lv2` | |
+| Windows | `C:\Program Files\Common Files\VST3\xythos.vst3` | `%APPDATA%\LV2\xythos.lv2` | |
+| macOS | `~/Library/Audio/Plug-Ins/VST3/xythos.vst3` | `~/Library/Audio/Plug-Ins/LV2/xythos.lv2` | `~/Library/Audio/Plug-Ins/Components/xythos.component` |
 
-Then rescan plugins in your DAW and add **NAMsayin** to a track.
+Then rescan plugins in your DAW and add **Xythos** to a track.
 
 On macOS the plugins aren't signed with an Apple Developer ID yet, so after downloading them, clear the quarantine
 flag or macOS will refuse to load them:
 
 ```sh
-xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/*/namsayin.*
+xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/*/xythos.*
 ```
 
 ## Getting started
@@ -98,8 +103,8 @@ You need a C++20 compiler and CMake 3.24 or newer.
 ```sh
 sudo apt install build-essential cmake ninja-build git \
     libgl1-mesa-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev libdbus-1-dev
-git clone --recursive https://github.com/singularity098/namsayin
-cd namsayin
+git clone --recursive https://github.com/singularity098/xythos
+cd xythos
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
@@ -109,8 +114,8 @@ universal binary:
 
 ```sh
 brew install cmake ninja
-git clone --recursive https://github.com/singularity098/namsayin
-cd namsayin
+git clone --recursive https://github.com/singularity098/xythos
+cd xythos
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
@@ -118,13 +123,13 @@ cmake --build build
 **Windows** (Visual Studio 2022):
 
 ```sh
-git clone --recursive https://github.com/singularity098/namsayin
-cd namsayin
+git clone --recursive https://github.com/singularity098/xythos
+cd xythos
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
 ```
 
-The plugins are written to `build/bin/` (`namsayin.vst3` and `namsayin.lv2`, and `namsayin.component` on macOS). If you cloned without `--recursive`, run `git submodule update --init --recursive` first.
+The plugins are written to `build/bin/` (`xythos.vst3` and `xythos.lv2`, and `xythos.component` on macOS). If you cloned without `--recursive`, run `git submodule update --init --recursive` first.
 
 To run the tests: `ctest --test-dir build --output-on-failure`.
 
@@ -134,7 +139,7 @@ Bug reports, ideas and pull requests are welcome. For a larger change, open an i
 
 ## Credits
 
-NAMsayin is built on:
+Xythos is built on:
 
 - [NeuralAmpModelerCore](https://github.com/sdatkinson/NeuralAmpModelerCore) by Steven Atkinson (MIT), with [Eigen](https://eigen.tuxfamily.org/) and [nlohmann/json](https://github.com/nlohmann/json)
 - [DPF](https://github.com/DISTRHO/DPF), the DISTRHO Plugin Framework (ISC), with NanoVG

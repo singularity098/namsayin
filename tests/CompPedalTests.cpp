@@ -13,7 +13,7 @@
 #include <cstdio>
 #include <vector>
 
-using namespace namsayin;
+using namespace xythos;
 
 namespace {
 
@@ -296,8 +296,8 @@ TEST_CASE("squash comp brings quiet notes up and holds loud ones")
     CHECK(std::fabs(respond(*squash, 330.0, 0.003f).gainDb) < 1.0);
 }
 
-// The pedals' levels, harmonics and reduction at their defaults: NAMSAYIN_COMP_LEVELS=1 ./build/namsayin-tests -tc="compressor pedal levels*"
-TEST_CASE("compressor pedal levels at the defaults" * doctest::skip(std::getenv("NAMSAYIN_COMP_LEVELS") == nullptr))
+// The pedals' levels, harmonics and reduction at their defaults: XYTHOS_COMP_LEVELS=1 ./build/xythos-tests -tc="compressor pedal levels*"
+TEST_CASE("compressor pedal levels at the defaults" * doctest::skip(std::getenv("XYTHOS_COMP_LEVELS") == nullptr))
 {
     for (const BlockDescriptor* type : kPedals)
     {

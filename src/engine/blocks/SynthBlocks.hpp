@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // More guitar synths. Like the Synth block, each follows the played note (single notes, dsp/NoteTracker.hpp) and
 // takes its loudness from your playing, with its own Attack and Release. Each has its own
@@ -130,4 +130,4 @@ enum ChipSynthParam {
     kChipParamCount
 };
 
-} // namespace namsayin
+} // namespace xythos

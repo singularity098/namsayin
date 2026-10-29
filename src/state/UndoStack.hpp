@@ -8,7 +8,7 @@
 #include <deque>
 #include <optional>
 
-namespace namsayin {
+namespace xythos {
 
 // Undo/redo as snapshots of the chain (blocks, parameter values, bypass, MIDI map). Snapshots are small, so
 // copies are cheap. The UI pushes the state before each edit; one knob gesture is one edit.
@@ -61,4 +61,4 @@ private:
     std::deque<ChainState> fUndo, fRedo;
 };
 
-} // namespace namsayin
+} // namespace xythos

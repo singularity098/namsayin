@@ -5,7 +5,7 @@
 
 #include "KnobImages.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -6205,4 +6205,4 @@ BuiltinImage rimKnobPointerImage() { return { kRimPointerPng, sizeof(kRimPointer
 
 BuiltinImage rimKnobColourImage() { return { kRimColourPng, sizeof(kRimColourPng) }; }
 
-} // namespace namsayin
+} // namespace xythos

@@ -5,7 +5,7 @@
 
 #include "LedImages.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -2432,4 +2432,4 @@ BuiltinImage ledBloomColourImage() { return { kBloomColourPng, sizeof(kBloomColo
 
 BuiltinImage ledGlassImage() { return { kGlassPng, sizeof(kGlassPng) }; }
 
-} // namespace namsayin
+} // namespace xythos

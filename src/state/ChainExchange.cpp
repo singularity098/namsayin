@@ -8,7 +8,7 @@
 #include <sstream>
 #include <system_error>
 
-namespace namsayin {
+namespace xythos {
 
 namespace fs = std::filesystem;
 
@@ -20,7 +20,7 @@ fs::path exchangeDir()
     fs::path dir = fs::temp_directory_path(ec);
     if (ec)
         dir = ".";
-    return dir / "namsayin";
+    return dir / "xythos";
 }
 
 } // namespace
@@ -60,4 +60,4 @@ std::optional<std::string> readChainExchange(uint32_t instanceId)
     return text.str();
 }
 
-} // namespace namsayin
+} // namespace xythos

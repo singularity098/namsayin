@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Shimmer reverb: an FDN reverb whose tail is pitch shifted (an octave up by default) and fed back in, so it
 // rises into a choir-like halo. No config.
@@ -65,4 +65,4 @@ enum GatedReverbParam {
     kGatedRevParamCount
 };
 
-} // namespace namsayin
+} // namespace xythos

@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -104,4 +104,4 @@ const BlockDescriptor kRingModBlockDescriptor = {
     [] { return std::unique_ptr<Block>(new RingModBlock()); },
 };
 
-} // namespace namsayin
+} // namespace xythos

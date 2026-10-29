@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 void Tuner::prepare(double sampleRate)
 {
@@ -102,4 +102,4 @@ PitchDetector::Result Tuner::analyze()
     return result;
 }
 
-} // namespace namsayin
+} // namespace xythos

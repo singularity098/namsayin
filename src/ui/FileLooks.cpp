@@ -7,7 +7,7 @@
 #include <cctype>
 #include <cstdlib>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -128,4 +128,4 @@ std::string defaultCabImage(std::string_view key, std::string_view fileName, con
     return pool[static_cast<size_t>(dice.below(static_cast<int>(pool.size())))];
 }
 
-} // namespace namsayin
+} // namespace xythos

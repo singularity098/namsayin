@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 void PitchDetector::prepare(double sampleRate, uint32_t windowSize, double minFrequency, double maxFrequency)
 {
@@ -274,4 +274,4 @@ double PitchDetector::crossCorrelation(int lag, int length) const
     return xx > 0.0 && yy > 0.0 ? xy / std::sqrt(xx * yy) : 0.0;
 }
 
-} // namespace namsayin
+} // namespace xythos

@@ -5,7 +5,7 @@
 
 #include <algorithm>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -186,4 +186,4 @@ void TextEdit::del(bool word)
     deleteSelection();
 }
 
-} // namespace namsayin
+} // namespace xythos

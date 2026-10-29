@@ -5,7 +5,7 @@
 
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 // Biquad filter (transposed direct form II) with RBJ cookbook designs
 class Biquad {
@@ -89,4 +89,4 @@ private:
     double fZ1 = 0.0, fZ2 = 0.0;
 };
 
-} // namespace namsayin
+} // namespace xythos

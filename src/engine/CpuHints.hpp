@@ -8,10 +8,10 @@
 #if defined(__x86_64__) || defined(_M_X64)
 #include <immintrin.h>
 #elif !defined(__aarch64__)
-#error "NAMsayin builds for x86-64 and arm64 (macOS) only"
+#error "Xythos builds for x86-64 and arm64 (macOS) only"
 #endif
 
-namespace namsayin {
+namespace xythos {
 
 // The CPU's floating-point control state (x86: MXCSR; arm64: FPCR)
 using FloatState = uint64_t;
@@ -59,4 +59,4 @@ inline void cpuPause()
 #endif
 }
 
-} // namespace namsayin
+} // namespace xythos

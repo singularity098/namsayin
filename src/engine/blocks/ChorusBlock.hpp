@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Chorus in four types: Classic (one voice, like a CE-2), Dimension (two subtle voices in quadrature, wide),
 // Tri (three voices 120 degrees apart, lush) and Vibrato (one voice, wet only: pitch vibrato). In stereo the
@@ -24,4 +24,4 @@ enum ChorusParam {
 
 enum class ChorusType { Classic, Dimension, Tri, Vibrato };
 
-} // namespace namsayin
+} // namespace xythos

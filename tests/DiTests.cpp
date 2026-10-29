@@ -13,7 +13,7 @@
 #include <cstdio>
 #include <vector>
 
-using namespace namsayin;
+using namespace xythos;
 
 namespace {
 
@@ -274,8 +274,8 @@ TEST_CASE("hi-fi preamp's compressor is off at 0 and evens out loud playing")
 }
 
 
-// The boxes' levels and 3rd harmonic at their defaults, for a -20 dBFS bass: NAMSAYIN_DI_LEVELS=1 ./build/namsayin-tests -tc="DI levels*"
-TEST_CASE("DI levels at the defaults" * doctest::skip(std::getenv("NAMSAYIN_DI_LEVELS") == nullptr))
+// The boxes' levels and 3rd harmonic at their defaults, for a -20 dBFS bass: XYTHOS_DI_LEVELS=1 ./build/xythos-tests -tc="DI levels*"
+TEST_CASE("DI levels at the defaults" * doctest::skip(std::getenv("XYTHOS_DI_LEVELS") == nullptr))
 {
     for (const BlockDescriptor* type : BlockRegistry::builtin().types())
     {

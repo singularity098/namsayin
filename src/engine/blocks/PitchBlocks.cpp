@@ -18,7 +18,7 @@
 #include <array>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -1100,9 +1100,9 @@ const BlockDescriptor kPolyOctaveBlockDescriptor = {
     [] { return std::unique_ptr<Block>(new PolyOctaveBlock()); },
 };
 
-} // namespace namsayin
+} // namespace xythos
 
-namespace namsayin {
+namespace xythos {
 
 const BlockDescriptor kHarmonizerBlockDescriptor = {
     "harmonizer",
@@ -1130,9 +1130,9 @@ const BlockDescriptor kHarmonizerBlockDescriptor = {
     true,
 };
 
-} // namespace namsayin
+} // namespace xythos
 
-namespace namsayin {
+namespace xythos {
 
 const BlockDescriptor kDetuneBlockDescriptor = {
     "detune",
@@ -1220,4 +1220,4 @@ const BlockDescriptor kSustainerBlockDescriptor = {
     [] { return std::unique_ptr<Block>(new SustainerBlock()); },
 };
 
-} // namespace namsayin
+} // namespace xythos

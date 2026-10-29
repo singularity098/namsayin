@@ -6,7 +6,7 @@
 #include "TestSupport.hpp"
 #include "state/ChainState.hpp"
 
-using namespace namsayin;
+using namespace xythos;
 
 TEST_CASE("chain state round-trips through JSON")
 {
@@ -80,7 +80,7 @@ TEST_CASE("MIDI mappings and the preset name round-trip and validate")
 {
     ChainState chain;
     chain.blocks.push_back({ "test.gain", 0 });
-    chain.preset = "/presets/Clean.namsayin";
+    chain.preset = "/presets/Clean.xythos";
     chain.setMidiMapping({ 0, 7, slotParam(0, 0) });
     chain.setMidiMapping({ 2, 11, kParamOutput });
     REQUIRE(chain.midi.size() == 2);

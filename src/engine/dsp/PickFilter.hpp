@@ -5,7 +5,7 @@
 
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 // The Pick Filter of the monophonic synths: a new note from the pitch tracker sounds only once its pitch has held
 // steady for a few ms, so the brief, unsteady pitch of the pick attack (stray high notes, octave jumps) never sounds.
@@ -87,4 +87,4 @@ private:
     bool fOpen = false;
 };
 
-} // namespace namsayin
+} // namespace xythos

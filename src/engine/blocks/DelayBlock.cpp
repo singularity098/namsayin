@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -279,4 +279,4 @@ const BlockDescriptor kDelayBlockDescriptor = {
     true, // stereo: its Stereo and Ping-Pong modes spread a Mono chain too
 };
 
-} // namespace namsayin
+} // namespace xythos

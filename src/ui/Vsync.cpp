@@ -8,7 +8,7 @@
 #include <cstring>
 #endif
 
-namespace namsayin {
+namespace xythos {
 
 void disableVsync(uintptr_t& done)
 {
@@ -41,4 +41,4 @@ void disableVsync(uintptr_t& done)
 #endif
 }
 
-} // namespace namsayin
+} // namespace xythos

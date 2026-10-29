@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Rotary speaker (Leslie): the highs go to a spinning horn, the lows to a slower drum, each with its Doppler pitch
 // shift and level swing; two virtual microphones Width apart make the stereo image. Switching Speed makes the
@@ -25,4 +25,4 @@ enum RotaryParam {
     kRotaryParamCount
 };
 
-} // namespace namsayin
+} // namespace xythos

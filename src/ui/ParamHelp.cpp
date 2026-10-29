@@ -7,7 +7,7 @@
 
 #include <cstring>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -2285,7 +2285,7 @@ constexpr TypeHelp kTypeHelp[] = {
       "brighter the harder you pick. Play single notes, or arpeggios with Sustain on." },
     { "midiout",
       "Turns your playing into MIDI notes, to play a synth or sampler plugin from your guitar. In Reaper, put the "
-      "synth after NAMsayin in the same FX chain (it receives the notes), or send the track's MIDI to another track. "
+      "synth after Xythos in the same FX chain (it receives the notes), or send the track's MIDI to another track. "
       "Mono follows single notes with pitch bend; Poly sends chords. Lookahead makes the notes start on time." },
     { "fart",
       "Plays a fart at the pitch of every note you pick: thirteen kinds, from a tiny squeak to a motorboat, or a "
@@ -2451,4 +2451,4 @@ const char* blockTypeHelp(const char* typeId)
     return nullptr;
 }
 
-} // namespace namsayin
+} // namespace xythos

@@ -5,7 +5,7 @@
 
 #include "BlockImages.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // The knob drawn on pedal faces (PNG bytes): its body without the pointer, drawn unrotated so its reflections stay put,
 // the pointer alone (pointing up, same frame), rotated to the value over it, and the lighting layer (white, alpha =
@@ -22,4 +22,4 @@ BuiltinImage rimKnobImage();
 BuiltinImage rimKnobPointerImage();
 BuiltinImage rimKnobColourImage();
 
-} // namespace namsayin
+} // namespace xythos

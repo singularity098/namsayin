@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Analog-style octaver (like an OC-2): flip-flops divide the played note by two and four, switching the signal's
 // polarity at its zero crossings, so the octaves down keep the guitar's dynamics with zero latency. The detector's
@@ -24,4 +24,4 @@ enum OctaveParam {
     kOctParamCount
 };
 
-} // namespace namsayin
+} // namespace xythos

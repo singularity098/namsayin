@@ -41,13 +41,13 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
       - name: Check LV2 bundle
-        run: LV2_PATH=$PWD/build/bin lv2info https://github.com/singularity098/namsayin
+        run: LV2_PATH=$PWD/build/bin lv2info https://github.com/singularity098/xythos
       - uses: actions/upload-artifact@v4
         with:
-          name: namsayin-linux-x86_64
+          name: xythos-linux-x86_64
           path: |
-            build/bin/namsayin.lv2
-            build/bin/namsayin.vst3
+            build/bin/xythos.lv2
+            build/bin/xythos.vst3
 
   windows:
     runs-on: windows-2022
@@ -82,10 +82,10 @@ jobs:
         run: ctest --test-dir build -C Release --output-on-failure
       - uses: actions/upload-artifact@v4
         with:
-          name: namsayin-windows-x86_64
+          name: xythos-windows-x86_64
           path: |
-            build/bin/namsayin.lv2
-            build/bin/namsayin.vst3
+            build/bin/xythos.lv2
+            build/bin/xythos.vst3
 
   macos:
     runs-on: macos-14
@@ -123,26 +123,26 @@ jobs:
         run: ctest --test-dir build --output-on-failure
       - name: Check architectures
         run: |
-          lipo -info build/bin/namsayin.vst3/Contents/MacOS/namsayin
-          lipo -info build/bin/namsayin.component/Contents/MacOS/namsayin
-          lipo build/bin/namsayin.vst3/Contents/MacOS/namsayin -verify_arch arm64 x86_64
+          lipo -info build/bin/xythos.vst3/Contents/MacOS/xythos
+          lipo -info build/bin/xythos.component/Contents/MacOS/xythos
+          lipo build/bin/xythos.vst3/Contents/MacOS/xythos -verify_arch arm64 x86_64
       # No Developer ID yet: an ad-hoc signature, which Apple Silicon requires to load the code at all
       - name: Sign (ad hoc)
         run: |
-          codesign --force --deep --sign - build/bin/namsayin.vst3
-          codesign --force --deep --sign - build/bin/namsayin.component
-          codesign --force --sign - build/bin/namsayin.lv2/*.dylib
+          codesign --force --deep --sign - build/bin/xythos.vst3
+          codesign --force --deep --sign - build/bin/xythos.component
+          codesign --force --sign - build/bin/xythos.lv2/*.dylib
       - name: Validate the Audio Unit
         run: |
           mkdir -p ~/Library/Audio/Plug-Ins/Components
-          cp -R build/bin/namsayin.component ~/Library/Audio/Plug-Ins/Components/
+          cp -R build/bin/xythos.component ~/Library/Audio/Plug-Ins/Components/
           killall -9 AudioComponentRegistrar 2>/dev/null || true
-          auval -a | grep -i namsayin
+          auval -a | grep -i xythos
           auval -strict -v aumf NMsy S098
       - uses: actions/upload-artifact@v4
         with:
-          name: namsayin-macos-universal
+          name: xythos-macos-universal
           path: |
-            build/bin/namsayin.lv2
-            build/bin/namsayin.vst3
-            build/bin/namsayin.component
+            build/bin/xythos.lv2
+            build/bin/xythos.vst3
+            build/bin/xythos.component

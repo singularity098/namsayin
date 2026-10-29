@@ -17,7 +17,7 @@
 #include <cstdio>
 #include <vector>
 
-using namespace namsayin;
+using namespace xythos;
 
 namespace {
 
@@ -345,7 +345,7 @@ TEST_CASE("midi out (poly) sends the notes of a chord, and ends them")
 }
 
 
-TEST_CASE("midi out: CPU use" * doctest::skip(std::getenv("NAMSAYIN_CPU") == nullptr))
+TEST_CASE("midi out: CPU use" * doctest::skip(std::getenv("XYTHOS_CPU") == nullptr))
 {
     // as hosts do on their audio threads: denormals flushed to zero
     const FloatState csr = flushDenormals();

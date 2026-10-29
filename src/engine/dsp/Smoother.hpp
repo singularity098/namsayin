@@ -5,7 +5,7 @@
 
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 // One-pole smoothing of a control value, to avoid zipper noise
 class Smoother {
@@ -57,4 +57,4 @@ inline float gainToDb(float gain, float floorDb = -120.0f)
     return gain > 0.0f ? std::fmax(20.0f * std::log10(gain), floorDb) : floorDb;
 }
 
-} // namespace namsayin
+} // namespace xythos

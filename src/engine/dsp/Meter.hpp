@@ -6,7 +6,7 @@
 #include <cmath>
 #include <cstdint>
 
-namespace namsayin {
+namespace xythos {
 
 // Peak meter with a falling display and a held clip flag, so a UI polling at frame rate doesn't miss peaks
 class Meter {
@@ -54,4 +54,4 @@ private:
     uint32_t fClipCountdown = 0;
 };
 
-} // namespace namsayin
+} // namespace xythos

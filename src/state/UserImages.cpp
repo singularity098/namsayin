@@ -9,7 +9,7 @@
 #include <cctype>
 #include <system_error>
 
-namespace namsayin {
+namespace xythos {
 
 namespace fs = std::filesystem;
 
@@ -169,4 +169,4 @@ bool deleteUserImage(ImageKind kind, const std::string& id)
     return !path.empty() && fs::remove(pathFromUtf8(path), ec);
 }
 
-} // namespace namsayin
+} // namespace xythos

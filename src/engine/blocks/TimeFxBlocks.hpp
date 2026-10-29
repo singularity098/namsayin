@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Tape Stop: hold Stop and the sound slows to a halt like a turntable losing power (pitch and speed dropping
 // together over Stop Time); let go and it spins back up over Start Time and lands back in time with your playing.
@@ -66,4 +66,4 @@ enum PatternDelayParam {
 };
 constexpr int kPatternTaps = 8;
 
-} // namespace namsayin
+} // namespace xythos

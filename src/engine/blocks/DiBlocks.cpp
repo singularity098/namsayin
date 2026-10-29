@@ -13,7 +13,7 @@
 #include <array>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -878,4 +878,4 @@ const BlockDescriptor kOptoDiBlockDescriptor = {
     "Reduction",
 };
 
-} // namespace namsayin
+} // namespace xythos

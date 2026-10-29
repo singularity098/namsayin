@@ -5,7 +5,7 @@
 
 #include <cstring>
 
-namespace namsayin {
+namespace xythos {
 
 const std::vector<PedalFace>& pedalFaces()
 {
@@ -556,4 +556,4 @@ const PedalFace* pedalFace(const char* typeId)
     return nullptr;
 }
 
-} // namespace namsayin
+} // namespace xythos

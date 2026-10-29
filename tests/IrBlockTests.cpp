@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-using namespace namsayin;
+using namespace xythos;
 
 namespace {
 
@@ -23,7 +23,7 @@ constexpr uint32_t kBuffer = 128;
 // Writes a 32-bit float WAV; channels are given as separate vectors of equal length
 std::string writeWav(const std::string& name, double rate, const std::vector<std::vector<float>>& channels)
 {
-    const std::string path = (std::filesystem::temp_directory_path() / ("namsayin-test-" + name)).string();
+    const std::string path = (std::filesystem::temp_directory_path() / ("xythos-test-" + name)).string();
     std::ofstream out(path, std::ios::binary);
     auto u32 = [&](uint32_t v) { out.write(reinterpret_cast<const char*>(&v), 4); };
     auto u16 = [&](uint16_t v) { out.write(reinterpret_cast<const char*>(&v), 2); };
@@ -156,8 +156,8 @@ TEST_CASE("IR block mix blends the dry signal back in")
 TEST_CASE("IR block rejects missing and invalid files")
 {
     CHECK_FALSE(loadIr(""));
-    CHECK_FALSE(loadIr((std::filesystem::temp_directory_path() / "namsayin-no-such.wav").string()));
-    const std::string bad = (std::filesystem::temp_directory_path() / "namsayin-test-bad.wav").string();
+    CHECK_FALSE(loadIr((std::filesystem::temp_directory_path() / "xythos-no-such.wav").string()));
+    const std::string bad = (std::filesystem::temp_directory_path() / "xythos-test-bad.wav").string();
     std::ofstream(bad) << "not a wav file";
     CHECK_FALSE(loadIr(bad));
 }

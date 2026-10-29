@@ -13,7 +13,7 @@
 extern char** environ;
 #endif
 
-namespace namsayin {
+namespace xythos {
 
 void openUrl(const char* url)
 {
@@ -34,4 +34,4 @@ void openUrl(const char* url)
 #endif
 }
 
-} // namespace namsayin
+} // namespace xythos

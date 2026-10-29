@@ -15,7 +15,7 @@
 #include <fstream>
 #include <thread>
 
-using namespace namsayin;
+using namespace xythos;
 namespace fs = std::filesystem;
 
 namespace {
@@ -45,12 +45,12 @@ const std::string kAmpC = R"({"version": "0.5.0"})";
 // A library folder with a plain file, a file and an image (ignored) in a subfolder, and a zip with a file, an image
 // and an IR
 struct LibraryFixture {
-    fs::path root = fs::temp_directory_path() / "namsayin-test-library";
+    fs::path root = fs::temp_directory_path() / "xythos-test-library";
 
     LibraryFixture()
     {
         fs::remove_all(root);
-        testing::setEnv("NAMSAYIN_CACHE_DIR", pathToUtf8(root / "cache"));
+        testing::setEnv("XYTHOS_CACHE_DIR", pathToUtf8(root / "cache"));
         writeText(root / "lib" / "A Amp.nam", kAmpA);
         writeText(root / "lib" / "sub" / "b.nam", kAmpB);
         writeText(root / "lib" / "sub" / "b.png", "png");
@@ -170,7 +170,7 @@ TEST_CASE("library files inside zips can be read, hashed and extracted")
 TEST_CASE("a NAM block loads a model from inside a zip")
 {
     LibraryFixture fixture;
-    const fs::path model = fs::path(NAMSAYIN_EXAMPLE_MODELS) / "lstm.nam";
+    const fs::path model = fs::path(XYTHOS_EXAMPLE_MODELS) / "lstm.nam";
     const std::optional<std::string> bytes = readFile(model);
     REQUIRE(bytes);
     writeZip(fixture.root / "models.zip", { { "folder/lstm.nam", *bytes } });

@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // 7-band graphic EQ (100 Hz to 6.4 kHz in octaves, like a GE-7) with an output level. No config.
 extern const BlockDescriptor kGraphicEqBlockDescriptor;
@@ -30,4 +30,4 @@ enum ParametricEqParam {
     kParEqParamCount
 };
 
-} // namespace namsayin
+} // namespace xythos

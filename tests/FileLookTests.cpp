@@ -12,7 +12,7 @@
 #include <tuple>
 #include <vector>
 
-using namespace namsayin;
+using namespace xythos;
 
 namespace {
 
@@ -120,7 +120,7 @@ namespace {
 std::vector<std::string> cabIds()
 {
     std::vector<std::string> ids;
-    for (const auto& entry : std::filesystem::directory_iterator(NAMSAYIN_CAB_IMAGES))
+    for (const auto& entry : std::filesystem::directory_iterator(XYTHOS_CAB_IMAGES))
         if (entry.path().extension() == ".webp")
             ids.push_back(entry.path().stem().string());
     return ids;

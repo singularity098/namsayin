@@ -19,7 +19,7 @@
 #include <string>
 #include <vector>
 
-using namespace namsayin;
+using namespace xythos;
 
 namespace {
 
@@ -77,7 +77,7 @@ double bandAt(const std::vector<float>& x, double hz, size_t from, size_t to)
 // How much of x[from, to) is above `hz` (RMS after a high-pass, against the whole)
 double highShare(const std::vector<float>& x, double hz, size_t from, size_t to)
 {
-    namsayin::Biquad filter[2];
+    xythos::Biquad filter[2];
     for (auto& f : filter)
         f.setHighPass(kRate, hz);
     std::vector<float> high(x);

@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -206,4 +206,4 @@ const BlockDescriptor kOctaveBlockDescriptor = {
     true,
 };
 
-} // namespace namsayin
+} // namespace xythos

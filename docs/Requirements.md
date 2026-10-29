@@ -1,4 +1,5 @@
-### NAMsayin
+### Xythos
+- Named Xythos (owner, 2026-10-29; was NAMsayin), and hosts list its developer as Xythos too (was the owner's username). Its logo is the owner's pick from 36 concepts: a glowing violet crop circle (six satellites growing in size, like six strings) left of the wordmark, thin geometric letters with a moon on the O. It's shown big in the top bar
 - An LV2/VST3 plugin (and AU on macOS) written in C++ using DPF and NeuralAmpModelerCore (no standalone application for now)
 - The plugin is ultra-light, fast, and snappy
 - Zero latency by default: latency (plugin delay compensation, PDC) is only introduced by blocks that require it, and is reported to the host
@@ -40,7 +41,7 @@
 - Has a linear signal chain which runs from left to right, where users can add NAM, IR, or built-in effects, up to a maximum of 32 blocks
 - Near the metronome and tuner is another button which links to my other free application Fretbored: https://singularity098.github.io/fretbored/
 - The buttons at the top right of the window (Fretbored, metronome, tuner, settings, bypass) are icons that show what they do; the Fretbored button uses the Fretbored app icon (owner's request, 2026-10-22; redrawn from its updated icon, 2026-10-29: the fretboard grid with the notes spelling an F)
-- A GitHub button (the GitHub mark, in the icons' hairline style) next to the Fretbored button opens the project's GitHub page, https://github.com/singularity098/namsayin (owner's request, 2026-10-23)
+- A GitHub button (the GitHub mark, in the icons' hairline style) next to the Fretbored button opens the project's GitHub page, https://github.com/singularity098/xythos (owner's request, 2026-10-23)
 - Every knob and control has a highly detailed but easy to understand plain-English explanation of what it does and how to use it, shown in a translucent popup when the mouse hovers over it (owner's request, 2026-10-22)
 - The signal chain may be split into 2 at any point, and then merged back into 1 at any other point, allowing for effects to run in parallel, or multiple NAM simultaneously
     - Only one split at a time

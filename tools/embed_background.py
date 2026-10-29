@@ -38,12 +38,12 @@ lines = [
     "",
     '#include "BackgroundImage.hpp"',
     "",
-    "namespace namsayin {",
+    "namespace xythos {",
     "",
     "const unsigned char kBackgroundImage[] = {",
 ]
 for i in range(0, len(data), 20):
     lines.append("    " + ", ".join(str(b) for b in data[i:i + 20]) + ",")
-lines += ["};", "", "const unsigned int kBackgroundImageSize = sizeof(kBackgroundImage);", "", "} // namespace namsayin", ""]
+lines += ["};", "", "const unsigned int kBackgroundImageSize = sizeof(kBackgroundImage);", "", "} // namespace xythos", ""]
 OUT.write_text("\n".join(lines))
 print("%s: %dx%d, %d bytes" % (OUT.relative_to(ROOT), img.width, img.height, len(data)))

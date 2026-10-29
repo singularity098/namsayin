@@ -7,7 +7,7 @@
 
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 // Pick-attack detection for blocks that react to each new note (organ attack, sustainer, bloom reverb): a fast
 // envelope jumping to twice a slower one, over a threshold, at most once per 60 ms. A note after silence always
@@ -63,4 +63,4 @@ private:
     int fWait = 0;
 };
 
-} // namespace namsayin
+} // namespace xythos

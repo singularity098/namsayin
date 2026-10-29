@@ -5,7 +5,7 @@
 
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 // Note values for tempo-synced knobs, longest first: 1/1 down to 1/32, with dotted and triplet values
 constexpr int kNoteCount = 14;
@@ -31,4 +31,4 @@ inline double songPhase(double beats, double cycleBeats)
     return cycles - std::floor(cycles);
 }
 
-} // namespace namsayin
+} // namespace xythos

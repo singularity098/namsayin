@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // The pitch blocks share a delay-line pitch shifter (dsp/PitchShifter.hpp): polyphonic, zero reported latency,
 // with a slight warble; a longer Window warbles less on low notes but trails more. No config.
@@ -157,4 +157,4 @@ enum SustainerParam {
     kSustainParamCount
 };
 
-} // namespace namsayin
+} // namespace xythos

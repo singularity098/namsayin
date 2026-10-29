@@ -25,7 +25,7 @@
 #include <cmath>
 #include <vector>
 
-using namespace namsayin;
+using namespace xythos;
 
 namespace {
 
@@ -484,7 +484,7 @@ TEST_CASE("piano strikes the note, damps it when you let go, and Sustain lets it
     CHECK(testing::rms(held[0], ms(900), ms(1400)) > 0.005);
 }
 
-TEST_CASE("third set: CPU use" * doctest::skip(std::getenv("NAMSAYIN_CPU") == nullptr))
+TEST_CASE("third set: CPU use" * doctest::skip(std::getenv("XYTHOS_CPU") == nullptr))
 {
     // as hosts do on their audio threads: denormals flushed to zero
     const FloatState csr = flushDenormals();
@@ -560,9 +560,9 @@ std::vector<guitar::Note> demoLick()
 
 } // namespace
 
-TEST_CASE("third set: demo renders" * doctest::skip(std::getenv("NAMSAYIN_DEMO_DIR") == nullptr))
+TEST_CASE("third set: demo renders" * doctest::skip(std::getenv("XYTHOS_DEMO_DIR") == nullptr))
 {
-    const std::string dir = std::getenv("NAMSAYIN_DEMO_DIR");
+    const std::string dir = std::getenv("XYTHOS_DEMO_DIR");
     const guitar::Performance lick = guitar::perform(demoLick(), 5.0, { 0.0001f, 0.0001f, 0.35f, 7 });
     const std::vector<std::vector<float>> dry = { lick.signal, lick.signal };
     writeWav(dir + "/dry.wav", dry);

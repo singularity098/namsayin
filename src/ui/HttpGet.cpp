@@ -17,7 +17,7 @@
 extern char** environ;
 #endif
 
-namespace namsayin {
+namespace xythos {
 
 #ifdef _WIN32
 
@@ -49,7 +49,7 @@ std::optional<std::string> HttpGet::get(const char* url, size_t maxBytes)
     if (parts.lpszExtraInfo != nullptr)
         path.append(parts.lpszExtraInfo, parts.dwExtraInfoLength);
 
-    const std::wstring agent = widen((std::string("NAMsayin/") + kAppVersion).c_str());
+    const std::wstring agent = widen((std::string("Xythos/") + kAppVersion).c_str());
     HINTERNET session = WinHttpOpen(agent.c_str(), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
                                     WINHTTP_NO_PROXY_BYPASS, 0);
     if (session == nullptr) // before Windows 8.1 there's no automatic proxy
@@ -149,7 +149,7 @@ std::optional<std::string> HttpGet::get(const char* url, size_t maxBytes)
     posix_spawn_file_actions_adddup2(&actions, fds[1], STDOUT_FILENO);
     posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
 
-    const std::string agent = std::string("NAMsayin/") + kAppVersion;
+    const std::string agent = std::string("Xythos/") + kAppVersion;
 #ifdef __APPLE__
     const char* curl = "/usr/bin/curl";
 #else
@@ -227,4 +227,4 @@ void HttpGet::cancel()
 
 #endif
 
-} // namespace namsayin
+} // namespace xythos

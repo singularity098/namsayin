@@ -5,7 +5,7 @@
 
 #include <cstdio>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -145,4 +145,4 @@ float midiCcToValue(uint32_t index, int ccValue)
     return spec.min + n * (spec.max - spec.min);
 }
 
-} // namespace namsayin
+} // namespace xythos

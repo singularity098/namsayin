@@ -11,7 +11,7 @@
 #include <pthread.h>
 #endif
 
-namespace namsayin {
+namespace xythos {
 
 ParallelWorker::ParallelWorker()
 {
@@ -85,4 +85,4 @@ void ParallelWorker::takeAudioThreadPriority()
 #endif
 }
 
-} // namespace namsayin
+} // namespace xythos

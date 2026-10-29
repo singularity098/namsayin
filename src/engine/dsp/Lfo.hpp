@@ -6,7 +6,7 @@
 #include <cmath>
 #include <cstdint>
 
-namespace namsayin {
+namespace xythos {
 
 enum class LfoShape { Sine, Triangle, Square, SawUp, SawDown };
 
@@ -127,4 +127,4 @@ private:
     float fFrom = 0.0f, fTo = 0.0f;
 };
 
-} // namespace namsayin
+} // namespace xythos

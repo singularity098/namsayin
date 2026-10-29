@@ -8,7 +8,7 @@
 #include <string_view>
 #include <vector>
 
-namespace namsayin {
+namespace xythos {
 
 // The list of block types the engine can create. The Add Block dialog, parameter names and preset loading
 // all read from here. To add an effect: write its Block subclass and add its descriptor in BlockRegistry.cpp.
@@ -30,4 +30,4 @@ private:
     std::vector<const BlockDescriptor*> fTypes;
 };
 
-} // namespace namsayin
+} // namespace xythos

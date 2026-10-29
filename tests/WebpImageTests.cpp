@@ -4,6 +4,7 @@
 #include <doctest/doctest.h>
 
 #include "ui/BackgroundImage.hpp"
+#include "ui/LogoImage.hpp"
 #include "ui/WebpImage.hpp"
 
 #include <algorithm>
@@ -13,7 +14,7 @@
 #include <string>
 #include <vector>
 
-using namespace namsayin;
+using namespace xythos;
 
 namespace {
 
@@ -27,7 +28,7 @@ std::vector<unsigned char> readFile(const std::filesystem::path& path)
 
 TEST_CASE("every built-in block image and thumbnail decodes, 1:2 at its size")
 {
-    const std::filesystem::path images = NAMSAYIN_BLOCK_IMAGES;
+    const std::filesystem::path images = XYTHOS_BLOCK_IMAGES;
     int count = 0;
     for (const auto& entry : std::filesystem::directory_iterator(images))
     {
@@ -51,7 +52,7 @@ TEST_CASE("every built-in block image and thumbnail decodes, 1:2 at its size")
 
 TEST_CASE("every built-in cab image and thumbnail decodes, at its size")
 {
-    const std::filesystem::path images = NAMSAYIN_CAB_IMAGES;
+    const std::filesystem::path images = XYTHOS_CAB_IMAGES;
     int count = 0;
     for (const auto& entry : std::filesystem::directory_iterator(images))
     {
@@ -85,4 +86,14 @@ TEST_CASE("the background image decodes, and other data isn't taken for a WebP")
     // a damaged WebP: the header, nothing after it
     CHECK_FALSE(decodeWebp(kBackgroundImage, 30, img));
     CHECK(img.pixels.empty());
+}
+
+TEST_CASE("the logo decodes, with its transparency")
+{
+    RgbaImage img;
+    REQUIRE(decodeWebp(kLogoImage, kLogoImageSize, img));
+    CHECK(img.width > 3 * img.height); // the crop circle beside the wordmark
+    CHECK(img.height >= 256);          // sharp at the top bar's size at 3-4x scaling
+    REQUIRE(img.pixels.size() == size_t(img.width) * img.height * 4);
+    CHECK(img.pixels[3] == 0); // a corner is clear, so the bar shows through
 }

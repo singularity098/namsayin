@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Guitar synth: a monophonic oscillator that follows the played note, through a resonant low-pass whose cutoff
 // rises with the playing (Env), with the guitar's own dynamics on the amplitude. The notes come from
@@ -31,4 +31,4 @@ enum SynthParam {
 
 enum class SynthWave { Square, Saw, Pulse, Sub };
 
-} // namespace namsayin
+} // namespace xythos

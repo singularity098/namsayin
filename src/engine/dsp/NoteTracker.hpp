@@ -13,7 +13,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace namsayin {
+namespace xythos {
 
 // Turns the pitch tracker's estimates into notes for the synths and pitch pedals: when a note starts, at which
 // pitch, and when it ends.
@@ -431,4 +431,4 @@ private:
     int fLevelPos = 0;
 };
 
-} // namespace namsayin
+} // namespace xythos

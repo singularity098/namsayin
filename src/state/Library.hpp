@@ -12,7 +12,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace namsayin {
+namespace xythos {
 
 // The NAM and IR library: scanning folders (also inside .zip files), content hashes.
 //
@@ -82,4 +82,4 @@ private:
 std::vector<LibraryEntry> scanLibrary(const std::filesystem::path& root, LibraryKind kind, LibraryIndex& index,
                                       const std::atomic<bool>* cancel = nullptr);
 
-} // namespace namsayin
+} // namespace xythos

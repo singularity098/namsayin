@@ -121,7 +121,7 @@ lines = [
     "",
     '#include "KnobImages.hpp"',
     "",
-    "namespace namsayin {",
+    "namespace xythos {",
     "",
     "namespace {",
     "",
@@ -153,7 +153,7 @@ lines += [
     "",
     "BuiltinImage rimKnobColourImage() { return { kRimColourPng, sizeof(kRimColourPng) }; }",
     "",
-    "} // namespace namsayin",
+    "} // namespace xythos",
     "",
 ]
 OUT.write_text("\n".join(lines))

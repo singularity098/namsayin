@@ -6,7 +6,7 @@
 #include "engine/Block.hpp"
 #include "engine/TempoSync.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Digital delay with a tone control in the feedback path, tempo sync, three stereo modes and modulation.
 // No config.
@@ -36,4 +36,4 @@ int delayNoteIndex(float normalizedTime);
 const char* delayNoteName(int index);
 double delayNoteBeats(int index); // length in quarter notes
 
-} // namespace namsayin
+} // namespace xythos

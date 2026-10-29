@@ -17,7 +17,7 @@
 #include <memory>
 #include <vector>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -70,7 +70,7 @@ public:
         const std::optional<std::string> file = materializeLibraryFile(path);
         if (!file)
         {
-            std::fprintf(stderr, "NAMsayin: can't open IR %s\n", path.c_str());
+            std::fprintf(stderr, "Xythos: can't open IR %s\n", path.c_str());
             return false;
         }
 
@@ -90,7 +90,7 @@ public:
         }
         catch (const std::exception& e)
         {
-            std::fprintf(stderr, "NAMsayin: can't load IR %s: %s\n", path.c_str(), e.what());
+            std::fprintf(stderr, "Xythos: can't load IR %s: %s\n", path.c_str(), e.what());
             return false;
         }
 
@@ -246,4 +246,4 @@ const BlockDescriptor kIrBlockDescriptor = {
     [] { return std::unique_ptr<Block>(new IrBlock()); },
 };
 
-} // namespace namsayin
+} // namespace xythos

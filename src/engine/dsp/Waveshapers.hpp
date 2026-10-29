@@ -5,7 +5,7 @@
 
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 // Clipping curves for the drive pedals: x / (1 + |x|^n)^(1/n). All have unit slope at 0 and saturate at +-1;
 // a higher n gives a harder knee. Square roots only, no pow, since they run at 4x the sample rate.
@@ -40,4 +40,4 @@ inline float asymmetric(float x, float positiveHeadroom, float negativeHeadroom)
 
 } // namespace shaper
 
-} // namespace namsayin
+} // namespace xythos

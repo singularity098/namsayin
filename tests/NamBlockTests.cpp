@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-using namespace namsayin;
+using namespace xythos;
 
 namespace {
 
@@ -20,7 +20,7 @@ constexpr uint32_t kBuffer = 128;
 
 std::string exampleModel(const char* name)
 {
-    return std::string(NAMSAYIN_EXAMPLE_MODELS) + "/" + name;
+    return std::string(XYTHOS_EXAMPLE_MODELS) + "/" + name;
 }
 
 // Processes a 220 Hz sine through the block and returns the output. If `allocations` is given, it receives the
@@ -106,7 +106,7 @@ TEST_CASE("NAM block rejects missing and invalid files")
 {
     CHECK_FALSE(loadBlock(exampleModel("does-not-exist.nam")));
     CHECK_FALSE(loadBlock(""));
-    CHECK_FALSE(loadBlock(std::string(NAMSAYIN_EXAMPLE_MODELS) + "/../README.md"));
+    CHECK_FALSE(loadBlock(std::string(XYTHOS_EXAMPLE_MODELS) + "/../README.md"));
 }
 
 TEST_CASE("NAM block output level follows its parameters")

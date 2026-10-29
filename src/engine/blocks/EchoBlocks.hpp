@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Tape echo (Space Echo style): three playback heads at 1x, 2x and 3x Time, in seven combinations; the tape
 // saturates (Drive), loses highs and lows with each pass, and wavers in speed (Wow, which pitches the repeats).
@@ -45,4 +45,4 @@ enum DuckingDelayParam {
     kDuckParamCount
 };
 
-} // namespace namsayin
+} // namespace xythos

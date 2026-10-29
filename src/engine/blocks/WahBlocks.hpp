@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Wah pedal: Position is the pedal (map an expression pedal to it with MIDI learn). Types set the sweep range and
 // resonance: Classic (a Cry Baby's), Vox, Wide and Bass. No config.
@@ -39,4 +39,4 @@ enum AutoWahParam {
 
 enum class AutoWahFilter { Wah, LowPass, BandPass, HighPass };
 
-} // namespace namsayin
+} // namespace xythos

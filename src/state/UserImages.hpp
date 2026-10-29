@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-namespace namsayin {
+namespace xythos {
 
 // The user's own block images: three libraries in the config directory (images/amps, images/cabs, images/pedals),
 // one for NAM blocks, one for IR blocks and one for every other block. A block that uses one stores its id (the
@@ -54,4 +54,4 @@ std::optional<std::string> importUserImage(ImageKind kind, const std::string& so
 // Removes an image from its library. Blocks that use it show their stock image again.
 bool deleteUserImage(ImageKind kind, const std::string& id);
 
-} // namespace namsayin
+} // namespace xythos

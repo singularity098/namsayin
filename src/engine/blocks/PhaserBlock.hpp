@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Phaser: a chain of swept first-order allpass stages mixed with the dry signal. Types: 4, 6, 8 and 12 stages,
 // and Vibe (four stages spread far apart, swept by a lamp-like LFO, as in a Uni-Vibe; Mix at 100% gives its
@@ -26,4 +26,4 @@ enum PhaserParam {
 
 enum class PhaserType { Stages4, Stages6, Stages8, Stages12, Vibe };
 
-} // namespace namsayin
+} // namespace xythos

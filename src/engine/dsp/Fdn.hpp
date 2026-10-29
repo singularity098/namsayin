@@ -10,7 +10,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 // An 8-line feedback delay network reverb tank: input diffusers, then eight delay lines mixed through a
 // Householder matrix (lossless), each with a decay gain set from the RT60 and a one-pole damping filter. Two lines are
@@ -156,4 +156,4 @@ private:
     float fGain[kLines] {};
 };
 
-} // namespace namsayin
+} // namespace xythos

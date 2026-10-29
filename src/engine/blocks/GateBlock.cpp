@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -186,4 +186,4 @@ const BlockDescriptor kGateBlockDescriptor = {
     60.0f,
 };
 
-} // namespace namsayin
+} // namespace xythos

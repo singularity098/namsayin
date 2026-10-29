@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Flanger: a short swept delay with feedback (negative feedback gives the hollow sound, high feedback the jet).
 // The sweep is exponential around the Manual delay, so the comb notches move evenly in pitch. Tempo sync. In
@@ -23,4 +23,4 @@ enum FlangerParam {
     kFlangerParamCount
 };
 
-} // namespace namsayin
+} // namespace xythos

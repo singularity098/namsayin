@@ -13,7 +13,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace namsayin {
+namespace xythos {
 
 // The level of a signal the way the note tracker follows it: a peak follower that holds for a period of the note
 // (or 15 ms) and then falls fast
@@ -171,4 +171,4 @@ private:
     size_t fPos = 0;
 };
 
-} // namespace namsayin
+} // namespace xythos

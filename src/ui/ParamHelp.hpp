@@ -5,7 +5,7 @@
 
 #include <cstdint>
 
-namespace namsayin {
+namespace xythos {
 
 // Plain-English help for the controls, shown in the UI's hover popups. Plain data, no DPF, so the tests can check
 // that every control has one.
@@ -19,4 +19,4 @@ const char* blockParamHelp(const char* typeId, const char* paramName);
 // A control that isn't a block's (global knobs, merge, tuner, metronome), by host parameter index; nullptr if none
 const char* globalParamHelp(uint32_t index);
 
-} // namespace namsayin
+} // namespace xythos

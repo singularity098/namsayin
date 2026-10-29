@@ -5,7 +5,7 @@
 
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 // Band-limited oscillator shapes for the synths. Phases run 0..1; dt is the phase step per sample (hz / rate).
 
@@ -54,4 +54,4 @@ inline bool advancePhase(double& phase, double dt)
     return false;
 }
 
-} // namespace namsayin
+} // namespace xythos

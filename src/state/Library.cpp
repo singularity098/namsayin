@@ -17,7 +17,7 @@
 #include <memory>
 #include <system_error>
 
-namespace namsayin {
+namespace xythos {
 
 namespace fs = std::filesystem;
 using nlohmann::json;
@@ -374,4 +374,4 @@ std::vector<LibraryEntry> scanLibrary(const fs::path& root, LibraryKind kind, Li
     return found;
 }
 
-} // namespace namsayin
+} // namespace xythos

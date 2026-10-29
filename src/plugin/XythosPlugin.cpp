@@ -21,7 +21,7 @@
 
 START_NAMESPACE_DISTRHO
 
-using namespace namsayin;
+using namespace xythos;
 
 // Plugin state keys
 static constexpr const char* kStateChain = "chain";
@@ -31,10 +31,10 @@ enum StateIndex : uint32_t {
     kStateCount
 };
 
-class NAMsayinPlugin : public Plugin
+class XythosPlugin : public Plugin
 {
 public:
-    NAMsayinPlugin()
+    XythosPlugin()
         : Plugin(kParamCount, 0, kStateCount)
     {
         fEngine.prepare(getSampleRate(), getBufferSize());
@@ -46,7 +46,7 @@ public:
         fTunerThread = std::thread([this] { runTuner(); });
     }
 
-    ~NAMsayinPlugin() override
+    ~XythosPlugin() override
     {
         fStopExchange = true;
         if (fExchangeThread.joinable())
@@ -57,14 +57,14 @@ public:
     }
 
 protected:
-    const char* getLabel() const override { return "NAMsayin"; }
+    const char* getLabel() const override { return "Xythos"; }
     const char* getDescription() const override { return "Neural Amp Modeler guitar rig"; }
-    const char* getMaker() const override { return "singularity098"; }
+    const char* getMaker() const override { return DISTRHO_PLUGIN_BRAND; }
     const char* getHomePage() const override { return DISTRHO_PLUGIN_URI; }
     const char* getLicense() const override { return "MIT"; }
     uint32_t getVersion() const override
     {
-        return d_version(NAMSAYIN_VERSION_MAJOR, NAMSAYIN_VERSION_MINOR, NAMSAYIN_VERSION_PATCH);
+        return d_version(XYTHOS_VERSION_MAJOR, XYTHOS_VERSION_MINOR, XYTHOS_VERSION_PATCH);
     }
 
     void initAudioPort(const bool input, const uint32_t index, AudioPort& port) override
@@ -257,7 +257,7 @@ private:
         const std::optional<ChainState> chain = ChainState::fromJson(json, &error);
         if (!chain || !fEngine.setChain(*chain, &error))
         {
-            d_stderr2("NAMsayin: ignoring invalid chain state: %s", error.c_str());
+            d_stderr2("Xythos: ignoring invalid chain state: %s", error.c_str());
             return;
         }
         {
@@ -278,7 +278,7 @@ private:
         }
         if (json.empty())
             return;
-        d_stderr2("NAMsayin: a block's output went NaN; rebuilding the chain");
+        d_stderr2("Xythos: a block's output went NaN; rebuilding the chain");
         fEngine.forgetBlocks();
         if (const std::optional<ChainState> chain = ChainState::fromJson(json))
             fEngine.setChain(*chain);
@@ -338,12 +338,12 @@ private:
     std::thread fExchangeThread;
     std::thread fTunerThread;
 
-    DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NAMsayinPlugin)
+    DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(XythosPlugin)
 };
 
 Plugin* createPlugin()
 {
-    return new NAMsayinPlugin();
+    return new XythosPlugin();
 }
 
 END_NAMESPACE_DISTRHO

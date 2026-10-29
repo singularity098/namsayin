@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // A local .nam model (A1 or A2).
 //
@@ -37,4 +37,4 @@ constexpr const char* kNamToneKey = "tone";
 // Loudness that normalized models are brought to, in dB (the same target the NAM plugin uses)
 constexpr double kNamTargetLoudnessDb = -18.0;
 
-} // namespace namsayin
+} // namespace xythos

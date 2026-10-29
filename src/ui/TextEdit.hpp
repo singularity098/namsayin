@@ -6,7 +6,7 @@
 #include <cstddef>
 #include <string>
 
-namespace namsayin {
+namespace xythos {
 
 // Editing a single-line UTF-8 text field: a cursor and a selection, moving by character or word, deleting words
 // (Ctrl+Backspace), selecting the word under a double click. Plain data, no DPF, so it can be tested.
@@ -51,4 +51,4 @@ struct TextEdit {
     size_t charRight(size_t pos) const;
 };
 
-} // namespace namsayin
+} // namespace xythos

@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Algorithmic reverb: a Dattorro-style figure-eight tank, voiced as a room, a hall or a plate.
 // In stereo the tail is fully stereo; in mono the two tank outputs are summed. No config.
@@ -25,4 +25,4 @@ enum ReverbParam {
 
 enum class ReverbType { Room, Hall, Plate };
 
-} // namespace namsayin
+} // namespace xythos

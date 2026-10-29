@@ -9,7 +9,7 @@
 #include <array>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 // Finds the signal's repetition period by autocorrelation, for chords as well as single notes (a chord repeats,
 // near enough, after a few periods of its root: a power chord after two, a major triad after four). Runs on a
@@ -146,4 +146,4 @@ private:
     float fConfidence = 0.0f;
 };
 
-} // namespace namsayin
+} // namespace xythos

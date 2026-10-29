@@ -12,7 +12,7 @@
 #include <array>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -338,4 +338,4 @@ const BlockDescriptor kAcousticBlockDescriptor = {
     [] { return std::unique_ptr<Block>(new AcousticBlock()); },
 };
 
-} // namespace namsayin
+} // namespace xythos

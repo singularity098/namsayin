@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // A cab impulse response from a local WAV file (16/24/32-bit PCM or 32-bit float, mono or stereo).
 // Zero-latency partitioned convolution. If the file's sample rate differs from the host's, the IR is resampled.
@@ -25,4 +25,4 @@ enum IrParam {
 // Longest IR used; longer files are truncated
 constexpr double kIrMaxSeconds = 10.0;
 
-} // namespace namsayin
+} // namespace xythos

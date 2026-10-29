@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Warble (worn tape, warped vinyl): a slow, uneven pitch wobble (wow) with a faster flutter, a darker tone and a
 // little saturation. Random makes the wobble drift instead of swing evenly. No config.
@@ -22,4 +22,4 @@ enum WarbleParam {
     kWarbleParamCount
 };
 
-} // namespace namsayin
+} // namespace xythos

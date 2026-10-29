@@ -7,11 +7,11 @@
 
 #include <mutex>
 
-namespace namsayin {
+namespace xythos {
 
 // HTTPS GET for the update check. Windows: WinHTTP (with the system's proxy settings). macOS and Linux: the curl
 // command (every Mac has it, and nearly every Linux desktop), so the plugin links no TLS library; without curl the
-// check just finds nothing. Kept out of NAMsayinUI.cpp so <windows.h> stays out of the DPF code.
+// check just finds nothing. Kept out of XythosUI.cpp so <windows.h> stays out of the DPF code.
 class HttpGet final : public HttpFetcher {
 public:
     HttpGet() = default;
@@ -28,4 +28,4 @@ private:
 #endif
 };
 
-} // namespace namsayin
+} // namespace xythos

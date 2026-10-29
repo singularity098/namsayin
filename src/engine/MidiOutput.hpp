@@ -7,7 +7,7 @@
 #include <bitset>
 #include <cstdint>
 
-namespace namsayin {
+namespace xythos {
 
 // One MIDI message on the way to the host, at an absolute sample time (samples since the engine was prepared)
 struct MidiMessage {
@@ -119,4 +119,4 @@ private:
     MidiSounding* fSounding = nullptr;
 };
 
-} // namespace namsayin
+} // namespace xythos

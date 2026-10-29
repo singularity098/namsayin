@@ -12,7 +12,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -743,4 +743,4 @@ const BlockDescriptor kGatedFuzzBlockDescriptor = {
     [] { return std::unique_ptr<Block>(new GatedFuzzBlock()); },
 };
 
-} // namespace namsayin
+} // namespace xythos

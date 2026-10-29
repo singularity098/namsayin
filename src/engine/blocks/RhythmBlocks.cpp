@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -379,4 +379,4 @@ const BlockDescriptor kKillSwitchBlockDescriptor = {
     false,
 };
 
-} // namespace namsayin
+} // namespace xythos

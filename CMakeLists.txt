@@ -6,7 +6,7 @@ if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
   set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Oldest macOS to run on")
 endif()
 
-project(NAMsayin VERSION 0.1.0 LANGUAGES C CXX)
+project(Xythos VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -22,11 +22,11 @@ endif()
 if(APPLE)
   foreach(arch ${CMAKE_OSX_ARCHITECTURES})
     if(NOT arch MATCHES "^(arm64|x86_64)$")
-      message(FATAL_ERROR "NAMsayin builds for arm64 and x86_64 on macOS (found ${arch})")
+      message(FATAL_ERROR "Xythos builds for arm64 and x86_64 on macOS (found ${arch})")
     endif()
   endforeach()
 elseif(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
-  message(FATAL_ERROR "NAMsayin only supports x86-64 (found ${CMAKE_SYSTEM_PROCESSOR})")
+  message(FATAL_ERROR "Xythos only supports x86-64 (found ${CMAKE_SYSTEM_PROCESSOR})")
 endif()
 
 # AVX2/FMA is a hard requirement on x86-64 (see docs/Requirements.md). No fast-math on any platform: the engine
@@ -50,18 +50,18 @@ endif()
 # a patch wouldn't apply to.
 if(NOT WIN32)
   find_package(Git REQUIRED)
-  file(GLOB NAMSAYIN_DPF_PATCHES ${CMAKE_CURRENT_SOURCE_DIR}/patches/dpf/*.patch)
+  file(GLOB XYTHOS_DPF_PATCHES ${CMAKE_CURRENT_SOURCE_DIR}/patches/dpf/*.patch)
 endif()
-list(SORT NAMSAYIN_DPF_PATCHES)
-foreach(patch ${NAMSAYIN_DPF_PATCHES})
+list(SORT XYTHOS_DPF_PATCHES)
+foreach(patch ${XYTHOS_DPF_PATCHES})
   execute_process(COMMAND ${GIT_EXECUTABLE} apply --reverse --check ${patch}
                   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/deps/DPF
-                  RESULT_VARIABLE NAMSAYIN_PATCH_APPLIED OUTPUT_QUIET ERROR_QUIET)
-  if(NOT NAMSAYIN_PATCH_APPLIED EQUAL 0)
+                  RESULT_VARIABLE XYTHOS_PATCH_APPLIED OUTPUT_QUIET ERROR_QUIET)
+  if(NOT XYTHOS_PATCH_APPLIED EQUAL 0)
     execute_process(COMMAND ${GIT_EXECUTABLE} apply ${patch}
                     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/deps/DPF
-                    RESULT_VARIABLE NAMSAYIN_PATCH_FAILED)
-    if(NOT NAMSAYIN_PATCH_FAILED EQUAL 0)
+                    RESULT_VARIABLE XYTHOS_PATCH_FAILED)
+    if(NOT XYTHOS_PATCH_FAILED EQUAL 0)
       message(FATAL_ERROR "Can't apply ${patch} to deps/DPF (was the submodule updated?)")
     endif()
     message(STATUS "Applied ${patch}")
@@ -130,7 +130,7 @@ target_include_directories(webpdecoder SYSTEM PUBLIC ${WEBP_DIR}/src)
 # ---------------------------------------------------------------------------------------------------------------------
 # Engine (DSP and state, independent of DPF so it can be unit tested)
 
-add_library(namsayin-engine STATIC
+add_library(xythos-engine STATIC
   src/engine/BlockRegistry.cpp
   src/engine/blocks/AmbientBlocks.cpp
   src/engine/blocks/BarberPoleBlock.cpp
@@ -192,93 +192,94 @@ add_library(namsayin-engine STATIC
   src/state/Settings.cpp
   src/state/UpdateCheck.cpp
   src/state/UserImages.cpp)
-target_include_directories(namsayin-engine PUBLIC src)
+target_include_directories(xythos-engine PUBLIC src)
 # The plugin's version (the update check compares it with the latest release)
-target_compile_definitions(namsayin-engine PUBLIC NAMSAYIN_VERSION="${PROJECT_VERSION}"
-  NAMSAYIN_VERSION_MAJOR=${PROJECT_VERSION_MAJOR} NAMSAYIN_VERSION_MINOR=${PROJECT_VERSION_MINOR}
-  NAMSAYIN_VERSION_PATCH=${PROJECT_VERSION_PATCH})
+target_compile_definitions(xythos-engine PUBLIC XYTHOS_VERSION="${PROJECT_VERSION}"
+  XYTHOS_VERSION_MAJOR=${PROJECT_VERSION_MAJOR} XYTHOS_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+  XYTHOS_VERSION_PATCH=${PROJECT_VERSION_PATCH})
 # Whole archive: NAM Core registers its model architectures from static initializers, which the linker would
 # otherwise drop ("No config parser registered for architecture")
 find_package(Threads REQUIRED)
-target_link_libraries(namsayin-engine PUBLIC "$<LINK_LIBRARY:WHOLE_ARCHIVE,nam>" fftconvolver miniz xxhash Threads::Threads)
+target_link_libraries(xythos-engine PUBLIC "$<LINK_LIBRARY:WHOLE_ARCHIVE,nam>" fftconvolver miniz xxhash Threads::Threads)
 
-set(NAMSAYIN_WARNINGS $<IF:$<CXX_COMPILER_ID:MSVC>,/W4,-Wall -Wextra -Wpedantic>)
-target_compile_options(namsayin-engine PRIVATE ${NAMSAYIN_WARNINGS})
+set(XYTHOS_WARNINGS $<IF:$<CXX_COMPILER_ID:MSVC>,/W4,-Wall -Wextra -Wpedantic>)
+target_compile_options(xythos-engine PRIVATE ${XYTHOS_WARNINGS})
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Plugin
 
 # Audio Units only exist on macOS (Logic and GarageBand load nothing else)
-set(NAMSAYIN_FORMATS lv2 vst3)
+set(XYTHOS_FORMATS lv2 vst3)
 if(APPLE)
-  list(APPEND NAMSAYIN_FORMATS au)
+  list(APPEND XYTHOS_FORMATS au)
 endif()
 
 # The built-in block images: the WebPs in resources/blocks/ (made by tools/prepare_block_image.py), embedded as byte
 # arrays at build time, so only the WebPs are committed
-file(GLOB NAMSAYIN_BLOCK_IMAGES CONFIGURE_DEPENDS resources/blocks/*.webp resources/blocks/thumbs/*.webp)
-set(NAMSAYIN_BLOCK_IMAGES_CPP ${CMAKE_CURRENT_BINARY_DIR}/generated/BlockImages.cpp)
+file(GLOB XYTHOS_BLOCK_IMAGES CONFIGURE_DEPENDS resources/blocks/*.webp resources/blocks/thumbs/*.webp)
+set(XYTHOS_BLOCK_IMAGES_CPP ${CMAKE_CURRENT_BINARY_DIR}/generated/BlockImages.cpp)
 add_custom_command(
-  OUTPUT ${NAMSAYIN_BLOCK_IMAGES_CPP}
-  COMMAND ${CMAKE_COMMAND} -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/resources/blocks -DOUT=${NAMSAYIN_BLOCK_IMAGES_CPP}
+  OUTPUT ${XYTHOS_BLOCK_IMAGES_CPP}
+  COMMAND ${CMAKE_COMMAND} -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/resources/blocks -DOUT=${XYTHOS_BLOCK_IMAGES_CPP}
           -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedBlockImages.cmake
-  DEPENDS ${NAMSAYIN_BLOCK_IMAGES} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedBlockImages.cmake
+  DEPENDS ${XYTHOS_BLOCK_IMAGES} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedBlockImages.cmake
   COMMENT "Embedding the block images"
   VERBATIM)
 # The built-in speaker cabinet images for IR blocks: resources/cabs/ (made by tools/prepare_cab_images.py), the same way
-file(GLOB NAMSAYIN_CAB_IMAGES CONFIGURE_DEPENDS resources/cabs/*.webp resources/cabs/thumbs/*.webp)
-set(NAMSAYIN_CAB_IMAGES_CPP ${CMAKE_CURRENT_BINARY_DIR}/generated/CabImages.cpp)
+file(GLOB XYTHOS_CAB_IMAGES CONFIGURE_DEPENDS resources/cabs/*.webp resources/cabs/thumbs/*.webp)
+set(XYTHOS_CAB_IMAGES_CPP ${CMAKE_CURRENT_BINARY_DIR}/generated/CabImages.cpp)
 add_custom_command(
-  OUTPUT ${NAMSAYIN_CAB_IMAGES_CPP}
-  COMMAND ${CMAKE_COMMAND} -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/resources/cabs -DOUT=${NAMSAYIN_CAB_IMAGES_CPP} -DKIND=Cab
+  OUTPUT ${XYTHOS_CAB_IMAGES_CPP}
+  COMMAND ${CMAKE_COMMAND} -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/resources/cabs -DOUT=${XYTHOS_CAB_IMAGES_CPP} -DKIND=Cab
           -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedBlockImages.cmake
-  DEPENDS ${NAMSAYIN_CAB_IMAGES} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedBlockImages.cmake
+  DEPENDS ${XYTHOS_CAB_IMAGES} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedBlockImages.cmake
   COMMENT "Embedding the cab images"
   VERBATIM)
 
-dpf_add_plugin(namsayin
-  TARGETS ${NAMSAYIN_FORMATS}
+dpf_add_plugin(xythos
+  TARGETS ${XYTHOS_FORMATS}
   USE_FILE_BROWSER
   FILES_DSP
-    src/plugin/NAMsayinPlugin.cpp
+    src/plugin/XythosPlugin.cpp
   FILES_UI
     src/ui/BackgroundImage.cpp
     src/ui/BlockGlyphs.cpp
-    ${NAMSAYIN_BLOCK_IMAGES_CPP}
-    ${NAMSAYIN_CAB_IMAGES_CPP}
+    ${XYTHOS_BLOCK_IMAGES_CPP}
+    ${XYTHOS_CAB_IMAGES_CPP}
     src/ui/FileLooks.cpp
     src/ui/FolderPicker.cpp
     src/ui/FontData.cpp
     src/ui/HttpGet.cpp
     src/ui/KnobImages.cpp
     src/ui/LedImages.cpp
-    src/ui/ParamHelp.cpp
-    src/ui/NAMsayinUI.cpp
+    src/ui/LogoImage.cpp
     src/ui/OpenUrl.cpp
+    src/ui/ParamHelp.cpp
     src/ui/PedalFaces.cpp
     src/ui/TextEdit.cpp
     src/ui/Vsync.cpp
-    src/ui/WebpImage.cpp)
+    src/ui/WebpImage.cpp
+    src/ui/XythosUI.cpp)
 
-target_include_directories(namsayin PUBLIC src src/plugin)
+target_include_directories(xythos PUBLIC src src/plugin)
 
 # MSVC has no glext.h; use our copy instead of the one DPF downloads at configure time
 if(MSVC)
   target_include_directories(dgl-system-libs-definitions BEFORE INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/deps/khronos)
 endif()
-target_link_libraries(namsayin PUBLIC namsayin-engine webpdecoder)
+target_link_libraries(xythos PUBLIC xythos-engine webpdecoder)
 if(WIN32)
   # ShellExecute (Fretbored link); IFileOpenDialog (folder picker); WinHTTP (update check)
-  target_link_libraries(namsayin PUBLIC shell32 ole32 winhttp)
+  target_link_libraries(xythos PUBLIC shell32 ole32 winhttp)
 endif()
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Tests
 
-option(NAMSAYIN_BUILD_TESTS "Build unit tests" ON)
-if(NAMSAYIN_BUILD_TESTS)
+option(XYTHOS_BUILD_TESTS "Build unit tests" ON)
+if(XYTHOS_BUILD_TESTS)
   enable_testing()
-  add_executable(namsayin-tests
+  add_executable(xythos-tests
     tests/TestMain.cpp
     tests/BlockGlyphTests.cpp
     tests/BlockSanityTests.cpp
@@ -319,23 +320,24 @@ if(NAMSAYIN_BUILD_TESTS)
     src/ui/BlockGlyphs.cpp
     src/ui/FileLooks.cpp
     src/ui/HttpGet.cpp
+    src/ui/LogoImage.cpp
     src/ui/ParamHelp.cpp
     src/ui/PedalFaces.cpp
     src/ui/TextEdit.cpp
     src/ui/WebpImage.cpp)
   if(WIN32)
-    target_link_libraries(namsayin-tests PRIVATE winhttp)
+    target_link_libraries(xythos-tests PRIVATE winhttp)
   endif()
-  target_include_directories(namsayin-tests PRIVATE tests deps/doctest src)
+  target_include_directories(xythos-tests PRIVATE tests deps/doctest src)
   if(APPLE)
     # the tests run on the machine that builds them: only its own architecture
-    set_target_properties(namsayin-tests PROPERTIES OSX_ARCHITECTURES ${CMAKE_HOST_SYSTEM_PROCESSOR})
+    set_target_properties(xythos-tests PROPERTIES OSX_ARCHITECTURES ${CMAKE_HOST_SYSTEM_PROCESSOR})
   endif()
-  target_link_libraries(namsayin-tests PRIVATE namsayin-engine webpdecoder)
-  target_compile_options(namsayin-tests PRIVATE ${NAMSAYIN_WARNINGS})
-  target_compile_definitions(namsayin-tests PRIVATE NAMSAYIN_EXAMPLE_MODELS="${NAM_DIR}/example_models"
-    NAMSAYIN_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/recordings" NAMSAYIN_RECORDINGS_WAV="${CMAKE_BINARY_DIR}/recordings"
-    NAMSAYIN_BLOCK_IMAGES="${CMAKE_CURRENT_SOURCE_DIR}/resources/blocks"
-    NAMSAYIN_CAB_IMAGES="${CMAKE_CURRENT_SOURCE_DIR}/resources/cabs")
-  add_test(NAME namsayin-tests COMMAND namsayin-tests)
+  target_link_libraries(xythos-tests PRIVATE xythos-engine webpdecoder)
+  target_compile_options(xythos-tests PRIVATE ${XYTHOS_WARNINGS})
+  target_compile_definitions(xythos-tests PRIVATE XYTHOS_EXAMPLE_MODELS="${NAM_DIR}/example_models"
+    XYTHOS_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/recordings" XYTHOS_RECORDINGS_WAV="${CMAKE_BINARY_DIR}/recordings"
+    XYTHOS_BLOCK_IMAGES="${CMAKE_CURRENT_SOURCE_DIR}/resources/blocks"
+    XYTHOS_CAB_IMAGES="${CMAKE_CURRENT_SOURCE_DIR}/resources/cabs")
+  add_test(NAME xythos-tests COMMAND xythos-tests)
 endif()

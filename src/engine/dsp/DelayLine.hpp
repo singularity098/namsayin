@@ -8,7 +8,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace namsayin {
+namespace xythos {
 
 // Circular delay line with fractional reads. The buffer is sized in prepare() (non-RT); the rest is RT-safe.
 class DelayLine {
@@ -154,4 +154,4 @@ private:
     uint32_t fPos = 0;
 };
 
-} // namespace namsayin
+} // namespace xythos

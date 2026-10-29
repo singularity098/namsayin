@@ -13,7 +13,7 @@
 #include <cmath>
 #include <vector>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -344,4 +344,4 @@ const BlockDescriptor kPolyChipBlockDescriptor = {
     true,
 };
 
-} // namespace namsayin
+} // namespace xythos

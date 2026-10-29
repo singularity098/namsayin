@@ -13,7 +13,7 @@
 #include <string_view>
 #include <vector>
 
-namespace namsayin {
+namespace xythos {
 
 class BlockRegistry;
 
@@ -100,4 +100,4 @@ struct ChainState {
     bool operator==(const ChainState&) const = default;
 };
 
-} // namespace namsayin
+} // namespace xythos

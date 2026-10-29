@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Doppelganger Delay: a delay whose echoes alternate between two effects. With the default order the 1st, 3rd,
 // 5th... echoes are flanged and the 2nd, 4th, 6th... are chorused, each with only its own effect (they don't
@@ -34,4 +34,4 @@ enum DoppelgangerParam {
 
 enum class DoppelgangerOrder { FlangeFirst, ChorusFirst };
 
-} // namespace namsayin
+} // namespace xythos

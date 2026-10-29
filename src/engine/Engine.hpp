@@ -24,7 +24,7 @@
 #include <string>
 #include <vector>
 
-namespace namsayin {
+namespace xythos {
 
 // The audio engine: input stage, signal chain (with an optional split), tone stack, output stage, metronome,
 // limiter and meters, and the tuner's input.
@@ -233,4 +233,4 @@ private:
     std::vector<float> fClick;
 };
 
-} // namespace namsayin
+} // namespace xythos

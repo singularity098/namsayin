@@ -5,7 +5,7 @@
 
 #include "BackgroundImage.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 const unsigned char kBackgroundImage[] = {
     82, 73, 70, 70, 52, 80, 6, 0, 87, 69, 66, 80, 86, 80, 56, 76, 39, 80, 6, 0,
@@ -20700,4 +20700,4 @@ const unsigned char kBackgroundImage[] = {
 
 const unsigned int kBackgroundImageSize = sizeof(kBackgroundImage);
 
-} // namespace namsayin
+} // namespace xythos

@@ -14,7 +14,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -575,4 +575,4 @@ const BlockDescriptor kGatedReverbBlockDescriptor = {
     [] { return std::unique_ptr<Block>(new GatedReverbBlock()); },
 };
 
-} // namespace namsayin
+} // namespace xythos

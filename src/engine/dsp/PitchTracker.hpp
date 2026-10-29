@@ -11,7 +11,7 @@
 #include <cmath>
 #include <cstdint>
 
-namespace namsayin {
+namespace xythos {
 
 // Real-time monophonic pitch tracking for the synths and pitch pedals (dsp/NoteTracker.hpp turns it into notes):
 // YIN (de Cheveigné and Kawahara, 2002) on a copy decimated to about 12 kHz, every 4 ms, for 28..1500 Hz (a 5-string
@@ -326,4 +326,4 @@ private:
     uint32_t fEstimates = 0;
 };
 
-} // namespace namsayin
+} // namespace xythos

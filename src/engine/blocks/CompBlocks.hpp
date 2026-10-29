@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Compressor pedals (owner, 2026-10-29: "half a dozen compressor pedals", Neve-based circuits and optical compressors
 // among them). Each is the way its circuit compresses (the topology, the detector, the gain cell's release) and the
@@ -56,4 +56,4 @@ enum FetLimiterParam {
 extern const BlockDescriptor kSquashCompBlockDescriptor;
 enum SquashCompParam { kSquashSustain, kSquashAttack, kSquashLevel, kSquashBlend, kSquashParamCount };
 
-} // namespace namsayin
+} // namespace xythos

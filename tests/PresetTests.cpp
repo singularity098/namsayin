@@ -13,21 +13,21 @@
 #include <filesystem>
 #include <fstream>
 
-using namespace namsayin;
+using namespace xythos;
 namespace fs = std::filesystem;
 
 namespace {
 
 struct PresetFixture {
-    fs::path root = fs::temp_directory_path() / "namsayin-test-presets";
+    fs::path root = fs::temp_directory_path() / "xythos-test-presets";
     std::string model, ir;
 
     PresetFixture()
     {
         fs::remove_all(root);
         fs::create_directories(root / "lib");
-        testing::setEnv("NAMSAYIN_CACHE_DIR", pathToUtf8(root / "cache"));
-        testing::setEnv("NAMSAYIN_CONFIG_DIR", pathToUtf8(root / "config"));
+        testing::setEnv("XYTHOS_CACHE_DIR", pathToUtf8(root / "cache"));
+        testing::setEnv("XYTHOS_CONFIG_DIR", pathToUtf8(root / "config"));
         model = pathToUtf8(root / "lib" / "Amp.nam");
         ir = pathToUtf8(root / "lib" / "Cab.wav");
         std::ofstream(pathFromUtf8(model), std::ios::binary) << "model bytes";
@@ -56,7 +56,7 @@ TEST_CASE("presets round-trip through JSON, without the preset's own path")
 {
     PresetFixture fixture;
     Preset preset = fixture.preset();
-    preset.chain.preset = "/somewhere/else.namsayin";
+    preset.chain.preset = "/somewhere/else.xythos";
     const std::optional<Preset> back = Preset::fromJson(preset.toJson());
     REQUIRE(back);
     CHECK(back->chain.blocks == preset.chain.blocks);
@@ -69,7 +69,7 @@ TEST_CASE("presets round-trip through JSON, without the preset's own path")
 TEST_CASE("a saved preset loads with its files where they are, hashes added")
 {
     PresetFixture fixture;
-    const std::string file = pathToUtf8(fixture.root / "Clean.namsayin");
+    const std::string file = pathToUtf8(fixture.root / "Clean.xythos");
     REQUIRE(savePresetFile(file, fixture.preset(), false));
 
     const std::optional<LoadedPreset> loaded = loadPresetFile(file, nullptr);
@@ -86,8 +86,8 @@ TEST_CASE("a saved preset loads with its files where they are, hashes added")
 TEST_CASE("missing files come from the embedded copies, then the library, else stay missing")
 {
     PresetFixture fixture;
-    const std::string embedded = pathToUtf8(fixture.root / "Embedded.namsayin");
-    const std::string plain = pathToUtf8(fixture.root / "Plain.namsayin");
+    const std::string embedded = pathToUtf8(fixture.root / "Embedded.xythos");
+    const std::string plain = pathToUtf8(fixture.root / "Plain.xythos");
     REQUIRE(savePresetFile(embedded, fixture.preset(), true));
     REQUIRE(savePresetFile(plain, fixture.preset(), false));
 
@@ -126,7 +126,7 @@ TEST_CASE("embedding fails cleanly when a file can't be read; a non-preset file 
     Preset preset = fixture.preset();
     preset.chain.blocks[0].config["path"] = pathToUtf8(fixture.root / "gone.nam");
     std::string error;
-    CHECK_FALSE(savePresetFile(pathToUtf8(fixture.root / "x.namsayin"), preset, true, &error));
+    CHECK_FALSE(savePresetFile(pathToUtf8(fixture.root / "x.xythos"), preset, true, &error));
     CHECK(error.find("gone.nam") != std::string::npos);
 
     CHECK_FALSE(loadPresetFile(fixture.model, nullptr, &error));
@@ -134,13 +134,13 @@ TEST_CASE("embedding fails cleanly when a file can't be read; a non-preset file 
 
 TEST_CASE("preset folder: paths from folder and name, listing, inside checks")
 {
-    const fs::path dir = fs::temp_directory_path() / "namsayin-test-preset-folder";
+    const fs::path dir = fs::temp_directory_path() / "xythos-test-preset-folder";
     fs::remove_all(dir);
 
-    CHECK(presetPath(dir, "", "Clean") == dir / "Clean.namsayin");
-    CHECK(presetPath(dir, " Amps / Fender ", " Twin ") == dir / "Amps" / "Fender" / "Twin.namsayin");
-    CHECK(presetPath(dir, "Amps\\Fender", "Twin.namsayin") == dir / "Amps" / "Fender" / "Twin.namsayin");
-    CHECK(presetPath(dir, "//", "Ünïcode") == dir / pathFromUtf8("Ünïcode.namsayin"));
+    CHECK(presetPath(dir, "", "Clean") == dir / "Clean.xythos");
+    CHECK(presetPath(dir, " Amps / Fender ", " Twin ") == dir / "Amps" / "Fender" / "Twin.xythos");
+    CHECK(presetPath(dir, "Amps\\Fender", "Twin.xythos") == dir / "Amps" / "Fender" / "Twin.xythos");
+    CHECK(presetPath(dir, "//", "Ünïcode") == dir / pathFromUtf8("Ünïcode.xythos"));
     CHECK_FALSE(presetPath(dir, "", "  "));
     CHECK_FALSE(presetPath(dir, "", "a/b"));
     CHECK_FALSE(presetPath(dir, "", "what?"));
@@ -163,26 +163,26 @@ TEST_CASE("preset folder: paths from folder and name, listing, inside checks")
     CHECK(presets[3].folder == "Clean/Fender");
     CHECK(presets[3].name == "Deluxe");
     CHECK(presets[4].folder == "Lead");
-    CHECK(pathFromUtf8(presets[4].path) == dir / "Lead" / "Plexi.namsayin");
+    CHECK(pathFromUtf8(presets[4].path) == dir / "Lead" / "Plexi.xythos");
 
     CHECK(listPresetFolders(dir) == std::vector<std::string> { "Clean", "Clean/Fender", "Empty", "Lead" });
     CHECK(listPresets(dir / "missing").empty());
 
-    CHECK(isInsideDir(dir, dir / "Clean" / "Twin.namsayin"));
-    CHECK(isInsideDir(dir, dir / "New" / "Not yet.namsayin"));
+    CHECK(isInsideDir(dir, dir / "Clean" / "Twin.xythos"));
+    CHECK(isInsideDir(dir, dir / "New" / "Not yet.xythos"));
     CHECK_FALSE(isInsideDir(dir, dir));
-    CHECK_FALSE(isInsideDir(dir, dir.parent_path() / "elsewhere.namsayin"));
-    CHECK_FALSE(isInsideDir(dir, dir / ".." / "elsewhere.namsayin"));
+    CHECK_FALSE(isInsideDir(dir, dir.parent_path() / "elsewhere.xythos"));
+    CHECK_FALSE(isInsideDir(dir, dir / ".." / "elsewhere.xythos"));
 }
 
 TEST_CASE("deleting a preset: only preset files inside the preset folder")
 {
-    const fs::path root = fs::temp_directory_path() / "namsayin-test-preset-delete";
+    const fs::path root = fs::temp_directory_path() / "xythos-test-preset-delete";
     fs::remove_all(root);
     const fs::path dir = root / "presets";
     Preset preset;
     const std::string twin = pathToUtf8(*presetPath(dir, "Clean", "Twin"));
-    const std::string outside = pathToUtf8(root / "Outside.namsayin");
+    const std::string outside = pathToUtf8(root / "Outside.xythos");
     REQUIRE(savePresetFile(twin, preset, false));
     REQUIRE(savePresetFile(outside, preset, false));
     std::ofstream(dir / "notes.txt") << "not a preset";
@@ -211,8 +211,8 @@ TEST_CASE("exported presets carry the user's block images, which go into the lib
     Preset preset = fixture.preset();
     preset.chain.blocks[0].image = "My Amp.png";
     preset.chain.blocks[2].image = "Delay.jpg";
-    const std::string embedded = pathToUtf8(fixture.root / "Embedded.namsayin");
-    const std::string plain = pathToUtf8(fixture.root / "Plain.namsayin");
+    const std::string embedded = pathToUtf8(fixture.root / "Embedded.xythos");
+    const std::string plain = pathToUtf8(fixture.root / "Plain.xythos");
     REQUIRE(savePresetFile(embedded, preset, true));
     REQUIRE(savePresetFile(plain, preset, false));
     CHECK(readLibraryFile(embedded + "!/images/amps/My Amp.png") == png);

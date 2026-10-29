@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 // Delay-line pitch shifting. A voice reads the recent input through two taps whose delays move at (1 - ratio)
 // samples per sample; when a tap reaches the end of its window it jumps back by the window, and the taps are
@@ -97,4 +97,4 @@ inline double semitonesToRatio(double semitones)
     return std::exp2(semitones / 12.0);
 }
 
-} // namespace namsayin
+} // namespace xythos

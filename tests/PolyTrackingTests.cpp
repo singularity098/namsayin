@@ -17,7 +17,7 @@
 #include <functional>
 #include <string>
 
-using namespace namsayin;
+using namespace xythos;
 
 namespace {
 
@@ -108,7 +108,7 @@ PolyTracker finderTracker(double lookaheadMs)
             }
             out[t] = now;
         }
-        if (std::getenv("NAMSAYIN_TRACKING_DEBUG"))
+        if (std::getenv("XYTHOS_TRACKING_DEBUG"))
             std::printf("    %d picks heard\n", finder.picks());
         return static_cast<size_t>(finder.latency());
     };
@@ -205,7 +205,7 @@ PolyScore polyScore(const PolyScene& scene, const std::vector<Notes>& out, size_
 
 std::vector<PolyScore> polyBench(const char* name, const PolyTracker& tracker, bool print = true, bool bass = false)
 {
-    const bool debug = std::getenv("NAMSAYIN_TRACKING_DEBUG") != nullptr;
+    const bool debug = std::getenv("XYTHOS_TRACKING_DEBUG") != nullptr;
     if (print)
     {
         std::printf("\n%s\n", name);
@@ -238,7 +238,7 @@ std::vector<PolyScore> polyBench(const char* name, const PolyTracker& tracker, b
 
 } // namespace
 
-TEST_CASE("poly tracking benchmark" * doctest::skip(std::getenv("NAMSAYIN_TRACKING_BENCH") == nullptr))
+TEST_CASE("poly tracking benchmark" * doctest::skip(std::getenv("XYTHOS_TRACKING_BENCH") == nullptr))
 {
     polyBench("poly note finder", finderTracker(0.0));
     polyBench("poly note finder, lookahead 20 ms", finderTracker(20.0));

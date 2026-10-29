@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -172,4 +172,4 @@ const BlockDescriptor kChorusBlockDescriptor = {
     [] { return std::unique_ptr<Block>(new ChorusBlock()); },
 };
 
-} // namespace namsayin
+} // namespace xythos

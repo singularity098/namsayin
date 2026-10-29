@@ -7,11 +7,11 @@
 #include <optional>
 #include <string>
 
-namespace namsayin {
+namespace xythos {
 
-// Per-user directories. Linux: $XDG_CONFIG_HOME/namsayin (~/.config/namsayin) and $XDG_CACHE_HOME/namsayin
-// (~/.cache/namsayin). Windows: %APPDATA%\NAMsayin and %LOCALAPPDATA%\NAMsayin\Cache.
-// NAMSAYIN_CONFIG_DIR and NAMSAYIN_CACHE_DIR override them (used by the tests).
+// Per-user directories. Linux: $XDG_CONFIG_HOME/xythos (~/.config/xythos) and $XDG_CACHE_HOME/xythos
+// (~/.cache/xythos). Windows: %APPDATA%\Xythos and %LOCALAPPDATA%\Xythos\Cache.
+// XYTHOS_CONFIG_DIR and XYTHOS_CACHE_DIR override them (used by the tests).
 std::filesystem::path configDir();
 std::filesystem::path cacheDir();
 
@@ -23,4 +23,4 @@ std::string pathToUtf8(const std::filesystem::path& path);
 bool writeFileAtomic(const std::filesystem::path& path, const std::string& contents);
 std::optional<std::string> readFile(const std::filesystem::path& path);
 
-} // namespace namsayin
+} // namespace xythos

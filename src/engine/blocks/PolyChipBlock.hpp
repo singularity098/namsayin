@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Poly Chip: a polyphonic chip synth. Instead of tracking one pitch, it splits the guitar into one narrow band per
 // semitone (B0..E6) and plays each note it finds as an 8-bit voice at that semitone, so chords work. Peaks across
@@ -37,4 +37,4 @@ enum PolyChipParam {
 
 enum class PolyChipArp { Off, Up, Down };
 
-} // namespace namsayin
+} // namespace xythos

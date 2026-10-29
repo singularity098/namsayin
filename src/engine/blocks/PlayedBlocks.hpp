@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Strum Machine: turns each picked note into a strummed chord. The note is followed (NoteTracker), and on each pick
 // up to four pitch-shifted copies of it come in one after another, Strum ms apart, like a hand sweeping across the
@@ -68,4 +68,4 @@ enum DrumTriggerParam {
     kDrumParamCount
 };
 
-} // namespace namsayin
+} // namespace xythos

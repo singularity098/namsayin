@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -192,4 +192,4 @@ const BlockDescriptor kRotaryBlockDescriptor = {
     [] { return std::unique_ptr<Block>(new RotaryBlock()); },
 };
 
-} // namespace namsayin
+} // namespace xythos

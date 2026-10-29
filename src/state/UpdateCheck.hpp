@@ -14,16 +14,16 @@
 #include <string_view>
 #include <thread>
 
-namespace namsayin {
+namespace xythos {
 
-// The update check: at most once a day, the UI asks GitHub for NAMsayin's latest release and shows a banner when it's
+// The update check: at most once a day, the UI asks GitHub for Xythos's latest release and shows a banner when it's
 // newer than this build. Nothing is downloaded or installed; the banner opens the release page. Off in Settings.
 
 // This build's version, from the project version in CMakeLists.txt
-inline constexpr const char* kAppVersion = NAMSAYIN_VERSION;
+inline constexpr const char* kAppVersion = XYTHOS_VERSION;
 inline constexpr const char* kLatestReleaseApiUrl =
-    "https://api.github.com/repos/singularity098/namsayin/releases/latest";
-inline constexpr const char* kLatestReleasePageUrl = "https://github.com/singularity098/namsayin/releases/latest";
+    "https://api.github.com/repos/singularity098/xythos/releases/latest";
+inline constexpr const char* kLatestReleasePageUrl = "https://github.com/singularity098/xythos/releases/latest";
 
 // major.minor.patch; "v1.2" and "1.2.0" are the same version. Anything else (pre-release suffixes, other text) is not
 // a version, so it never shows a banner.
@@ -93,4 +93,4 @@ private:
     std::atomic<bool> fFinished { false };
 };
 
-} // namespace namsayin
+} // namespace xythos

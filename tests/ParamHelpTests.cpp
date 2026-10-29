@@ -10,7 +10,7 @@
 #include <cstring>
 #include <string>
 
-using namespace namsayin;
+using namespace xythos;
 
 namespace {
 

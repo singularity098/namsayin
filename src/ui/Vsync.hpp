@@ -5,7 +5,7 @@
 
 #include <cstdint>
 
-namespace namsayin {
+namespace xythos {
 
 // Turns off vsync for the window whose OpenGL context is current (call it while drawing). Plugin UIs draw from the
 // host's GUI thread, so a buffer swap that waits for the screen's refresh stalls the host's idle loop, which on
@@ -13,4 +13,4 @@ namespace namsayin {
 // so calling it every frame only does the work once per window. Linux (GLX) only; a no-op elsewhere.
 void disableVsync(uintptr_t& done);
 
-} // namespace namsayin
+} // namespace xythos

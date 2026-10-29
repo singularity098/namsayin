@@ -7,7 +7,7 @@
 #include <atomic>
 #include <cstddef>
 
-namespace namsayin {
+namespace xythos {
 
 // Lock-free single-producer single-consumer queue with fixed capacity
 template <typename T, size_t Capacity>
@@ -40,4 +40,4 @@ private:
     std::atomic<size_t> fTail { 0 };
 };
 
-} // namespace namsayin
+} // namespace xythos

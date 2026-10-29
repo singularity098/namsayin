@@ -9,7 +9,7 @@
 
 #include <filesystem>
 
-using namespace namsayin;
+using namespace xythos;
 namespace fs = std::filesystem;
 
 namespace {
@@ -21,12 +21,12 @@ std::string pngBytes(char depth, const std::string& rest = "pixels")
 }
 
 struct ImageFixture {
-    fs::path root = fs::temp_directory_path() / "namsayin-test-images";
+    fs::path root = fs::temp_directory_path() / "xythos-test-images";
 
     ImageFixture()
     {
         fs::remove_all(root);
-        testing::setEnv("NAMSAYIN_CONFIG_DIR", pathToUtf8(root / "config"));
+        testing::setEnv("XYTHOS_CONFIG_DIR", pathToUtf8(root / "config"));
     }
 };
 

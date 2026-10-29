@@ -10,7 +10,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace namsayin {
+namespace xythos {
 
 namespace {
 
@@ -191,4 +191,4 @@ const BlockDescriptor kBarberPoleBlockDescriptor = {
     true,
 };
 
-} // namespace namsayin
+} // namespace xythos

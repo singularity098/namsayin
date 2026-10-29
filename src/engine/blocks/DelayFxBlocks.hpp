@@ -5,7 +5,7 @@
 
 #include "engine/Block.hpp"
 
-namespace namsayin {
+namespace xythos {
 
 // Reverse delay: the repeats play backwards, each a Time-long slice of what you played, faded in and out so they
 // swell. Tempo sync. No config.
@@ -59,4 +59,4 @@ enum BeatRepeatParam {
 
 constexpr double kRepeatMaxMs = 2000.0;
 
-} // namespace namsayin
+} // namespace xythos

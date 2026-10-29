@@ -9,7 +9,7 @@
 #include <sstream>
 #include <system_error>
 
-namespace namsayin {
+namespace xythos {
 
 namespace fs = std::filesystem;
 
@@ -36,35 +36,35 @@ fs::path homeDir()
 
 fs::path configDir()
 {
-    if (auto dir = envPath("NAMSAYIN_CONFIG_DIR"))
+    if (auto dir = envPath("XYTHOS_CONFIG_DIR"))
         return *dir;
 #ifdef _WIN32
     if (auto appData = envPath("APPDATA"))
-        return *appData / "NAMsayin";
-    return homeDir() / "AppData" / "Roaming" / "NAMsayin";
+        return *appData / "Xythos";
+    return homeDir() / "AppData" / "Roaming" / "Xythos";
 #elif defined(__APPLE__)
-    return homeDir() / "Library" / "Application Support" / "NAMsayin";
+    return homeDir() / "Library" / "Application Support" / "Xythos";
 #else
     if (auto xdg = envPath("XDG_CONFIG_HOME"))
-        return *xdg / "namsayin";
-    return homeDir() / ".config" / "namsayin";
+        return *xdg / "xythos";
+    return homeDir() / ".config" / "xythos";
 #endif
 }
 
 fs::path cacheDir()
 {
-    if (auto dir = envPath("NAMSAYIN_CACHE_DIR"))
+    if (auto dir = envPath("XYTHOS_CACHE_DIR"))
         return *dir;
 #ifdef _WIN32
     if (auto local = envPath("LOCALAPPDATA"))
-        return *local / "NAMsayin" / "Cache";
-    return homeDir() / "AppData" / "Local" / "NAMsayin" / "Cache";
+        return *local / "Xythos" / "Cache";
+    return homeDir() / "AppData" / "Local" / "Xythos" / "Cache";
 #elif defined(__APPLE__)
-    return homeDir() / "Library" / "Caches" / "NAMsayin";
+    return homeDir() / "Library" / "Caches" / "Xythos";
 #else
     if (auto xdg = envPath("XDG_CACHE_HOME"))
-        return *xdg / "namsayin";
-    return homeDir() / ".cache" / "namsayin";
+        return *xdg / "xythos";
+    return homeDir() / ".cache" / "xythos";
 #endif
 }
 
@@ -119,4 +119,4 @@ std::optional<std::string> readFile(const fs::path& path)
     return text.str();
 }
 
-} // namespace namsayin
+} // namespace xythos
