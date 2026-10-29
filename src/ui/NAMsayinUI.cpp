@@ -67,11 +67,10 @@ const Color background(0x00, 0x00, 0x00);
 // Everything in the window is translucent black over the background image (the owner's choice, 2026-10-29: 50%, after
 // 90% let next to nothing of the dark background through)
 const Color panelFill(0x00, 0x00, 0x00, 0.5f);  // bars, panels, tiles, buttons, the tuner and the metronome
-const Color dialogFill(0x00, 0x00, 0x00, 0.5f); // the toast (dialogs are popupFill)
 const Color itemFill(0x00, 0x00, 0x00, 0.55f);  // items listed in dialogs, a little darker
 // Popups over the chain stay nearly opaque, over a blur of what's behind them, so they read clearly (owner, 2026-10-29;
 // was 90% with no blur): tooltips, dropdown and right-click menus, Add Block and Settings, and the other dialogs (Save
-// Preset, Manage Presets, Images, Cab Image; were 50%)
+// Preset, Manage Presets, Images, Cab Image; were 50%) and the toast (was 50%)
 const Color popupFill(0x00, 0x00, 0x00, 0.93f);
 const Color popupItemFill(0x00, 0x00, 0x00, 0.97f); // the blocks in Add Block
 const Color tile(0x16, 0x16, 0x1a);       // small grey fills (hover in lists, meter boxes)
@@ -6415,7 +6414,7 @@ private:
         Rectangle<float> bounds;
         const float w = textBounds(0, 0, fToast.c_str(), nullptr, bounds) + 32.0f;
         const float x = (fWidth - w) / 2, y = fHeight - kBottomBarHeight - 52.0f;
-        fillRect(x, y, w, 32.0f, theme::dialogFill, 8.0f);
+        fillRect(x, y, w, 32.0f, theme::popupFill, 8.0f);
         beginPath();
         roundedRect(x, y, w, 32.0f, 8.0f);
         strokeColor(theme::accent.withAlpha(0.6f));
