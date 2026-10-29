@@ -179,6 +179,75 @@ TEST_CASE("NAM block in the engine, including through the plugin's state format"
     CHECK(energy > 0.0f);
 }
 
+TEST_CASE("two NAM amps in a split, panned hard in stereo mode, each reach only their own side")
+{
+    // the owner heard no difference between the speakers; each side must be exactly its amp alone
+    auto renderChain = [](const ChainState& chain, bool parallel) {
+        Engine engine;
+        engine.setParallelProcessing(parallel);
+        engine.prepare(kRate, kBuffer);
+        engine.setParameter(kParamInputMode, 1.0f);
+        engine.setParameter(kParamLimiter, 0.0f);
+        engine.setParameter(kParamMergePanA, -100.0f);
+        engine.setParameter(kParamMergePanB, 100.0f);
+        for (int slot = 0; slot < 2; ++slot)
+            for (int p = 0; p < kNamBlockDescriptor.numParams; ++p)
+                engine.setParameter(slotParam(slot, p),
+                                    kNamBlockDescriptor.params[p].toNormalized(kNamBlockDescriptor.params[p].def));
+        REQUIRE(engine.setChain(chain));
+
+        std::vector<float> in(kBuffer), left, right, outL(kBuffer), outR(kBuffer);
+        uint32_t t = 0;
+        for (int b = 0; b < 100; ++b)
+        {
+            for (uint32_t i = 0; i < kBuffer; ++i, ++t)
+                in[i] = 0.3f * static_cast<float>(std::sin(2.0 * M_PI * 110.0 * t / kRate));
+            const float* ins[2] = { in.data(), in.data() };
+            float* outs[2] = { outL.data(), outR.data() };
+            engine.process(ins, outs, kBuffer);
+            left.insert(left.end(), outL.begin(), outL.end());
+            right.insert(right.end(), outR.begin(), outR.end());
+        }
+        return std::pair { left, right };
+    };
+    auto amp = [](int slot, const char* model, int branch) {
+        BlockState block;
+        block.typeId = "nam";
+        block.slot = slot;
+        block.branch = branch;
+        block.config = { { "path", exampleModel(model) }, { "tone", true } };
+        return block;
+    };
+
+    ChainState split;
+    split.blocks = { amp(0, "lstm.nam", kBranchA), amp(1, "wavenet.nam", kBranchB) };
+    split.split = SplitState { 0, 2 };
+    ChainState onlyA, onlyB;
+    onlyA.blocks = { amp(0, "lstm.nam", kBranchA) };
+    onlyB.blocks = { amp(1, "wavenet.nam", kBranchA) };
+
+    for (const bool parallel : { false, true })
+    {
+        CAPTURE(parallel);
+        const auto [left, right] = renderChain(split, parallel);
+        const auto [aLeft, aRight] = renderChain(onlyA, parallel);
+        const auto [bLeft, bRight] = renderChain(onlyB, parallel);
+        const size_t from = left.size() / 2;
+        std::vector<float> diffA(left.size()), diffB(right.size()), sides(left.size());
+        for (size_t i = 0; i < left.size(); ++i)
+        {
+            diffA[i] = left[i] - aLeft[i];
+            diffB[i] = right[i] - bRight[i];
+            sides[i] = left[i] - right[i];
+        }
+        CHECK(rms(left, from) > 1e-3f);
+        CHECK(rms(right, from) > 1e-3f);
+        CHECK(rms(diffA, from) < 1e-4f); // the merge gains settle smoothly
+        CHECK(rms(diffB, from) < 1e-4f);
+        CHECK(rms(sides, from) > 1e-3f);
+    }
+}
+
 TEST_CASE("NAM block removes DC from the model output")
 {
     std::unique_ptr<Block> block = loadBlock(exampleModel("wavenet_a1_standard.nam"));

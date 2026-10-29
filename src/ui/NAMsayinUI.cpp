@@ -65,7 +65,11 @@ const Color background(0x00, 0x00, 0x00);
 // 90% let next to nothing of the dark background through)
 const Color panelFill(0x00, 0x00, 0x00, 0.5f);  // bars, panels, tiles, buttons, the tuner and the metronome
 const Color dialogFill(0x00, 0x00, 0x00, 0.5f); // dialogs and menus
-const Color itemFill(0x00, 0x00, 0x00, 0.55f);  // the blocks in Add Block, a little darker
+const Color itemFill(0x00, 0x00, 0x00, 0.55f);  // items listed in dialogs, a little darker
+// Popups over the chain stay nearly opaque so they read clearly (owner, 2026-10-29): tooltips, dropdown and right-click
+// menus, Add Block and Settings
+const Color popupFill(0x00, 0x00, 0x00, 0.9f);
+const Color popupItemFill(0x00, 0x00, 0x00, 0.95f); // the blocks in Add Block
 const Color tile(0x16, 0x16, 0x1a);       // small grey fills (hover in lists, meter boxes)
 const Color tileHover(0x1d, 0x1d, 0x22);
 const Color inset(0x05, 0x05, 0x06);
@@ -115,7 +119,7 @@ const Color pedalOther(0x70, 0x70, 0x7a);
 enum class Led { None, Off, On };
 
 // Kinds of box, for surface(): each has its own outline brightness
-enum class Surface { Bar, Panel, Tile, Button, Dialog, Inset, Item };
+enum class Surface { Bar, Panel, Tile, Button, Dialog, Inset, Item, Popup, PopupItem };
 
 constexpr float kTopBarHeight = 60.0f;
 constexpr float kFontScale = 1.69f; // text is drawn this much larger than layout sizes (see fontSize())
@@ -3324,10 +3328,19 @@ private:
         case Surface::Dialog: alpha = 0.16f; break;
         case Surface::Inset: alpha = 0.08f; break;
         case Surface::Item: alpha = hover ? 0.30f : 0.14f; break;
+        case Surface::Popup: alpha = 0.16f; break;
+        case Surface::PopupItem: alpha = hover ? 0.30f : 0.14f; break;
         }
-        fillRect(x, y, w, h,
-                 kind == Surface::Dialog ? theme::dialogFill : kind == Surface::Item ? theme::itemFill : theme::panelFill,
-                 radius);
+        Color fill = theme::panelFill;
+        switch (kind)
+        {
+        case Surface::Dialog: fill = theme::dialogFill; break;
+        case Surface::Item: fill = theme::itemFill; break;
+        case Surface::Popup: fill = theme::popupFill; break;
+        case Surface::PopupItem: fill = theme::popupItemFill; break;
+        default: break;
+        }
+        fillRect(x, y, w, h, fill, radius);
         beginPath();
         if (kind == Surface::Bar)
         {
@@ -3764,7 +3777,7 @@ private:
 
         beginPath();
         roundedRect(x, y, width, h, 8.0f);
-        fillColor(theme::dialogFill);
+        fillColor(theme::popupFill);
         fill();
         strokeColor(theme::accent.withAlpha(0.45f));
         strokeWidth(1.0f);
@@ -5546,7 +5559,7 @@ private:
         const float w = std::min(820.0f, fWidth - 64.0f);
         const float h = std::min(520.0f, fHeight - 64.0f);
         const float x = (fWidth - w) / 2, y = (fHeight - h) / 2;
-        surface(x, y, w, h, 12.0f, Surface::Dialog);
+        surface(x, y, w, h, 12.0f, Surface::Popup);
         fHits.push_back({ { x, y, w, h }, Hit::DialogPanel, 0 });
 
         label(x + 20.0f, y + 26.0f, fReplaceSlot >= 0 ? "Replace Block" : "Add Block", theme::text, 16.0f,
@@ -5621,7 +5634,7 @@ private:
             if (r.y + r.h < listTop || r.y > listBottom)
                 continue;
             const bool inside = fMouseY >= listTop && fMouseY < listBottom;
-            surface(r.x, r.y, r.w, r.h, 8.0f, Surface::Item, inside && r.contains(fMouseX, fMouseY));
+            surface(r.x, r.y, r.w, r.h, 8.0f, Surface::PopupItem, inside && r.contains(fMouseX, fMouseY));
             if (NanoImage* img = items[i].type ? builtinThumb(items[i].type->typeId) : nullptr)
                 drawBlockImage(*img, items[i].type, -1, r.x + 10.0f, r.y + 6.0f, thumbW, r.h - 12.0f, 3.0f, false);
             else
@@ -6069,7 +6082,7 @@ private:
         const float x = std::min(fMenuX, fWidth - menuW - 8.0f);
         const float y = std::min(fMenuY, fHeight - h - 8.0f);
         fListScroll = std::clamp(fListScroll, 0.0f, contentH - h);
-        surface(x, y, menuW, h, 8.0f, Surface::Dialog);
+        surface(x, y, menuW, h, 8.0f, Surface::Popup);
         fHits.push_back({ { x, y, menuW, h }, Hit::DialogPanel, 0 });
         const float itemsW = contentH > h ? menuW - kListBarWidth - 2.0f : menuW;
         if (contentH > h)
@@ -6456,7 +6469,7 @@ private:
         const float w = std::min(800.0f, fWidth - 64.0f);
         const float h = std::min(508.0f, fHeight - 48.0f);
         const float x = (fWidth - w) / 2, y = (fHeight - h) / 2;
-        surface(x, y, w, h, 12.0f, Surface::Dialog);
+        surface(x, y, w, h, 12.0f, Surface::Popup);
         fHits.push_back({ { x, y, w, h }, Hit::DialogPanel, 0 });
 
         label(x + 20.0f, y + 26.0f, "Settings", theme::text, 16.0f, ALIGN_LEFT | ALIGN_MIDDLE);
