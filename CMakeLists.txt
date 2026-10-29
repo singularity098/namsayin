@@ -246,6 +246,7 @@ dpf_add_plugin(namsayin
     src/ui/BlockGlyphs.cpp
     ${NAMSAYIN_BLOCK_IMAGES_CPP}
     ${NAMSAYIN_CAB_IMAGES_CPP}
+    src/ui/Blur.cpp
     src/ui/FileLooks.cpp
     src/ui/FolderPicker.cpp
     src/ui/FontData.cpp
@@ -256,6 +257,7 @@ dpf_add_plugin(namsayin
     src/ui/NAMsayinUI.cpp
     src/ui/OpenUrl.cpp
     src/ui/PedalFaces.cpp
+    src/ui/ReadPixels.cpp
     src/ui/TextEdit.cpp
     src/ui/Vsync.cpp
     src/ui/WebpImage.cpp)
@@ -282,6 +284,7 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/TestMain.cpp
     tests/BlockGlyphTests.cpp
     tests/BlockSanityTests.cpp
+    tests/BlurTests.cpp
     tests/ChainStateTests.cpp
     tests/CompPedalTests.cpp
     tests/CompressorBlockTests.cpp
@@ -317,6 +320,7 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/WebpImageTests.cpp
     src/ui/BackgroundImage.cpp
     src/ui/BlockGlyphs.cpp
+    src/ui/Blur.cpp
     src/ui/FileLooks.cpp
     src/ui/HttpGet.cpp
     src/ui/ParamHelp.cpp

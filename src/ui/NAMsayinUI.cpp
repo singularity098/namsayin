@@ -7,6 +7,7 @@
 #include "BlockGlyphs.hpp"
 #include "BackgroundImage.hpp"
 #include "BlockImages.hpp"
+#include "Blur.hpp"
 #include "WebpImage.hpp"
 #include "FileLooks.hpp"
 #include "FontData.hpp"
@@ -17,6 +18,7 @@
 #include "OpenUrl.hpp"
 #include "ParamHelp.hpp"
 #include "PedalFaces.hpp"
+#include "ReadPixels.hpp"
 #include "TextEdit.hpp"
 #include "Vsync.hpp"
 #include "engine/BlockRegistry.hpp"
@@ -67,10 +69,10 @@ const Color background(0x00, 0x00, 0x00);
 const Color panelFill(0x00, 0x00, 0x00, 0.5f);  // bars, panels, tiles, buttons, the tuner and the metronome
 const Color dialogFill(0x00, 0x00, 0x00, 0.5f); // dialogs and menus
 const Color itemFill(0x00, 0x00, 0x00, 0.55f);  // items listed in dialogs, a little darker
-// Popups over the chain stay nearly opaque so they read clearly (owner, 2026-10-29): tooltips, dropdown and right-click
-// menus, Add Block and Settings
-const Color popupFill(0x00, 0x00, 0x00, 0.9f);
-const Color popupItemFill(0x00, 0x00, 0x00, 0.95f); // the blocks in Add Block
+// Popups over the chain stay nearly opaque, over a blur of what's behind them, so they read clearly (owner, 2026-10-29;
+// was 90% with no blur): tooltips, dropdown and right-click menus, Add Block and Settings
+const Color popupFill(0x00, 0x00, 0x00, 0.93f);
+const Color popupItemFill(0x00, 0x00, 0x00, 0.97f); // the blocks in Add Block
 const Color tile(0x16, 0x16, 0x1a);       // small grey fills (hover in lists, meter boxes)
 const Color tileHover(0x1d, 0x1d, 0x22);
 const Color inset(0x05, 0x05, 0x06);
@@ -251,6 +253,8 @@ enum class MenuAction {
     ToggleBypass,
     RemoveBlock,
     ReplaceBlock,
+    CopyBlock,
+    PasteBlock,   // after fMenuTile, or at the end of fAddSection if it's -1
     PresetNew,
     PresetBrowse, // the preset folder's list
     PresetOpen,   // a preset file anywhere (system dialog)
@@ -263,6 +267,10 @@ enum class MenuAction {
     SetLookahead, // arg = index in kLookaheads, for the block fMenuTile
     CabImage,     // the Cab Image dialog for the IR block fMenuTile
 };
+
+// The block copied with the right-click menu's Copy: its type, settings, values, bypass and image (not its MIDI
+// mappings). Shared by the instances in the host's process, so a block can be pasted into another one.
+std::optional<BlockState> gBlockClipboard;
 
 struct MenuEntry {
     std::string label;
@@ -703,6 +711,7 @@ protected:
         fHeight = getHeight() / scale;
         fHits.clear();
         ++fFrame;
+        fBlurCount = 0;
 
         save();
         this->scale(scale, scale);
@@ -2377,10 +2386,21 @@ private:
             entries.push_back({ "Remove", MenuAction::RemoveBlock });
             if (fChain.blocks[hit->index].typeId == kIrBlockDescriptor.typeId && userImage(fChain.blocks[hit->index]) == nullptr)
                 entries.push_back({ "Cab Image…", MenuAction::CabImage });
+            entries.push_back({ "Copy", MenuAction::CopyBlock });
+            if (gBlockClipboard)
+                entries.push_back({ "Paste after", MenuAction::PasteBlock });
             entries.push_back({ "MIDI Learn bypass", MenuAction::MidiLearn });
             if (const MidiMapping* mapping = fChain.midiMappingFor(fMenuParam))
                 entries.push_back({ "Clear MIDI " + ccText(*mapping), MenuAction::MidiClear });
             openMenu(x, y, std::move(entries));
+            return true;
+        }
+        if (hit->kind == Hit::AddBlock && gBlockClipboard)
+        {
+            fMenuTile = -1;
+            fMenuParam = kNoParam;
+            fAddSection = static_cast<Section>(hit->index);
+            openMenu(x, y, { { "Paste", MenuAction::PasteBlock } });
             return true;
         }
         return false;
@@ -2492,6 +2512,23 @@ private:
         case MenuAction::ReplaceBlock:
             if (fMenuTile >= 0 && fMenuTile < static_cast<int>(fChain.blocks.size()))
                 openReplaceDialog(fMenuTile);
+            break;
+        case MenuAction::CopyBlock:
+            if (fMenuTile >= 0 && fMenuTile < static_cast<int>(fChain.blocks.size()))
+                gBlockClipboard = fChain.blocks[fMenuTile];
+            break;
+        case MenuAction::PasteBlock:
+            if (fMenuTile >= 0 && fMenuTile < static_cast<int>(fChain.blocks.size()))
+            {
+                const Section section = fChain.sectionOf(fMenuTile);
+                const std::vector<int> indices = fChain.sectionIndices(section);
+                pasteBlock(section, static_cast<int>(std::find(indices.begin(), indices.end(), fMenuTile)
+                                                     - indices.begin()) + 1);
+            }
+            else if (fMenuTile < 0)
+            {
+                pasteBlock(fAddSection, kMaxBlocks);
+            }
             break;
         case MenuAction::PresetNew:
             newPreset();
@@ -3294,6 +3331,29 @@ private:
         sendChain();
     }
 
+    // Inserts a copy of the copied block at a position in a section (past its end: at the end), with its values
+    void pasteBlock(Section section, int position)
+    {
+        if (!gBlockClipboard || BlockRegistry::builtin().find(gBlockClipboard->typeId) == nullptr)
+            return;
+        if (fChain.freeSlot() < 0)
+        {
+            showToast("The chain is full (32 blocks)");
+            return;
+        }
+        beginEdit();
+        BlockState block = *gBlockClipboard;
+        block.slot = fChain.freeSlot();
+        setHostParameter(slotBypassParam(block.slot), block.bypass ? 1.0f : 0.0f);
+        for (int p = 0; p < kParamsPerSlot; ++p)
+            setHostParameter(slotParam(block.slot, p), block.params[p]);
+        const int slot = block.slot;
+        fChain.insert(section, position, std::move(block));
+        fSelected = indexOfSlot(slot);
+        fMergeSelected = false;
+        sendChain();
+    }
+
     void sendChain()
     {
         const std::string json = fChain.toJson();
@@ -3458,6 +3518,62 @@ private:
         fill();
     }
 
+    // Draws a blur of what's drawn so far into the rounded rect x, y, w, h, under a popup, so what's behind it reads
+    // as a soft blur rather than as text through tinted glass (owner, 2026-10-29). It flushes the frame to read the
+    // window back, which resets NanoVG's state, so call it only where no save() of the draw functions is open (as
+    // the popups are drawn); it puts back onNanoDisplay()'s scaling.
+    void blurBehind(float x, float y, float w, float h, float radius)
+    {
+        constexpr float kMargin = 24.0f;    // read past the popup's edges, so the blur doesn't clamp there
+        constexpr float kSampleSize = 4.0f; // logical pixels per blurred sample
+        constexpr int kRadius = 3, kPasses = 3; // about a 14 px Gaussian
+        const float scale = static_cast<float>(getScaleFactor());
+        const int fbW = static_cast<int>(getWidth()), fbH = static_cast<int>(getHeight());
+        const int x0 = std::clamp(static_cast<int>(std::floor((x - kMargin) * scale)), 0, fbW);
+        const int x1 = std::clamp(static_cast<int>(std::ceil((x + w + kMargin) * scale)), 0, fbW);
+        const int y0 = std::clamp(static_cast<int>(std::floor((y - kMargin) * scale)), 0, fbH);
+        const int y1 = std::clamp(static_cast<int>(std::ceil((y + h + kMargin) * scale)), 0, fbH);
+        if (x1 <= x0 || y1 <= y0)
+            return;
+
+        NanoVG::endFrame(); // the widget hides these (it wraps the frame itself)
+        readFramebuffer(x0, fbH - y1, x1 - x0, y1 - y0, fBlurRead); // GL counts rows from the bottom
+        NanoVG::beginFrame(static_cast<uint>(fbW), static_cast<uint>(fbH));
+        save();
+        this->scale(scale, scale);
+
+        const int factor = std::max(1, static_cast<int>(std::lround(kSampleSize * scale)));
+        blurDownsampled(fBlurRead.data(), x1 - x0, y1 - y0, factor, kRadius, kPasses, true, fBlurred);
+        if (fBlurCount >= fBlurImages.size())
+            fBlurImages.push_back({});
+        BlurImage& img = fBlurImages[fBlurCount++];
+        NVGcontext* const ctx = getContext();
+        if (img.id != 0 && (img.width != fBlurred.width || img.height != fBlurred.height))
+        {
+            nvgDeleteImage(ctx, img.id);
+            img.id = 0;
+        }
+        if (img.id == 0)
+        {
+            img.id = nvgCreateImageRGBA(ctx, fBlurred.width, fBlurred.height, 0, fBlurred.pixels.data());
+            img.width = fBlurred.width;
+            img.height = fBlurred.height;
+        }
+        else
+        {
+            nvgUpdateImage(ctx, img.id, fBlurred.pixels.data());
+        }
+        if (img.id == 0)
+            return;
+
+        const NVGpaint paint = nvgImagePattern(ctx, x0 / scale, y0 / scale, fBlurred.width * factor / scale,
+                                               fBlurred.height * factor / scale, 0.0f, img.id, 1.0f);
+        beginPath();
+        roundedRect(x, y, w, h, radius);
+        nvgFillPaint(ctx, paint);
+        fill();
+    }
+
     // A box: translucent black inside (the background image shows through) with a 1 px grey outline that brightens on hover. Bars are black with one dividing line on
     // their inner edge.
     void surface(float x, float y, float w, float h, float radius, Surface kind, bool hover = false)
@@ -3475,6 +3591,8 @@ private:
         case Surface::Popup: alpha = 0.16f; break;
         case Surface::PopupItem: alpha = hover ? 0.30f : 0.14f; break;
         }
+        if (kind == Surface::Popup)
+            blurBehind(x, y, w, h, radius);
         Color fill = theme::panelFill;
         switch (kind)
         {
@@ -3935,6 +4053,7 @@ private:
         if (y + h > fHeight - 8.0f)
             y = std::max(8.0f, r.y - h - 6.0f);
 
+        blurBehind(x, y, width, h, 8.0f);
         beginPath();
         roundedRect(x, y, width, h, 8.0f);
         fillColor(theme::popupFill);
@@ -7078,6 +7197,17 @@ private:
     static constexpr std::chrono::milliseconds kHelpDelay { 600 };
     int fHelpKind = -1;
     uintptr_t fVsyncDrawable = 0;
+
+    // blurBehind(): the window read back, its blurred copy, and one NanoVG image per blur in a frame
+    struct BlurImage {
+        int id = 0;
+        int width = 0;
+        int height = 0;
+    };
+    std::vector<uint8_t> fBlurRead;
+    BlurredImage fBlurred;
+    std::vector<BlurImage> fBlurImages;
+    size_t fBlurCount = 0;
 
     // frame-rate readout (NAMSAYIN_SHOW_FPS)
     const bool fShowFps = [] {

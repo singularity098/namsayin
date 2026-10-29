@@ -49,7 +49,7 @@ constexpr GlobalParamSpec kToolParams[kParamCount - kParamMergeBalance] = {
     { "Merge Level B",       "merge_level_b",  "dB", -24.0f,  24.0f,  0.0f, kParamFlagNone },
     { "Merge Pan A",         "merge_pan_a",    "%",  -100.0f, 100.0f, 0.0f, kParamFlagNone },
     { "Merge Pan B",         "merge_pan_b",    "%",  -100.0f, 100.0f, 0.0f, kParamFlagNone },
-    { "Merge Invert A",      "merge_invert_a", "",   0.0f,    1.0f,   0.0f, kParamFlagToggle },
+    { "Merge Invert A",      "merge_invert_a", "",   0.0f,    1.0f,   1.0f, kParamFlagToggle }, // on by default (owner, 2026-10-29)
     { "Merge Invert B",      "merge_invert_b", "",   0.0f,    1.0f,   0.0f, kParamFlagToggle },
     { "Tuner",               "tuner",          "",   0.0f,    1.0f,   0.0f, kParamFlagToggle },
     { "Tuner Mute",          "tuner_mute",     "",   0.0f,    1.0f,   1.0f, kParamFlagToggle },

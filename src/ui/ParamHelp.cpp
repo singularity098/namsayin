@@ -2332,8 +2332,9 @@ constexpr GlobalHelp kGlobalHelp[] = {
       "Pans branch B (bottom row) left or right, for example to put two amps on opposite sides for a wide "
       "stereo sound. Works in Mono mode too: the chain is stereo after the merge." },
     { "merge_invert_a",
-      "Flips branch A's phase. If the merged sound gets thin or hollow, the branches are cancelling each other; try "
-      "flipping one." },
+      "Flips branch A's phase. On for a new split: amp captures usually flip the phase, so with an amp in one branch "
+      "this keeps the branches from cancelling. If the merged sound gets thin or hollow, try turning it off, or "
+      "flipping B instead." },
     { "merge_invert_b",
       "Flips branch B's phase. If the merged sound gets thin or hollow, the branches are cancelling each other; try "
       "flipping one." },
