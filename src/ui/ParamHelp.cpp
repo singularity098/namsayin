@@ -808,7 +808,7 @@ constexpr BlockHelp kBlockHelp[] = {
       "repeats stay bright." },
     { "delay", "Mode",
       "Mono repeats in the centre. Stereo uses separate left and right delays (offset by Spread). Ping-Pong "
-      "bounces the repeats from left to right. Stereo and Ping-Pong need Stereo mode." },
+      "bounces the repeats from left to right. Both work in Mono mode too: the chain turns stereo at the Delay." },
     { "delay", "Spread",
       "Delays the right side a little more than the left, for a wide, spacious echo. Stereo and Ping-Pong modes." },
     { "delay", "Mod",
@@ -2299,8 +2299,10 @@ struct GlobalHelp {
 
 constexpr GlobalHelp kGlobalHelp[] = {
     { "input_mode",
-      "Mono processes one channel; Stereo processes both channels, so stereo effects (wide delays, reverbs, "
-      "choruses) can spread across the speakers. Stereo uses about twice the CPU." },
+      "Mono takes your guitar from the first input and processes one channel; Stereo processes both inputs, so "
+      "stereo effects (wide delays, reverbs, choruses) can spread across the speakers, and uses about twice the "
+      "CPU. In Mono the chain still turns stereo after a split's merge and at the Delay, so two panned amps and "
+      "ping-pong echoes work with a mono guitar." },
     { "input",
       "The level of your guitar going into the chain. Turn it up if your guitar is quiet, so amps and drives react "
       "as they should; turn it down if the IN meter clips." },
@@ -2325,16 +2327,20 @@ constexpr GlobalHelp kGlobalHelp[] = {
       "example a dry amp against a wet effects branch." },
     { "merge_pan_a",
       "Pans branch A (top row) left or right, for example to put two amps on opposite sides for a wide stereo "
-      "sound. Stereo mode only." },
+      "sound. Works in Mono mode too: the chain is stereo after the merge." },
     { "merge_pan_b",
       "Pans branch B (bottom row) left or right, for example to put two amps on opposite sides for a wide "
-      "stereo sound. Stereo mode only." },
+      "stereo sound. Works in Mono mode too: the chain is stereo after the merge." },
     { "merge_invert_a",
       "Flips branch A's phase. If the merged sound gets thin or hollow, the branches are cancelling each other; try "
       "flipping one." },
     { "merge_invert_b",
       "Flips branch B's phase. If the merged sound gets thin or hollow, the branches are cancelling each other; try "
       "flipping one." },
+    { "merge_align",
+      "Lines up the two branches in time. Two amp captures can be a fraction of a millisecond apart, and mixed "
+      "together they then sound thin, hollow or phasey. With both branches at the same level, turn it slowly from "
+      "the middle (right delays branch B, left delays branch A) until the sound is fullest; try Invert too." },
     { "tuner",
       "Opens the tuner in place of the chain. Play a single open string and tune until the display shows you're "
       "in tune. While it's open your guitar is muted, unless Mute is off." },

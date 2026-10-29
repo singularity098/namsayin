@@ -13,6 +13,7 @@ namespace namsayin {
 namespace {
 
 constexpr uint32_t kDefaultMaxFrames = 2048;
+constexpr float kMaxMergeAlignMs = 5.0f; // the Merge Align parameter's range
 
 float clampDb(float db)
 {
@@ -127,9 +128,12 @@ void Engine::prepare(double sampleRate, uint32_t maxFrames)
         for (int ch = 0; ch < 2; ++ch)
         {
             fMergeGain[branch][ch].prepare(fSampleRate);
-            fMergeGain[branch][ch].snap(mergeGain(branch, ch, param(kParamInputMode) >= 0.5f));
+            fMergeGain[branch][ch].snap(mergeGain(branch, ch));
+            fAlignLines[branch][ch].prepare(static_cast<size_t>(std::ceil(kMaxMergeAlignMs * 0.001 * fSampleRate)) + 4);
         }
     }
+    fMergeAlign.prepare(fSampleRate, 0.05);
+    fMergeAlign.snap(mergeAlignSamples());
     for (int ch = 0; ch < 2; ++ch)
     {
         fInMeters[ch].prepare(fSampleRate);
@@ -383,9 +387,10 @@ void Engine::processChunk(const float* const* inputs, float* const* outputs, uin
     if (fSongPlaying)
         fSongBeat = transport->beat + offset * transport->bpm / 60.0 / fSampleRate;
 
-    // Blocks keyed from the rig input read this copy (the chain processes fWork in place)
-    for (uint32_t ch = 0; ch < numChannels; ++ch)
-        std::memcpy(fRigInput[ch].data(), fWork[ch].data(), sizeof(float) * frames);
+    // Blocks keyed from the rig input read this copy (the chain processes fWork in place). Both channels: a Mono
+    // chain can turn stereo on the way.
+    for (uint32_t ch = 0; ch < 2; ++ch)
+        std::memcpy(fRigInput[ch].data(), fWork[stereo ? ch : 0].data(), sizeof(float) * frames);
 
     // MIDI the blocks send in this chunk
     for (MidiOutput& midi : fMidiOut)
@@ -410,7 +415,7 @@ void Engine::processChunk(const float* const* inputs, float* const* outputs, uin
         }
     }
 
-    processChain(numChannels, frames);
+    const uint32_t outChannels = processChain(numChannels, frames);
 
     if (fFade != Fade::Idle)
     {
@@ -426,7 +431,7 @@ void Engine::processChunk(const float* const* inputs, float* const* outputs, uin
                 if (fFadeGain >= 1.0f)
                     fFade = Fade::Idle;
             }
-            for (uint32_t ch = 0; ch < numChannels; ++ch)
+            for (uint32_t ch = 0; ch < outChannels; ++ch)
                 fWork[ch][i] *= fFadeGain;
         }
         if (fFade == Fade::Out && fFadeGain <= 0.0f)
@@ -442,10 +447,10 @@ void Engine::processChunk(const float* const* inputs, float* const* outputs, uin
     float* work[2] = { fWork[0].data(), fWork[1].data() };
     // A block whose state went NaN outputs NaN from then on: silence it here, before it reaches the filters below,
     // and have the chain rebuilt with fresh blocks
-    if (silenceNonFinite(work, numChannels, frames))
+    if (silenceNonFinite(work, outChannels, frames))
         fChainFault.store(true, std::memory_order_release);
     fToneStack.setGains(param(kParamBass), param(kParamMiddle), param(kParamTreble));
-    fToneStack.process(work, numChannels, frames);
+    fToneStack.process(work, outChannels, frames);
 
     // Output level, and the tuner's mute (which only silences the guitar, not the metronome)
     fOutputGain.setTarget(dbToGain(param(kParamOutput)));
@@ -457,32 +462,32 @@ void Engine::processChunk(const float* const* inputs, float* const* outputs, uin
         else if (fTunerMuteMix > muteTarget)
             fTunerMuteMix = std::max(muteTarget, fTunerMuteMix - fRampStep);
         const float g = fOutputGain.next() * (1.0f - fTunerMuteMix);
-        for (uint32_t ch = 0; ch < numChannels; ++ch)
+        for (uint32_t ch = 0; ch < outChannels; ++ch)
             fWork[ch][i] *= g;
     }
 
     // Metronome, before the limiter so clicks can't clip the output
     std::fill(fClick.begin(), fClick.begin() + frames, 0.0f);
     fMetronome.process(fClick.data(), frames, metronomeSettings(), transport, offset);
-    for (uint32_t ch = 0; ch < numChannels; ++ch)
+    for (uint32_t ch = 0; ch < outChannels; ++ch)
         for (uint32_t i = 0; i < frames; ++i)
             fWork[ch][i] += fClick[i];
 
     float reduction = 1.0f;
     if (param(kParamLimiter) >= 0.5f)
-        reduction = fLimiter.process(work, numChannels, frames);
+        reduction = fLimiter.process(work, outChannels, frames);
     else
         fLimiter.reset();
     fParams[kParamLimiterReduction].store(-gainToDb(reduction, -24.0f), std::memory_order_relaxed);
 
     // the output stage can't make a NaN from finite input, but if it ever did it must not stay in its filters
-    if (silenceNonFinite(work, numChannels, frames))
+    if (silenceNonFinite(work, outChannels, frames))
     {
         fToneStack.reset();
         fLimiter.reset();
     }
 
-    if (!stereo)
+    if (outChannels == 1)
         std::memcpy(fWork[1].data(), fWork[0].data(), sizeof(float) * frames);
 
     // Global bypass: crossfade to the untouched input (which the tuner mutes too)
@@ -516,13 +521,13 @@ void Engine::processChunk(const float* const* inputs, float* const* outputs, uin
     fOutMeters[1].process(outputs[1], frames);
 }
 
-void Engine::processChain(uint32_t numChannels, uint32_t frames)
+uint32_t Engine::processChain(uint32_t numChannels, uint32_t frames)
 {
     float* work[2] = { fWork[0].data(), fWork[1].data() };
     float* scratch[2] = { fScratch[0].data(), fScratch[1].data() };
     Graph& graph = *fActive;
 
-    processNodes(graph.pre, work, scratch, numChannels, frames, fMidiOut[0]);
+    numChannels = processNodes(graph.pre, work, scratch, numChannels, frames, fMidiOut[0]);
     if (graph.split)
     {
         for (uint32_t ch = 0; ch < numChannels; ++ch)
@@ -534,16 +539,18 @@ void Engine::processChain(uint32_t numChannels, uint32_t frames)
         const bool parallel = graph.worker && !graph.branchB.empty() && fParallel.load(std::memory_order_relaxed);
         if (parallel)
             graph.worker->start(&Engine::runBranchB, this);
-        processNodes(graph.branchA, work, scratch, numChannels, frames, fMidiOut[0]);
-        graph.alignA.process(work, numChannels, frames);
+        const uint32_t channelsA = processNodes(graph.branchA, work, scratch, numChannels, frames, fMidiOut[0]);
+        graph.alignA.process(work, channelsA, frames);
         if (parallel)
             graph.worker->wait();
         else
             runBranchB(this);
 
-        merge(numChannels, frames);
+        // stereo from here on, in Mono mode too, so the branches can be panned apart
+        merge(channelsA, fJobChannelsOut, frames);
+        numChannels = 2;
     }
-    processNodes(graph.post, work, scratch, numChannels, frames, fMidiOut[0]);
+    return processNodes(graph.post, work, scratch, numChannels, frames, fMidiOut[0]);
 }
 
 void Engine::runBranchB(void* context)
@@ -551,12 +558,18 @@ void Engine::runBranchB(void* context)
     Engine& engine = *static_cast<Engine*>(context);
     float* branch[2] = { engine.fBranch[0].data(), engine.fBranch[1].data() };
     float* scratch[2] = { engine.fBranchScratch[0].data(), engine.fBranchScratch[1].data() };
-    engine.processNodes(engine.fActive->branchB, branch, scratch, engine.fJobChannels, engine.fJobFrames,
-                        engine.fMidiOut[1]);
-    engine.fActive->alignB.process(branch, engine.fJobChannels, engine.fJobFrames);
+    engine.fJobChannelsOut = engine.processNodes(engine.fActive->branchB, branch, scratch, engine.fJobChannels,
+                                                 engine.fJobFrames, engine.fMidiOut[1]);
+    engine.fActive->alignB.process(branch, engine.fJobChannelsOut, engine.fJobFrames);
 }
 
-float Engine::mergeGain(int branch, int channel, bool stereo) const
+float Engine::mergeAlignSamples() const
+{
+    return static_cast<float>(std::clamp(param(kParamMergeAlign), -kMaxMergeAlignMs, kMaxMergeAlignMs) * 0.001 *
+                              fSampleRate);
+}
+
+float Engine::mergeGain(int branch, int channel) const
 {
     const float balance = std::clamp(param(kParamMergeBalance) / 100.0f, -1.0f, 1.0f);
     float gain = branch == kBranchA ? std::min(1.0f, 1.0f - balance) : std::min(1.0f, 1.0f + balance);
@@ -565,31 +578,44 @@ float Engine::mergeGain(int branch, int channel, bool stereo) const
         gain = -gain;
 
     // Pan as a balance control: the far side is turned down, the near side stays at full level
-    if (stereo)
-    {
-        const float pan = std::clamp(param(branch == kBranchA ? kParamMergePanA : kParamMergePanB) / 100.0f,
-                                     -1.0f, 1.0f);
-        if (channel == 0 && pan > 0.0f)
-            gain *= 1.0f - pan;
-        else if (channel == 1 && pan < 0.0f)
-            gain *= 1.0f + pan;
-    }
+    const float pan = std::clamp(param(branch == kBranchA ? kParamMergePanA : kParamMergePanB) / 100.0f, -1.0f, 1.0f);
+    if (channel == 0 && pan > 0.0f)
+        gain *= 1.0f - pan;
+    else if (channel == 1 && pan < 0.0f)
+        gain *= 1.0f + pan;
     return gain;
 }
 
-void Engine::merge(uint32_t numChannels, uint32_t frames)
+void Engine::merge(uint32_t channelsA, uint32_t channelsB, uint32_t frames)
 {
-    const bool stereo = numChannels == 2;
-    for (uint32_t ch = 0; ch < numChannels; ++ch)
+    // a branch still mono (Mono mode) plays on both sides
+    if (channelsA == 1)
+        std::memcpy(fWork[1].data(), fWork[0].data(), sizeof(float) * frames);
+    if (channelsB == 1)
+        std::memcpy(fBranch[1].data(), fBranch[0].data(), sizeof(float) * frames);
+
+    for (int ch = 0; ch < 2; ++ch)
     {
-        Smoother& gainA = fMergeGain[kBranchA][ch];
-        Smoother& gainB = fMergeGain[kBranchB][ch];
-        gainA.setTarget(mergeGain(kBranchA, static_cast<int>(ch), stereo));
-        gainB.setTarget(mergeGain(kBranchB, static_cast<int>(ch), stereo));
-        float* a = fWork[ch].data();
-        const float* b = fBranch[ch].data();
-        for (uint32_t i = 0; i < frames; ++i)
-            a[i] = a[i] * gainA.next() + b[i] * gainB.next();
+        fMergeGain[kBranchA][ch].setTarget(mergeGain(kBranchA, ch));
+        fMergeGain[kBranchB][ch].setTarget(mergeGain(kBranchB, ch));
+    }
+    fMergeAlign.setTarget(mergeAlignSamples());
+    for (uint32_t i = 0; i < frames; ++i)
+    {
+        // Align: one branch is delayed (fractionally, so it can be turned smoothly) to line up with the other.
+        // A delay of 1 reads back the sample just written, so 0 ms passes the branches through exactly.
+        const float align = fMergeAlign.next();
+        const float delayA = 1.0f + std::max(0.0f, -align);
+        const float delayB = 1.0f + std::max(0.0f, align);
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            DelayLine& lineA = fAlignLines[kBranchA][ch];
+            DelayLine& lineB = fAlignLines[kBranchB][ch];
+            lineA.write(fWork[ch][i]);
+            lineB.write(fBranch[ch][i]);
+            fWork[ch][i] = lineA.readFractional(delayA) * fMergeGain[kBranchA][ch].next() +
+                           lineB.readFractional(delayB) * fMergeGain[kBranchB][ch].next();
+        }
     }
 }
 
@@ -621,13 +647,21 @@ void Engine::updateLatency(Graph& graph)
     delays(graph.pre, post + (graph.split ? branches : 0));
 }
 
-void Engine::processNodes(const std::vector<Node>& nodes, float* const* work, float* const* scratch,
-                          uint32_t numChannels, uint32_t frames, MidiOutput& midi)
+uint32_t Engine::processNodes(const std::vector<Node>& nodes, float* const* work, float* const* scratch,
+                              uint32_t numChannels, uint32_t frames, MidiOutput& midi)
 {
     for (const Node& node : nodes)
     {
         SlotState& slot = fSlots[node.slot];
         Block& block = *node.block;
+
+        // a Mono chain turns stereo at a block that makes stereo (even while it's bypassed, so the layout of the
+        // chain alone decides it)
+        if (numChannels == 1 && node.type->stereo)
+        {
+            std::memcpy(work[1], work[0], sizeof(float) * frames);
+            numChannels = 2;
+        }
 
         for (int p = 0; p < node.type->numParams; ++p)
         {
@@ -699,6 +733,7 @@ void Engine::processNodes(const std::vector<Node>& nodes, float* const* work, fl
         }
         slot.bypassMix = mix;
     }
+    return numChannels;
 }
 
 void Engine::swapGraph()

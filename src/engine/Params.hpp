@@ -64,7 +64,7 @@ enum LaterParam : uint32_t {
     kParamMergeBalance,     // -100 (only A) .. 100 (only B) %; both at full level in the middle
     kParamMergeLevelA,      // dB
     kParamMergeLevelB,
-    kParamMergePanA,        // -100 (left) .. 100 (right) %; stereo mode only
+    kParamMergePanA,        // -100 (left) .. 100 (right) %; the chain is stereo after a merge, in Mono mode too
     kParamMergePanB,
     kParamMergeInvertA,     // phase invert
     kParamMergeInvertB,
@@ -104,6 +104,8 @@ enum LaterParam : uint32_t {
     kParamMetroBar,         // output: bar (0-based)
     kParamMetroLiveTempo,   // output: tempo being played (the trainer changes it; the DAW's in sync mode)
     kParamMetroSilent,      // output: 1 while the gap trainer mutes the click
+
+    kParamMergeAlign,       // ms: > 0 delays branch B, < 0 delays branch A, to line up two amps' timing
 
     kParamCount
 };

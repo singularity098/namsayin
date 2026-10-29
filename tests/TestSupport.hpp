@@ -99,6 +99,27 @@ inline const namsayin::BlockDescriptor kGainDescriptor = {
     [] { return std::unique_ptr<namsayin::Block>(new GainBlock()); },
 };
 
+// A stereo block (BlockDescriptor::stereo): flips the right channel's sign, so tests can see it ran in stereo
+class WidenBlock : public namsayin::Block {
+public:
+    void prepare(double, uint32_t) override {}
+    bool configure(const nlohmann::json&) override { return true; }
+    void setParam(int, float) override {}
+    void process(float* const* io, uint32_t numChannels, uint32_t frames) override
+    {
+        if (numChannels == 2)
+            for (uint32_t i = 0; i < frames; ++i)
+                io[1][i] = -io[1][i];
+    }
+};
+
+inline const namsayin::BlockDescriptor kWidenDescriptor = [] {
+    namsayin::BlockDescriptor type { "test.widen", "Test Widen", namsayin::Category::Dynamics, 0, {},
+                                     [] { return std::unique_ptr<namsayin::Block>(new WidenBlock()); } };
+    type.stereo = true;
+    return type;
+}();
+
 // Processes `signal` (one vector per channel, 1 or 2, equal lengths) through a block in place, in buffers of
 // `bufferSize`. Adds the heap allocations made inside process() to `allocations`.
 inline void runBlock(namsayin::Block& block, std::vector<std::vector<float>>& signal, uint32_t bufferSize = 128,
@@ -148,7 +169,7 @@ inline void setEnv(const char* name, const std::string& value)
 
 inline const namsayin::BlockRegistry& testRegistry()
 {
-    static const namsayin::BlockRegistry registry({ &kGainDescriptor });
+    static const namsayin::BlockRegistry registry({ &kGainDescriptor, &kWidenDescriptor });
     return registry;
 }
 

@@ -271,6 +271,12 @@ const BlockDescriptor kDelayBlockDescriptor = {
     [] { return std::unique_ptr<Block>(new DelayBlock()); },
     kDelayParamSync,
     kDelayParamTime,
+    false,
+    nullptr,
+    24.0f,
+    MeterStyle::Reduction,
+    false,
+    true, // stereo: its Stereo and Ping-Pong modes spread a Mono chain too
 };
 
 } // namespace namsayin

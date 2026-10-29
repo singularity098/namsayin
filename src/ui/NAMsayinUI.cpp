@@ -863,6 +863,7 @@ protected:
             fChain.addSplit(hit->index, hit->index);
             for (uint32_t index = kParamMergeBalance; index <= kParamMergeInvertB; ++index)
                 setHostParameter(index, globalParamSpec(index).def);
+            setHostParameter(kParamMergeAlign, globalParamSpec(kParamMergeAlign).def);
             fMergeSelected = true;
             sendChain();
             return true;
@@ -1865,6 +1866,14 @@ private:
             if (std::fabs(v) < 0.5f)
                 return "Center";
             std::snprintf(buf, sizeof(buf), v < 0 ? "L %.0f" : "R %.0f", std::fabs(v));
+            return buf;
+        }
+        if (index == kParamMergeAlign)
+        {
+            // which branch is delayed
+            if (std::fabs(v) < 0.005f)
+                return "In time";
+            std::snprintf(buf, sizeof(buf), v < 0 ? "A +%.2f ms" : "B +%.2f ms", std::fabs(v));
             return buf;
         }
         const GlobalParamSpec& spec = globalParamSpec(index);
@@ -6568,21 +6577,19 @@ private:
     void drawMergePanel(float top)
     {
         label(32.0f, top + 22.0f, "Merge", theme::text, 16.0f, ALIGN_LEFT | ALIGN_MIDDLE);
-        const bool stereo = fParams[kParamInputMode] >= 0.5f;
         label(32.0f, top + 42.0f,
-              stereo ? "Mixes branch A (top row) and branch B (bottom row) back together"
-                     : "Mixes branch A (top row) and branch B (bottom row) back together. Pan needs Stereo mode.",
+              "Mixes branch A (top row) and branch B (bottom row) back together, in stereo (in Mono mode too)",
               theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
 
         float x = 32.0f + kKnobRadius + 8.0f;
         const float cy = top + 42.0f + 24.0f + kKnobRadius + 14.0f;
-        for (const uint32_t index : { kParamMergeBalance, kParamMergeLevelA, kParamMergeLevelB, kParamMergePanA,
-                                      kParamMergePanB })
+        static constexpr std::pair<uint32_t, const char*> knobs[] = {
+            { kParamMergeBalance, "A / B" }, { kParamMergeLevelA, "Level A" }, { kParamMergeLevelB, "Level B" },
+            { kParamMergePanA, "Pan A" },    { kParamMergePanB, "Pan B" },     { kParamMergeAlign, "Align" },
+        };
+        for (const auto& [index, name] : knobs)
         {
-            static constexpr const char* names[] = { "A / B", "Level A", "Level B", "Pan A", "Pan B" };
-            globalAlpha(!stereo && (index == kParamMergePanA || index == kParamMergePanB) ? 0.4f : 1.0f);
-            drawKnob(x, cy, index, names[index - kParamMergeBalance]);
-            globalAlpha(1.0f);
+            drawKnob(x, cy, index, name);
             x += 100.0f;
         }
         drawButton({ x - 40.0f, cy - 14.0f, 80.0f, 28.0f }, "Invert A", fParams[kParamMergeInvertA] >= 0.5f,

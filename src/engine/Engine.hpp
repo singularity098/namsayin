@@ -156,12 +156,14 @@ private:
     void processChunk(const float* const* inputs, float* const* outputs, uint32_t frames,
                       const Transport* transport, uint32_t offset);
     Metronome::Settings metronomeSettings() const;
-    void processChain(uint32_t numChannels, uint32_t frames);
-    void processNodes(const std::vector<Node>& nodes, float* const* work, float* const* scratch,
-                      uint32_t numChannels, uint32_t frames, MidiOutput& midi);
+    // Both return the channel count after them: a Mono chain turns stereo at a stereo block and at the merge
+    uint32_t processChain(uint32_t numChannels, uint32_t frames);
+    uint32_t processNodes(const std::vector<Node>& nodes, float* const* work, float* const* scratch,
+                          uint32_t numChannels, uint32_t frames, MidiOutput& midi);
     void collectMidi(const MidiOutput& midi);
-    void merge(uint32_t numChannels, uint32_t frames);
-    float mergeGain(int branch, int channel, bool stereo) const;
+    void merge(uint32_t channelsA, uint32_t channelsB, uint32_t frames);
+    float mergeGain(int branch, int channel) const;
+    float mergeAlignSamples() const;
     static void runBranchB(void* engine);
     void updateLatency(Graph& graph);
     void swapGraph();
@@ -215,7 +217,10 @@ private:
 
     Smoother fInputGain, fOutputGain;
     Smoother fMergeGain[2][2]; // [branch][channel]
+    Smoother fMergeAlign;      // samples; > 0 delays branch B, < 0 branch A
+    DelayLine fAlignLines[2][2]; // [branch][channel]
     uint32_t fJobChannels = 0, fJobFrames = 0; // branch B job, for the worker
+    uint32_t fJobChannelsOut = 0;              // branch B's channels after it
     ToneStack fToneStack;
     Limiter fLimiter;
     Tuner fTuner;

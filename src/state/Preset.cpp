@@ -93,7 +93,7 @@ const std::vector<uint32_t>& presetGlobalParams()
     static const std::vector<uint32_t> params = {
         kParamInputMode, kParamInput, kParamBass, kParamMiddle, kParamTreble, kParamOutput, kParamLimiter,
         kParamMergeBalance, kParamMergeLevelA, kParamMergeLevelB, kParamMergePanA, kParamMergePanB,
-        kParamMergeInvertA, kParamMergeInvertB,
+        kParamMergeInvertA, kParamMergeInvertB, kParamMergeAlign,
     };
     return params;
 }

@@ -97,6 +97,7 @@ constexpr GlobalParamSpec kToolParams[kParamCount - kParamMergeBalance] = {
     { "Metronome Bar",       "metro_bar",      "",    0.0f,   16777215.0f, 0.0f, kParamFlagOutput | kParamFlagInteger },
     { "Metronome Live Tempo", "metro_live_tempo", "BPM", 0.0f, 300.0f, 0.0f,  kParamFlagOutput },
     { "Metronome Silent",    "metro_silent",   "",    0.0f,   1.0f,   0.0f,   kParamFlagOutput | kParamFlagToggle },
+    { "Merge Align",         "merge_align",    "ms",  -5.0f,  5.0f,   0.0f,   kParamFlagNone },
 };
 
 struct SlotMeterSpecs {

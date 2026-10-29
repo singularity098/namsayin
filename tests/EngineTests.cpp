@@ -421,18 +421,93 @@ TEST_CASE("a split sums its branches at the merge")
         rig.run();
         CHECK(std::fabs(rig.left()) < 1e-5f);
     }
-    SUBCASE("pan in stereo mode; ignored in mono mode")
+    SUBCASE("pan, in Mono mode too: the chain is stereo after the merge")
     {
         rig.engine.setParameter(kParamMergePanA, -100.0f);
         rig.engine.setParameter(kParamMergePanB, 100.0f);
         rig.run();
-        CHECK(rig.left() == doctest::Approx(a + b).epsilon(0.001));
+        CHECK(rig.left() == doctest::Approx(a).epsilon(0.001));
+        CHECK(rig.right() == doctest::Approx(b).epsilon(0.001)); // from the left input: Mono
 
         rig.engine.setParameter(kParamInputMode, 1.0f);
         rig.run();
         CHECK(rig.left() == doctest::Approx(a).epsilon(0.001));
         CHECK(rig.right() == doctest::Approx(-0.125f * dbToGain(-12.0f)).epsilon(0.001));
     }
+    SUBCASE("centred in Mono mode, both sides are the same")
+    {
+        rig.run();
+        CHECK(rig.left() == doctest::Approx(a + b).epsilon(0.001));
+        CHECK(rig.right() == rig.left());
+    }
+}
+
+TEST_CASE("Merge Align delays one branch, by fractions of a sample too")
+{
+    Rig rig;
+    rig.engine.setParameter(kParamLimiter, 0.0f);
+    rig.engine.setParameter(slotParam(1, 0), gainParam(0.0f));
+    rig.engine.setParameter(slotParam(2, 0), gainParam(0.0f));
+    rig.engine.setParameter(kParamMergePanA, -100.0f);
+    rig.engine.setParameter(kParamMergePanB, 100.0f);
+    REQUIRE(rig.engine.setChain(splitChain()));
+
+    // an impulse every buffer: the branch's output shows where it lands
+    auto impulseAt = [&](float alignMs) {
+        rig.engine.setParameter(kParamMergeAlign, alignMs);
+        std::fill(rig.inL.begin(), rig.inL.end(), 0.0f);
+        rig.inL[0] = 1.0f;
+        rig.run(200); // the align smoother settles
+        return std::pair { rig.outL, rig.outR };
+    };
+
+    const auto [left0, right0] = impulseAt(0.0f);
+    CHECK(left0[0] == doctest::Approx(1.0f));
+    CHECK(right0[0] == doctest::Approx(1.0f));
+
+    const float oneMs = static_cast<float>(kRate) / 1000.0f; // 48 samples
+    const auto [left1, right1] = impulseAt(1.0f);
+    CHECK(left1[0] == doctest::Approx(1.0f));                 // A as it was
+    CHECK(right1[static_cast<size_t>(oneMs)] == doctest::Approx(1.0f).epsilon(0.001)); // B 1 ms later
+    CHECK(std::fabs(right1[0]) < 1e-4f);
+
+    const auto [left2, right2] = impulseAt(-0.5f);
+    CHECK(left2[static_cast<size_t>(oneMs / 2)] == doctest::Approx(1.0f).epsilon(0.001));
+    CHECK(right2[0] == doctest::Approx(1.0f));
+
+    // half a sample: the impulse is shared between two samples
+    const auto [left3, right3] = impulseAt(0.5f / oneMs);
+    CHECK(right3[0] > 0.3f);
+    CHECK(right3[1] > 0.3f);
+
+    testing::AllocationGuard guard;
+    rig.run(4);
+    CHECK(guard.count() == 0);
+}
+
+TEST_CASE("in Mono mode the chain turns stereo at a stereo block")
+{
+    Rig rig;
+    rig.engine.setParameter(kParamLimiter, 0.0f);
+    rig.engine.setParameter(slotParam(0, 0), gainParam(0.0f));
+    rig.engine.setParameter(slotParam(2, 0), gainParam(0.0f));
+    ChainState chain;
+    chain.blocks.push_back({ "test.gain", 0 });
+    chain.blocks.push_back({ "test.widen", 1 });
+    REQUIRE(rig.engine.setChain(chain));
+    rig.run();
+    CHECK(rig.left() == doctest::Approx(0.25f));
+    CHECK(rig.right() == doctest::Approx(-0.25f)); // the left input, made stereo
+
+    // in a branch: the other branch, still mono, plays on both sides
+    ChainState split;
+    split.blocks.push_back({ "test.widen", 1 });
+    split.blocks.push_back({ "test.gain", 2, nlohmann::json::object(), {}, false, kBranchB });
+    split.split = SplitState { 0, 2 };
+    REQUIRE(rig.engine.setChain(split));
+    rig.run(100);
+    CHECK(rig.left() == doctest::Approx(0.5f));
+    CHECK(std::fabs(rig.right()) < 1e-5f);
 }
 
 TEST_CASE("empty branches carry the signal; blocks before and after the split run in series")

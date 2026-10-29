@@ -157,6 +157,8 @@ struct BlockDescriptor {
     // The block follows the played note and takes the "lookahead" config (ms; blocks/TrackedInput.hpp): the UI
     // shows a Lookahead button
     bool lookahead = false;
+    // The block makes a stereo sound from a mono one (ping-pong echoes): in Mono mode the chain turns stereo at it
+    bool stereo = false;
 };
 
 } // namespace namsayin
