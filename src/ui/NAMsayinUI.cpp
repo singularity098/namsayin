@@ -61,10 +61,11 @@ namespace {
 // grey outline (surface()).
 namespace theme {
 const Color background(0x00, 0x00, 0x00);
-// Everything in the window is translucent black over the background image (the owner's choice, 2026-10-29)
-const Color panelFill(0x00, 0x00, 0x00, 0.9f);  // bars, panels, tiles, buttons, the tuner and the metronome
-const Color dialogFill(0x00, 0x00, 0x00, 0.9f); // dialogs and menus
-const Color itemFill(0x00, 0x00, 0x00, 0.95f);  // the blocks in Add Block, a little darker
+// Everything in the window is translucent black over the background image (the owner's choice, 2026-10-29: 50%, after
+// 90% let next to nothing of the dark background through)
+const Color panelFill(0x00, 0x00, 0x00, 0.5f);  // bars, panels, tiles, buttons, the tuner and the metronome
+const Color dialogFill(0x00, 0x00, 0x00, 0.5f); // dialogs and menus
+const Color itemFill(0x00, 0x00, 0x00, 0.55f);  // the blocks in Add Block, a little darker
 const Color tile(0x16, 0x16, 0x1a);       // small grey fills (hover in lists, meter boxes)
 const Color tileHover(0x1d, 0x1d, 0x22);
 const Color inset(0x05, 0x05, 0x06);
@@ -3309,7 +3310,7 @@ private:
         fill();
     }
 
-    // A box: translucent black inside (the background image barely shows) with a 1 px grey outline that brightens on hover. Bars are black with one dividing line on
+    // A box: translucent black inside (the background image shows through) with a 1 px grey outline that brightens on hover. Bars are black with one dividing line on
     // their inner edge.
     void surface(float x, float y, float w, float h, float radius, Surface kind, bool hover = false)
     {
