@@ -26,6 +26,7 @@ TEST_CASE("settings round-trip through JSON and a file")
     settings.defaultPreset = "/presets/Clean/Twin.namsayin";
     settings.checkUpdates = false;
     settings.dismissedUpdate = "1.2.0";
+    settings.cabImages = { { "00112233445566778899aabbccddeeff", "4x12-3" }, { "/irs/no hash.wav", "1x10-1" } };
 
     CHECK(Settings::fromJson(settings.toJson()) == settings);
 

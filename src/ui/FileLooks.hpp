@@ -5,7 +5,9 @@
 
 #include <array>
 #include <cstdint>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace namsayin {
 
@@ -45,5 +47,24 @@ struct CabLook {
 
 AmpLook ampLook(std::string_view key);
 CabLook cabLook(std::string_view key);
+
+// The built-in speaker cabinet images (resources/cabs/, BlockImages.hpp) that IR blocks show. Their ids are
+// "<size>-<n>" ("4x12-3"). The sizes, in the picker's order: bass cabs, then guitar cabs.
+constexpr std::array<const char*, 6> kCabSizes { "1x10", "2x10", "4x10", "1x12", "2x12", "4x12" };
+constexpr int kBassCabSizes = 3; // the first three are bass cabs
+
+// The size part of a cab image id ("4x12-3" -> "4x12"); "" if it has none
+std::string_view cabImageSize(std::string_view id);
+
+// The ids of one size from `ids`, in their numbers' order ("4x12-2" before "4x12-10")
+std::vector<std::string> cabImagesOfSize(const std::vector<std::string>& ids, std::string_view size);
+
+// The cab size a file's name gives, if it's one of kCabSizes ("Mesa 4X12 V30" -> "4x12"); else ""
+std::string_view cabSizeInName(std::string_view name);
+
+// The cab image an IR shows until the user picks another: picked from `ids` by `key` (the IR's content hash), so
+// the same file always gets the same cab; among the cabs of the size its file name gives, if it gives one and there
+// are some. An empty key (no file) gets the first 4x12. "" if `ids` is empty.
+std::string defaultCabImage(std::string_view key, std::string_view fileName, const std::vector<std::string>& ids);
 
 } // namespace namsayin

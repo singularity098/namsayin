@@ -225,6 +225,16 @@ add_custom_command(
   DEPENDS ${NAMSAYIN_BLOCK_IMAGES} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedBlockImages.cmake
   COMMENT "Embedding the block images"
   VERBATIM)
+# The built-in speaker cabinet images for IR blocks: resources/cabs/ (made by tools/prepare_cab_images.py), the same way
+file(GLOB NAMSAYIN_CAB_IMAGES CONFIGURE_DEPENDS resources/cabs/*.webp resources/cabs/thumbs/*.webp)
+set(NAMSAYIN_CAB_IMAGES_CPP ${CMAKE_CURRENT_BINARY_DIR}/generated/CabImages.cpp)
+add_custom_command(
+  OUTPUT ${NAMSAYIN_CAB_IMAGES_CPP}
+  COMMAND ${CMAKE_COMMAND} -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/resources/cabs -DOUT=${NAMSAYIN_CAB_IMAGES_CPP} -DKIND=Cab
+          -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedBlockImages.cmake
+  DEPENDS ${NAMSAYIN_CAB_IMAGES} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedBlockImages.cmake
+  COMMENT "Embedding the cab images"
+  VERBATIM)
 
 dpf_add_plugin(namsayin
   TARGETS ${NAMSAYIN_FORMATS}
@@ -235,6 +245,7 @@ dpf_add_plugin(namsayin
     src/ui/BackgroundImage.cpp
     src/ui/BlockGlyphs.cpp
     ${NAMSAYIN_BLOCK_IMAGES_CPP}
+    ${NAMSAYIN_CAB_IMAGES_CPP}
     src/ui/FileLooks.cpp
     src/ui/FolderPicker.cpp
     src/ui/FontData.cpp
@@ -324,6 +335,7 @@ if(NAMSAYIN_BUILD_TESTS)
   target_compile_options(namsayin-tests PRIVATE ${NAMSAYIN_WARNINGS})
   target_compile_definitions(namsayin-tests PRIVATE NAMSAYIN_EXAMPLE_MODELS="${NAM_DIR}/example_models"
     NAMSAYIN_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/recordings" NAMSAYIN_RECORDINGS_WAV="${CMAKE_BINARY_DIR}/recordings"
-    NAMSAYIN_BLOCK_IMAGES="${CMAKE_CURRENT_SOURCE_DIR}/resources/blocks")
+    NAMSAYIN_BLOCK_IMAGES="${CMAKE_CURRENT_SOURCE_DIR}/resources/blocks"
+    NAMSAYIN_CAB_IMAGES="${CMAKE_CURRENT_SOURCE_DIR}/resources/cabs")
   add_test(NAME namsayin-tests COMMAND namsayin-tests)
 endif()

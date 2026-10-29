@@ -6,6 +6,7 @@
 #include "ui/BackgroundImage.hpp"
 #include "ui/WebpImage.hpp"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -46,6 +47,29 @@ TEST_CASE("every built-in block image and thumbnail decodes, 1:2 at its size")
         }
     }
     CHECK(count > 80);
+}
+
+TEST_CASE("every built-in cab image and thumbnail decodes, at its size")
+{
+    const std::filesystem::path images = NAMSAYIN_CAB_IMAGES;
+    int count = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(images))
+    {
+        if (entry.path().extension() != ".webp")
+            continue;
+        CAPTURE(entry.path().filename().string());
+        ++count;
+        for (const auto& [path, longest] : { std::pair { entry.path(), 896u },
+                                             std::pair { images / "thumbs" / entry.path().filename(), 320u } })
+        {
+            const std::vector<unsigned char> data = readFile(path);
+            RgbaImage img;
+            REQUIRE(decodeWebp(data.data(), data.size(), img));
+            CHECK(std::max(img.width, img.height) == longest);
+            CHECK(std::min(img.width, img.height) > longest / 2);
+        }
+    }
+    CHECK(count >= 42);
 }
 
 TEST_CASE("the background image decodes, and other data isn't taken for a WebP")

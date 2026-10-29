@@ -4,6 +4,7 @@
 #pragma once
 
 #include <filesystem>
+#include <map>
 #include <set>
 #include <string>
 #include <string_view>
@@ -28,6 +29,7 @@ struct Settings {
     std::vector<std::string> recentPresets; // most recent first
     bool checkUpdates = true;    // ask GitHub once a day for a newer release (src/state/UpdateCheck.hpp)
     std::string dismissedUpdate; // the release whose banner was closed: it and older ones stay hidden
+    std::map<std::string, std::string> cabImages; // IR content hash -> the built-in cab image the user picked for it
 
     static constexpr size_t kMaxRecentPresets = 8;
     void addRecentPreset(const std::string& path);

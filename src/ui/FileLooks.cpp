@@ -3,6 +3,10 @@
 
 #include "FileLooks.hpp"
 
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
+
 namespace namsayin {
 
 namespace {
@@ -68,6 +72,63 @@ CabLook cabLook(std::string_view key)
     look.corners = dice.below(2) == 1;
     look.hue = dice.between(-60.0f, 60.0f);
     return look;
+}
+
+std::string_view cabImageSize(std::string_view id)
+{
+    const size_t dash = id.rfind('-');
+    return dash == std::string_view::npos ? std::string_view() : id.substr(0, dash);
+}
+
+std::vector<std::string> cabImagesOfSize(const std::vector<std::string>& ids, std::string_view size)
+{
+    std::vector<std::string> result;
+    for (const std::string& id : ids)
+        if (cabImageSize(id) == size)
+            result.push_back(id);
+    const auto number = [](const std::string& id) { return std::atoi(id.c_str() + id.rfind('-') + 1); };
+    std::stable_sort(result.begin(), result.end(),
+                     [&number](const std::string& a, const std::string& b) { return number(a) < number(b); });
+    return result;
+}
+
+std::string_view cabSizeInName(std::string_view name)
+{
+    const auto digit = [&name](size_t i) { return i < name.size() && std::isdigit(static_cast<unsigned char>(name[i])); };
+    for (size_t i = 0; i + 4 <= name.size(); ++i)
+    {
+        // "<count>x<inches>", not part of a longer number
+        if ((i > 0 && digit(i - 1)) || digit(i + 4) || (name[i + 1] != 'x' && name[i + 1] != 'X'))
+            continue;
+        for (const char* size : kCabSizes)
+            if (name[i] == size[0] && name[i + 2] == size[2] && name[i + 3] == size[3])
+                return size;
+    }
+    return {};
+}
+
+std::string defaultCabImage(std::string_view key, std::string_view fileName, const std::vector<std::string>& ids)
+{
+    if (ids.empty())
+        return {};
+    if (key.empty())
+    {
+        const std::vector<std::string> fours = cabImagesOfSize(ids, "4x12");
+        return fours.empty() ? ids.front() : fours.front();
+    }
+    std::vector<std::string> pool;
+    if (const std::string_view size = cabSizeInName(fileName); !size.empty())
+        pool = cabImagesOfSize(ids, size);
+    if (pool.empty())
+    {
+        for (const char* size : kCabSizes)
+            for (std::string& id : cabImagesOfSize(ids, size))
+                pool.push_back(std::move(id));
+        if (pool.empty())
+            pool = ids;
+    }
+    Dice dice(key);
+    return pool[static_cast<size_t>(dice.below(static_cast<int>(pool.size())))];
 }
 
 } // namespace namsayin

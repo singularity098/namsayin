@@ -38,6 +38,7 @@
 #include "state/UserImages.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <utility>
 #include <cmath>
@@ -236,6 +237,9 @@ enum class Hit {
     ImageChoose,    // Images dialog: index = image in fImageList, -1 for the stock image
     ImageDelete,    // index = image in fImageList: the first click asks, the second deletes
     ImageAdd,       // add an image file to the library and use it
+    CabImage,       // an IR block's cab image (block panel): index = position in the chain; opens the Cab Image dialog
+    CabSection,     // Cab Image dialog: index = size in kCabSizes: show or hide its images
+    CabChoose,      // Cab Image dialog: index = image in builtinCabIds(), -1 for the default
 };
 
 // What a context or preset menu item does
@@ -257,6 +261,7 @@ enum class MenuAction {
     PresetLoad,   // arg = index in fMenuPresets (the preset folder's presets)
     SetChoice,    // arg = the choice (steps from the spec's min) for fMenuParam
     SetLookahead, // arg = index in kLookaheads, for the block fMenuTile
+    CabImage,     // the Cab Image dialog for the IR block fMenuTile
 };
 
 struct MenuEntry {
@@ -278,7 +283,7 @@ enum Field {
     kFieldCount
 };
 
-enum class Dialog { None, AddBlock, Settings, Menu, SavePreset, Presets, Images };
+enum class Dialog { None, AddBlock, Settings, Menu, SavePreset, Presets, Images, CabImages };
 
 // What a file picked in the file browser is for
 enum class BrowseTarget { AddBlock, NamDir, IrDir, OpenPreset, ExportPreset, Locate, AddImage };
@@ -732,6 +737,8 @@ protected:
             drawPresetsDialog();
         else if (fDialog == Dialog::Images)
             drawImagesDialog();
+        else if (fDialog == Dialog::CabImages)
+            drawCabDialog();
         drawHelp();
         if (fShowFps)
             drawFps(drawStart);
@@ -1136,6 +1143,32 @@ protected:
         case Hit::BlockImage:
             openImagesDialog(hit->index);
             return true;
+
+        case Hit::CabImage:
+            openCabDialog(hit->index);
+            return true;
+
+        case Hit::CabSection:
+            if (hit->index >= 0 && hit->index < static_cast<int>(fCabOpen.size()))
+                fCabOpen[hit->index] = !fCabOpen[hit->index];
+            repaint();
+            return true;
+
+        case Hit::CabChoose: {
+            // kept in the settings by the IR's content, so it follows the file into every chain and preset
+            const std::vector<std::string>& ids = builtinCabIds();
+            const std::string id = hit->index >= 0 && hit->index < static_cast<int>(ids.size()) ? ids[hit->index]
+                                                                                                 : std::string();
+            const std::string key = cabKey(fCabHash, fCabPath);
+            updateSettings([&key, &id](Settings& settings) {
+                if (id.empty())
+                    settings.cabImages.erase(key);
+                else
+                    settings.cabImages[key] = id;
+            });
+            closeDialog();
+            return true;
+        }
 
         case Hit::ImageChoose:
             if (const BlockState* block = imagesBlock())
@@ -1908,6 +1941,30 @@ private:
         openDialog(Dialog::Images);
     }
 
+    // The Cab Image dialog for the IR block at `block`
+    void openCabDialog(int block)
+    {
+        if (block < 0 || block >= static_cast<int>(fChain.blocks.size()))
+            return;
+        const BlockState& state = fChain.blocks[block];
+        openCabDialog(state.config.value("hash", std::string()), state.config.value("path", std::string()));
+    }
+
+    // The Cab Image dialog for an IR file (its content hash and path); from Add Block, closing it goes back there
+    void openCabDialog(const std::string& hash, const std::string& path)
+    {
+        fCabHash = hash;
+        fCabPath = path;
+        fCabReturn = fDialog == Dialog::AddBlock ? Dialog::AddBlock : Dialog::None;
+        fCabReturnScroll = fListScroll;
+        // the current image's size starts open
+        const std::string_view size = cabImageSize(cabImageFor(hash, path));
+        for (size_t i = 0; i < fCabOpen.size(); ++i)
+            fCabOpen[i] = size == kCabSizes[i];
+        blurField(true);
+        openDialog(Dialog::CabImages);
+    }
+
     const BlockState* imagesBlock() const
     {
         return fImagesBlock >= 0 && fImagesBlock < static_cast<int>(fChain.blocks.size()) ? &fChain.blocks[fImagesBlock]
@@ -2274,8 +2331,22 @@ private:
     bool onRightClick(float x, float y)
     {
         const HitArea* hit = hitAt(x, y);
-        if (hit == nullptr || fDialog != Dialog::None)
+        if (hit == nullptr)
             return false;
+        // an IR in Add Block's list: pick its cab image
+        if (fDialog == Dialog::AddBlock && hit->kind == Hit::ListRow && hit->index < static_cast<int>(fRows.size())
+            && fRows[hit->index].entry != nullptr && fRows[hit->index].type == &kIrBlockDescriptor)
+        {
+            openCabDialog(fRows[hit->index].entry->hash, fRows[hit->index].entry->path);
+            return true;
+        }
+        if (fDialog != Dialog::None)
+            return false;
+        if (hit->kind == Hit::CabImage)
+        {
+            openCabDialog(hit->index);
+            return true;
+        }
 
         if (hit->kind == Hit::Knob || hit->kind == Hit::Toggle || hit->kind == Hit::Momentary
             || hit->kind == Hit::Choice)
@@ -2304,6 +2375,8 @@ private:
             };
             entries.push_back({ "Replace", MenuAction::ReplaceBlock });
             entries.push_back({ "Remove", MenuAction::RemoveBlock });
+            if (fChain.blocks[hit->index].typeId == kIrBlockDescriptor.typeId && userImage(fChain.blocks[hit->index]) == nullptr)
+                entries.push_back({ "Cab Image…", MenuAction::CabImage });
             entries.push_back({ "MIDI Learn bypass", MenuAction::MidiLearn });
             if (const MidiMapping* mapping = fChain.midiMappingFor(fMenuParam))
                 entries.push_back({ "Clear MIDI " + ccText(*mapping), MenuAction::MidiClear });
@@ -2462,6 +2535,9 @@ private:
             if (entry.arg < static_cast<int>(fMenuPresets.size()))
                 openPreset(fMenuPresets[entry.arg]);
             break;
+        case MenuAction::CabImage:
+            openCabDialog(fMenuTile);
+            break;
         case MenuAction::SetLookahead:
             if (fMenuTile >= 0 && fMenuTile < static_cast<int>(fChain.blocks.size()))
             {
@@ -2579,6 +2655,16 @@ private:
     void closeDialog()
     {
         blurField(true);
+        if (fDialog == Dialog::CabImages && fCabReturn != Dialog::None)
+        {
+            // back to Add Block, as it was
+            fDialog = std::exchange(fCabReturn, Dialog::None);
+            fListScroll = fCabReturnScroll;
+            if (fDialog == Dialog::AddBlock)
+                focusField(kFieldSearch);
+            repaint();
+            return;
+        }
         fDialog = Dialog::None;
         repaint();
     }
@@ -2711,7 +2797,42 @@ private:
     {
         if (NanoImage* img = userImage(block))
             return img;
+        return stockImage(block, thumb);
+    }
+
+    // A block's own built-in image: IR blocks show their cab image (cabImageFor()), the others their type's
+    NanoImage* stockImage(const BlockState& block, bool thumb)
+    {
+        if (block.typeId == kIrBlockDescriptor.typeId)
+            return cabImage(cabImageFor(block), thumb);
         return thumb ? builtinThumb(block.typeId) : builtinImage(block.typeId);
+    }
+
+    // A built-in cab image (resources/cabs/), or its thumbnail; cached with the block types' images
+    NanoImage* cabImage(const std::string& id, bool thumb)
+    {
+        if (id.empty())
+            return nullptr;
+        const std::string key = std::string(kCabKey) + id;
+        return thumb ? builtinThumb(key) : builtinImage(key);
+    }
+
+    // What an IR's picked cab image is stored under in the settings: its content hash (its path if it has none)
+    static std::string cabKey(const std::string& hash, const std::string& path) { return hash.empty() ? path : hash; }
+
+    // The cab image an IR shows: the one the user picked for it (Settings::cabImages), else one picked by its hash
+    std::string cabImageFor(const std::string& hash, const std::string& path) const
+    {
+        const std::vector<std::string>& ids = builtinCabIds();
+        const auto picked = fSettings.cabImages.find(cabKey(hash, path));
+        if (picked != fSettings.cabImages.end() && std::find(ids.begin(), ids.end(), picked->second) != ids.end())
+            return picked->second;
+        return defaultCabImage(cabKey(hash, path), path.empty() ? std::string() : fileStem(path), ids);
+    }
+
+    std::string cabImageFor(const BlockState& block) const
+    {
+        return cabImageFor(block.config.value("hash", std::string()), block.config.value("path", std::string()));
     }
 
     NanoImage* userImage(const BlockState& block)
@@ -2758,14 +2879,28 @@ private:
         fill();
     }
 
-    // A block type's built-in image (resources/blocks/), if it has one. Decoded when first drawn; the least recently
-    // drawn ones beyond kMaxFullImages are freed (never one drawn this frame: NanoVG renders at the frame's end).
+    // The built-in images are cached by typeId, and the cab images by kCabKey and their id
+    static constexpr std::string_view kCabKey = "cab:";
+
+    static BuiltinImage builtinData(const std::string& key, bool thumb)
+    {
+        if (key.starts_with(kCabKey))
+        {
+            const char* const id = key.c_str() + kCabKey.size();
+            return thumb ? builtinCabThumb(id) : builtinCabImage(id);
+        }
+        return thumb ? builtinBlockThumb(key.c_str()) : builtinBlockImage(key.c_str());
+    }
+
+    // A block type's built-in image (resources/blocks/), if it has one, or a cab image (kCabKey). Decoded when first
+    // drawn; the least recently drawn ones beyond kMaxFullImages are freed (never one drawn this frame: NanoVG renders
+    // at the frame's end).
     NanoImage* builtinImage(const std::string& typeId)
     {
         auto it = fBuiltinImages.find(typeId);
         if (it == fBuiltinImages.end())
         {
-            const BuiltinImage builtin = builtinBlockImage(typeId.c_str());
+            const BuiltinImage builtin = builtinData(typeId, false);
             it = fBuiltinImages.emplace(typeId, CachedImage { std::make_unique<NanoImage>(), 0 }).first;
             if (builtin.data != nullptr)
                 loadImage(*it->second.image, builtin.data, builtin.size);
@@ -2805,7 +2940,7 @@ private:
         if (it == fBuiltinThumbs.end())
         {
             it = fBuiltinThumbs.emplace(typeId, std::make_unique<NanoImage>()).first;
-            const BuiltinImage builtin = builtinBlockThumb(typeId.c_str());
+            const BuiltinImage builtin = builtinData(typeId, true);
             if (builtin.data != nullptr)
                 loadImage(*it->second, builtin.data, builtin.size);
         }
@@ -3636,6 +3771,17 @@ private:
             return { "Lookahead", kLookaheadHelp };
         case Hit::A2Size:
             return { "A2 Full/Lite", kA2SizeHelp };
+        case Hit::CabImage:
+            return { "Cab Image",
+                     "The speaker cabinet shown for this IR. Each IR gets one of the built-in cabs from its file's "
+                     "content (one of the size its name gives, like 4x12, if it gives one). Right-click it to pick "
+                     "another: your pick follows the IR file into every chain and preset, until you pick again or "
+                     "reset it to the default. You can also right-click an IR in Add Block." };
+        case Hit::CabChoose:
+            if (hit.index < 0)
+                return { "Reset to Default",
+                         "Shows the cab this IR gets by default again: picked from its file's content." };
+            return {};
         case Hit::BlockImage:
             return { "Image",
                      "Shows this block with an image of your own instead of its stock one, from your library of amp, "
@@ -3664,6 +3810,11 @@ private:
             if (hit.index >= 0 && hit.index < static_cast<int>(fRows.size()) && fRows[hit.index].entry == nullptr
                 && fRows[hit.index].folder.empty())
                 return typeHelp(fRows[hit.index].type);
+            if (hit.index >= 0 && hit.index < static_cast<int>(fRows.size()) && fRows[hit.index].entry != nullptr
+                && fRows[hit.index].type == &kIrBlockDescriptor)
+                return { fRows[hit.index].entry->name,
+                         "Click to add this IR to the chain. Right-click it to pick the cab image it shows, here and "
+                         "in every chain and preset." };
             return {};
         case Hit::MetroAccent:
             return { "Beat " + std::to_string(hit.index + 1), globalParamHelp(kParamMetroAccent1) };
@@ -5467,6 +5618,9 @@ private:
                 drawBlockArt(type, imageX + imageW * 0.1f, imageY + imageH * 0.1f, imageW * 0.8f, imageH * 0.8f, true,
                              fileLookKey(block), led);
             globalAlpha(1.0f);
+            // an IR's cab image: right-click (or click) to pick another
+            if (img && type == &kIrBlockDescriptor && userImage(block) == nullptr)
+                fHits.push_back({ { imageX, imageY, imageW, imageH }, Hit::CabImage, fSelected });
         }
 
         // Header: name and file, above the controls, and the Image button (the user's own images) on the right
@@ -6038,7 +6192,9 @@ private:
                 continue;
             }
 
-            NanoImage* img = row.entry ? nullptr : builtinThumb(row.type->typeId);
+            NanoImage* img = row.entry == nullptr                 ? builtinThumb(row.type->typeId)
+                           : row.type == &kIrBlockDescriptor ? cabImage(cabImageFor(row.entry->hash, row.entry->path), true)
+                                                             : nullptr;
             if (img)
                 drawBlockImage(*img, row.type, -1, r.x + 8.0f, r.y + 4.0f, thumbW, r.h - 8.0f, 3.0f, false);
             else
@@ -6317,7 +6473,7 @@ private:
             if (image < 0)
             {
                 name = "Stock";
-                if (NanoImage* img = builtinThumb(type->typeId))
+                if (NanoImage* img = stockImage(*block, true))
                     drawBlockImage(*img, type, -1, thumb.x, thumb.y, thumb.w, thumb.h, 3.0f, false);
                 else
                     drawBlockArt(type, thumb.x, thumb.y + 10.0f, thumb.w, thumb.h - 20.0f, false, fileLookKey(*block));
@@ -6363,6 +6519,165 @@ private:
               theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
         label(x + 20.0f, y + h - 24.0f, "Delete asks again. Blocks that used a deleted image show their stock image.",
               theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+    }
+
+    // The Cab Image dialog: the built-in cab images by size, in sections to open (bass: 1x10, 2x10, 4x10; guitar:
+    // 1x12, 2x12, 4x12). Clicking one shows it for the IR (fCabHash) from then on; Reset to Default undoes that.
+    void drawCabDialog()
+    {
+        fHits.push_back({ { 0, 0, fWidth, fHeight }, Hit::DialogBackdrop, 0 });
+        fillRect(0, 0, fWidth, fHeight, theme::overlay);
+
+        const float w = std::min(760.0f, fWidth - 64.0f);
+        const float h = std::min(580.0f, fHeight - 48.0f);
+        const float x = (fWidth - w) / 2, y = (fHeight - h) / 2;
+        surface(x, y, w, h, 12.0f, Surface::Dialog);
+        fHits.push_back({ { x, y, w, h }, Hit::DialogPanel, 0 });
+
+        label(x + 20.0f, y + 26.0f, "Cab Image", theme::text, 16.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        const Rect close { x + w - 40.0f, y + 10.0f, 30.0f, 30.0f };
+        label(close.x + 15.0f, close.y + 15.0f, "×", theme::textDim, 22.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        fHits.push_back({ close, Hit::DialogClose, 0 });
+        fontSize(11.0f);
+        const std::string file = fitText(fCabPath.empty() ? std::string("IR") : fileStem(fCabPath), w - 80.0f);
+        label(x + 20.0f, y + 48.0f, file.c_str(), theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+
+        const std::vector<std::string>& ids = builtinCabIds();
+        const std::string current = cabImageFor(fCabHash, fCabPath);
+        const std::string fallback = defaultCabImage(cabKey(fCabHash, fCabPath),
+                                                     fCabPath.empty() ? std::string() : fileStem(fCabPath), ids);
+        std::array<std::vector<std::string>, kCabSizes.size()> sizes;
+        for (size_t i = 0; i < sizes.size(); ++i)
+            sizes[i] = cabImagesOfSize(ids, kCabSizes[i]);
+
+        constexpr float groupH = 30.0f, sectionH = 40.0f, tile = 124.0f, gap = 10.0f;
+        const float listX = x + 16.0f, listY = y + 66.0f, listH = h - 66.0f - 64.0f;
+        float listW = w - 32.0f;
+        const auto columnsFor = [&](float width) { return std::max(1, static_cast<int>((width + gap) / (tile + gap))); };
+        const auto contentFor = [&](int columns) {
+            float total = 2 * groupH;
+            for (size_t i = 0; i < sizes.size(); ++i)
+            {
+                total += sectionH;
+                if (fCabOpen[i] && !sizes[i].empty())
+                    total += ((sizes[i].size() + columns - 1) / columns) * (tile + gap) + gap;
+            }
+            return total;
+        };
+        int columns = columnsFor(listW);
+        float contentH = contentFor(columns);
+        if (contentH > listH)
+        {
+            listW -= kListBarWidth + 4.0f;
+            columns = columnsFor(listW);
+            contentH = contentFor(columns);
+        }
+        fListScroll = std::clamp(fListScroll, 0.0f, std::max(0.0f, contentH - listH));
+        if (contentH > listH)
+            drawListScrollBar(listX + listW + 4.0f, listY, listH, contentH);
+
+        // only what's inside the list area is clickable
+        const auto clipped = [&](const Rect& b) {
+            const float top = std::max(b.y, listY), bottom = std::min(b.y + b.h, listY + listH);
+            return Rect { b.x, top, b.w, std::max(0.0f, bottom - top) };
+        };
+        const auto visible = [&](float top, float height) { return top + height >= listY && top <= listY + listH; };
+
+        save();
+        scissor(listX, listY, listW, listH);
+        float ry = listY - fListScroll;
+        for (size_t i = 0; i < sizes.size(); ++i)
+        {
+            if (i == 0 || i == kBassCabSizes)
+            {
+                if (visible(ry, groupH))
+                    label(listX + 4.0f, ry + groupH - 10.0f, i == 0 ? "Bass" : "Guitar", theme::accent, 12.0f,
+                          ALIGN_LEFT | ALIGN_MIDDLE);
+                ry += groupH;
+            }
+
+            // the section's heading: an arrow, the size, and how many cabs
+            const Rect heading { listX, ry, listW, sectionH - 6.0f };
+            if (visible(heading.y, heading.h))
+            {
+                const bool hover = heading.contains(fMouseX, fMouseY) && fMouseY >= listY && fMouseY < listY + listH;
+                surface(heading.x, heading.y, heading.w, heading.h, 6.0f, Surface::Item, hover);
+                const float ax = heading.x + 18.0f, ay = heading.y + heading.h / 2;
+                beginPath();
+                if (fCabOpen[i])
+                {
+                    moveTo(ax - 5.0f, ay - 3.0f);
+                    lineTo(ax + 5.0f, ay - 3.0f);
+                    lineTo(ax, ay + 4.0f);
+                }
+                else
+                {
+                    moveTo(ax - 3.0f, ay - 5.0f);
+                    lineTo(ax + 4.0f, ay);
+                    lineTo(ax - 3.0f, ay + 5.0f);
+                }
+                closePath();
+                fillColor(hover ? theme::accent : theme::textDim);
+                fill();
+                const std::string name = std::string(kCabSizes[i]) + "\"";
+                const bool holdsCurrent = cabImageSize(current) == kCabSizes[i];
+                label(heading.x + 34.0f, ay, name.c_str(), holdsCurrent ? theme::accent : theme::text, 14.0f,
+                      ALIGN_LEFT | ALIGN_MIDDLE);
+                char count[32];
+                std::snprintf(count, sizeof(count), "%zu cab%s", sizes[i].size(), sizes[i].size() == 1 ? "" : "s");
+                label(heading.x + heading.w - 14.0f, ay, count, theme::textDim, 11.0f, ALIGN_RIGHT | ALIGN_MIDDLE);
+                fHits.push_back({ clipped(heading), Hit::CabSection, static_cast<int>(i) });
+            }
+            ry += sectionH;
+            if (!fCabOpen[i] || sizes[i].empty())
+                continue;
+
+            // its cabs: the IR's current one outlined, the default one labelled
+            for (size_t k = 0; k < sizes[i].size(); ++k)
+            {
+                const Rect r { listX + (k % columns) * (tile + gap), ry + (k / columns) * (tile + gap), tile, tile };
+                if (!visible(r.y, r.h))
+                    continue;
+                const std::string& id = sizes[i][k];
+                const bool hover = r.contains(fMouseX, fMouseY) && fMouseY >= listY && fMouseY < listY + listH;
+                surface(r.x, r.y, r.w, r.h, 6.0f, Surface::Item, hover);
+                if (NanoImage* img = cabImage(id, true))
+                    drawImageFit(*img, r.x + 6.0f, r.y + 6.0f, r.w - 12.0f, r.h - 12.0f, 3.0f);
+                if (id == current)
+                {
+                    beginPath();
+                    roundedRect(r.x + 0.5f, r.y + 0.5f, r.w - 1.0f, r.h - 1.0f, 6.0f);
+                    strokeColor(theme::accent);
+                    strokeWidth(2.0f);
+                    stroke();
+                }
+                if (id == fallback)
+                {
+                    const Rect pill { r.x + r.w / 2 - 30.0f, r.y + r.h - 26.0f, 60.0f, 18.0f };
+                    beginPath();
+                    roundedRect(pill.x, pill.y, pill.w, pill.h, 9.0f);
+                    fillColor(theme::popupFill);
+                    fill();
+                    label(pill.x + pill.w / 2, pill.y + pill.h / 2, "Default", theme::textDim, 10.0f,
+                          ALIGN_CENTER | ALIGN_MIDDLE);
+                }
+                const int index = static_cast<int>(std::find(ids.begin(), ids.end(), id) - ids.begin());
+                fHits.push_back({ clipped(r), Hit::CabChoose, index });
+            }
+            ry += ((sizes[i].size() + columns - 1) / columns) * (tile + gap) + gap;
+        }
+        restore();
+
+        const bool picked = fSettings.cabImages.count(cabKey(fCabHash, fCabPath)) != 0;
+        const Rect reset { x + w - 24.0f - 150.0f, y + h - 48.0f, 150.0f, 30.0f };
+        if (picked)
+            drawButton(reset, "Reset to Default", false, theme::accent, Hit::CabChoose, -1);
+        label(x + 20.0f, y + h - 40.0f,
+              picked ? "You picked this IR's cab. It follows the file into every chain and preset."
+                     : "This IR shows its default cab, picked from the file's content.",
+              theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        label(x + 20.0f, y + h - 24.0f, "Click a cab to show it for this IR from now on.", theme::textDim, 11.0f,
+              ALIGN_LEFT | ALIGN_MIDDLE);
     }
 
     // The saved presets, by folder: click one to load it; Default marks the one new plugin instances start with
@@ -6809,6 +7124,12 @@ private:
     std::vector<UserImage> fImageList;
     std::string fImageDeleteArmed;            // the image whose Delete was clicked once
     std::string fImageBrowseDir;              // where the last added image was
+    // Cab Image dialog: the IR whose cab image is picked, the dialog to go back to, and which sizes are shown
+    std::string fCabHash;
+    std::string fCabPath;
+    Dialog fCabReturn = Dialog::None;
+    float fCabReturnScroll = 0.0f;
+    std::array<bool, kCabSizes.size()> fCabOpen {};
 
     std::chrono::steady_clock::time_point fChainChangedAt = std::chrono::steady_clock::now();
     bool fStatusPending = true;

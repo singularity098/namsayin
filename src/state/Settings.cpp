@@ -27,6 +27,7 @@ std::string Settings::toJson() const
         { "recentPresets", recentPresets },
         { "checkUpdates", checkUpdates },
         { "dismissedUpdate", dismissedUpdate },
+        { "cabImages", cabImages },
     }.dump(2);
 }
 
@@ -62,6 +63,7 @@ Settings Settings::fromJson(std::string_view text)
         get("recentPresets", settings.recentPresets);
         get("checkUpdates", settings.checkUpdates);
         get("dismissedUpdate", settings.dismissedUpdate);
+        get("cabImages", settings.cabImages);
     }
     catch (const json::exception&)
     {
