@@ -164,12 +164,13 @@ public:
         }
     }
 
+    // Leaves the convolvers alone: FFTConvolver's reset() unloads the IR (the engine calls this after prepare() when
+    // the host reactivates the plugin, which silenced the block), and it can't clear only their history without
+    // allocating. prepare() has just built fresh ones anyway.
     void reset() override
     {
         for (int ch = 0; ch < 2; ++ch)
         {
-            if (fConvolvers[ch])
-                fConvolvers[ch]->reset();
             fHighPass[ch].reset();
             fLowPass[ch].reset();
         }

@@ -204,3 +204,49 @@ TEST_CASE("no built-in block runs away over a long stretch")
         }
     }
 }
+
+// Hosts deactivate and activate plugins (Reaper does when an FX is disabled and enabled again); the engine then
+// prepares and resets every block. A block must play on just as a fresh one does.
+TEST_CASE("every built-in block plays on after the host reactivates it")
+{
+    constexpr double rate = 48000.0;
+    constexpr uint32_t frames = 256;
+    // a steady note with harmonics, so pitch-following blocks find it
+    auto note = [](size_t length) {
+        std::vector<std::vector<float>> x(2, std::vector<float>(length));
+        for (size_t i = 0; i < length; ++i)
+        {
+            const double t = static_cast<double>(i) / rate;
+            const float v = static_cast<float>(0.2 * std::sin(2.0 * M_PI * 196.0 * t) +
+                                               0.1 * std::sin(2.0 * M_PI * 392.0 * t) +
+                                               0.05 * std::sin(2.0 * M_PI * 588.0 * t));
+            x[0][i] = x[1][i] = v;
+        }
+        return x;
+    };
+    const size_t length = static_cast<size_t>(rate * 2.0);
+    for (const BlockDescriptor* type : BlockRegistry::builtin().types())
+    {
+        const std::string typeId = type->typeId;
+        CAPTURE(typeId);
+        std::unique_ptr<Block> fresh = testing::createWithDefaults(*type, rate, frames);
+        auto a = note(length);
+        testing::runBlock(*fresh, a, frames);
+        // early in the note: some blocks play a short sound per pick (the Fart pedal, a random one each time)
+        const double freshLevel = testing::rms(a[0], length / 8, length / 2);
+        if (freshLevel < 1e-3)
+            continue; // silent at its defaults for this input (a looper, a kill switch)
+
+        std::unique_ptr<Block> block = testing::createWithDefaults(*type, rate, frames);
+        auto before = note(length / 2);
+        testing::runBlock(*block, before, frames);
+        block->prepare(rate, frames);
+        block->reset();
+        auto b = note(length);
+        testing::runBlock(*block, b, frames);
+        const double level = testing::rms(b[0], length / 8, length / 2);
+        // loosely: the Fart pedal's random kinds differ in level
+        CHECK(level > freshLevel * 0.25);
+        CHECK(level < freshLevel * 4.0);
+    }
+}

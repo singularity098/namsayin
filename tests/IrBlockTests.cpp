@@ -161,3 +161,24 @@ TEST_CASE("IR block rejects missing and invalid files")
     std::ofstream(bad) << "not a wav file";
     CHECK_FALSE(loadIr(bad));
 }
+
+// FFTConvolver's reset() unloads the IR; the block's reset() (which the engine calls when the host reactivates the
+// plugin) must keep it
+TEST_CASE("IR block keeps its IR when the host reactivates the plugin")
+{
+    std::unique_ptr<Block> block = loadIr(writeWav("delay-reactivate.wav", kRate, { impulseAt(1024, 300) }));
+    REQUIRE(block);
+    impulseResponse(*block, 1, 4096);
+    block->prepare(kRate, kBuffer);
+    int allocations = 0;
+    {
+        testing::AllocationGuard guard;
+        block->reset();
+        allocations = guard.count();
+    }
+    CHECK(allocations == 0);
+    const auto out = impulseResponse(*block, 1, 4096);
+    CHECK(peakIndex(out[0]) == 300);
+    CHECK(out[0][300] > 0.9f);
+    CHECK(std::fabs(out[0][0]) < 0.01f); // and no dry signal
+}
