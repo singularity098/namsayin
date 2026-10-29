@@ -13,6 +13,22 @@
 
 using namespace namsayin;
 
+namespace {
+
+// New pedals whose photo the owner hasn't rendered yet (their prompts are in docs/PedalImagePrompts.md). Take a pedal
+// off this list when its photo and face are added.
+bool awaitingPhoto(const std::string& typeId)
+{
+    static const char* const kAwaiting[] = { "diodebridge", "consolecomp", "optoleveler", "optostomp", "fetlimiter",
+                                             "squashcomp" };
+    for (const char* id : kAwaiting)
+        if (typeId == id)
+            return true;
+    return false;
+}
+
+} // namespace
+
 TEST_CASE("pedal face knobs turn real knob parameters, inside their image, with short names")
 {
     for (const PedalFace& face : pedalFaces())
@@ -74,6 +90,13 @@ TEST_CASE("every pedal has an image with its knobs, power LED and footswitch")
         CAPTURE(typeId);
         if (typeId == "nam" || typeId == "ir")
             continue; // these get a look per file (FileLooks.cpp)
+        if (awaitingPhoto(typeId))
+        {
+            // drawn with the placeholder art until the owner sends its render (docs/PedalImagePrompts.md)
+            CHECK_FALSE(std::filesystem::exists(images / (typeId + ".webp")));
+            CHECK(pedalFace(type->typeId) == nullptr);
+            continue;
+        }
         CHECK(std::filesystem::exists(images / (typeId + ".webp")));
         CHECK(std::filesystem::exists(images / "thumbs" / (typeId + ".webp")));
         const PedalFace* face = pedalFace(type->typeId);

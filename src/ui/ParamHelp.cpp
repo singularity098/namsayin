@@ -346,6 +346,108 @@ constexpr BlockHelp kBlockHelp[] = {
       "off." },
     { "bitcrusher", "Mix", MIX_HELP("crushed sound") },
 
+    // Compressor pedals: Diode Bridge
+    { "diodebridge", "Threshold",
+      "The level where the compressor starts working. Lower it to compress more of your playing; watch the "
+      "Reduction meter. Around -20 dB gives a few dB of gentle levelling for most guitar parts." },
+    { "diodebridge", "Ratio",
+      "How firmly it squeezes the parts over the Threshold, in steps like the original's switch: 1.5:1 and 2:1 are "
+      "gentle glue, 3:1 and 4:1 a firm, even sound, 6:1 close to limiting." },
+    { "diodebridge", "Recovery",
+      "How fast it lets go after a loud passage. The fixed times go from a quick 100 ms (lively, can pump) to a "
+      "smooth 1.5 s. Auto 1 and Auto 2 follow your playing: short peaks recover fast and long loud passages slowly, "
+      "so it stays even without pumping. Auto 2 is the slower, smoother of the two." },
+    { "diodebridge", "Limit",
+      "The limiter after the compressor: nothing gets louder than this, however hard you dig in. At 0 dB it only "
+      "catches peaks near full scale; lower it to hold the peaks back. The meter shows both together." },
+    { "diodebridge", "Gain",
+      "Make-up gain after compressing. Raise it until the block is about as loud as bypass, or louder to push what "
+      "comes next. The limiter comes after it, so it also sets how hard the limiter works." },
+    { "diodebridge", "Mix",
+      MIX_HELP("compressed sound") " Lower settings are parallel compression: the glue and weight with your pick "
+      "attack kept." },
+
+    // Compressor pedals: Console Comp
+    { "consolecomp", "Drive",
+      "How hard the channel's class-A preamp and its transformers are pushed before the compressor: clean and full "
+      "at 0, thicker and warmer as you turn it up, with a gentle console grit at the top. The level stays about the "
+      "same." },
+    { "consolecomp", "Threshold",
+      "The level where the compressor starts working. Lower it to compress more; watch the Reduction meter. Drive "
+      "makes the signal a little louder, so it also compresses more when you turn Drive up." },
+    { "consolecomp", "Ratio",
+      "How firmly it squeezes the parts over the Threshold: 1.5:1 and 2:1 are gentle, 3:1 and 4:1 firm, 6:1 close to "
+      "limiting." },
+    { "consolecomp", "Attack",
+      "How fast it grabs a loud note. Fast catches the pick attack and smooths it; Slow lets the pick snap through "
+      "before it turns down, for a punchier sound. Medium is in between." },
+    { "consolecomp", "Release",
+      "How fast it lets go after the level drops. Short times are lively and can pump with the beat; long ones are "
+      "smooth and steady. 200-500 ms suits most parts." },
+    { "consolecomp", "Level",
+      "The output volume. Raise it to make up for the compression, so the block is as loud as bypass." },
+    { "consolecomp", "Mix",
+      MIX_HELP("compressed sound") " Lower settings are parallel compression: the sustain with your natural attack." },
+
+    // Compressor pedals: Opto Leveler
+    { "optoleveler", "Peak Reduction",
+      "How much it levels your playing: turn it up until the Reduction meter shows a few dB. The optical cell reacts "
+      "smoothly and lets go slowly, so it evens out a part without sounding squashed." },
+    { "optoleveler", "Gain",
+      "Make-up gain, into the tube output stage. Bring the level back up to bypass; pushed hard, the tube adds a "
+      "little warmth and roundness." },
+    { "optoleveler", "Mode",
+      "Compress is the gentle, natural levelling (about 3:1). Limit holds the peaks much more firmly (about 10:1), "
+      "for a flatter, more controlled sound." },
+    { "optoleveler", "Emphasis",
+      "Makes the compressor listen more to the treble. At 0 it reacts to everything; turn it up and bright, spiky "
+      "notes are turned down more while the lows stay full. Handy for a sharp pick attack or a bright amp." },
+    { "optoleveler", "Mix",
+      MIX_HELP("levelled sound") " Lower settings are parallel compression: an even level with your dynamics kept." },
+
+    // Compressor pedals: Opto Stomp
+    { "optostomp", "Sustain",
+      "How much it compresses: notes ring longer and your playing evens out as you turn it up. The optical cell "
+      "is smooth and lets the pick attack through, so even high settings stay natural. It adds some level as you go." },
+    { "optostomp", "Tone",
+      "A treble control after the compressor: turn it up to bring back sparkle that compression takes away, down to "
+      "soften a bright guitar." },
+    { "optostomp", "Level",
+      "The output volume. Set it so the block is as loud as bypass, or a little louder for solos." },
+    { "optostomp", "Blend",
+      "Mixes the compressed sound with your dry guitar. 100% is all compressed; around 50% you keep your pick attack "
+      "and dynamics with the compressor's sustain under them." },
+
+    // Compressor pedals: FET Limiter
+    { "fetlimiter", "Input",
+      "How hard you drive the compressor: the threshold is fixed, so more Input means more compression, like the "
+      "original. The level is compensated, so it doesn't get louder; pushed hard, the output stage adds grit." },
+    { "fetlimiter", "Output",
+      "Make-up gain: raise it to bring the level back up after compressing, or past it to push what comes next." },
+    { "fetlimiter", "Attack",
+      "How fast it grabs the peaks, from 0.02 ms (instant: it shaves off the pick attack) to 0.8 ms (lets a bit of "
+      "the snap through). All of it is very fast; this is what the FET is famous for." },
+    { "fetlimiter", "Release",
+      "How fast it lets go. Short releases (50-100 ms) are aggressive and bring up the room and the sustain, and can "
+      "distort on low notes; long ones (500 ms and up) are smoother." },
+    { "fetlimiter", "Ratio",
+      "4:1 is a firm compressor, 8:1 and 12:1 heavier, 20:1 a limiter. All is all the buttons pushed in at once: it "
+      "over-compresses loud notes and distorts, for that aggressive, exploding sound." },
+    { "fetlimiter", "Mix",
+      MIX_HELP("compressed sound") " Parallel compression is great with All: the smash under your clean attack." },
+
+    // Compressor pedals: Squash Comp
+    { "squashcomp", "Sustain",
+      "How much quiet notes are brought up while loud ones are held back: more sustain and a flatter, squashier "
+      "sound as you turn it up. The classic chicken-picking country sound sits around the middle." },
+    { "squashcomp", "Attack",
+      "Fast clamps down on the pick at once, for the smoothest squash. Slow lets the pick click through before it "
+      "squeezes, for more snap and that bouncy, pumping feel." },
+    { "squashcomp", "Level",
+      "The output volume. Set it so the block is as loud as bypass, or a little louder for a solo boost." },
+    { "squashcomp", "Blend",
+      "Mixes the squashed sound with your dry guitar. Around 50% keeps your pick attack and adds the sustain under it." },
+
     // Compressor
     { "compressor", "Threshold",
       "The level where the compressor starts turning things down. Anything louder than this gets squeezed. The "
@@ -1878,6 +1980,31 @@ constexpr TypeHelp kTypeHelp[] = {
       "A lo-fi effect that lowers the bit depth and sample rate, for crunchy, broken, video-game sounds. Fewer Bits "
       "add grainy distortion, a lower Rate adds metallic, aliased tones. Use Mix to blend a little grit in, or go "
       "all the way for something extreme." },
+    { "diodebridge",
+      "A compressor and limiter modelled on a classic British bus compressor: a diode bridge between big "
+      "transformers, with a stepped ratio and Auto recovery that follows your playing. It glues and thickens, and "
+      "adds a little warm grit as it works harder. Use it near the end of the chain, or after an amp for a "
+      "finished, even sound." },
+    { "consolecomp",
+      "A British console channel: the class-A preamp and its transformers (Drive), then the channel's diode-bridge "
+      "compressor. Thick, warm and punchy. Put it first for a fat clean tone, or after an amp and cab to make the "
+      "guitar sound recorded." },
+    { "optoleveler",
+      "A classic optical levelling amplifier: one knob of Peak Reduction evens out your playing slowly and smoothly, "
+      "with a tube output stage. It never sounds grabby, so it suits clean parts, ballads and leads. Put it early "
+      "for even sustain, or at the end of the chain to level the whole rig." },
+    { "optostomp",
+      "An optical compressor pedal: a light shining on a photocell turns your signal down, so it reacts gently and "
+      "lets the pick attack through. Natural, transparent sustain; turn it on and leave it on. Put it first, before "
+      "your drives, or after them to even out their level." },
+    { "fetlimiter",
+      "A FET compressor modelled on the famous studio limiting amplifier: very fast attack, a bright, aggressive "
+      "character and the All mode for extreme smash. Great for punchy clean rhythm, in-your-face leads and parallel "
+      "smash. Use it first for pick attack control or after the amp for studio punch." },
+    { "squashcomp",
+      "The classic stompbox squash: quiet notes come up and loud ones are held back, for the bouncy, snappy sound of "
+      "country chicken picking and funk. A little dark and squishy, like the originals. Put it first in the chain, "
+      "before the drives." },
     { "compressor",
       "A studio compressor that evens out your level: it turns loud notes down so quiet ones sound fuller. Use it "
       "early in the chain for snappy, even clean tones and more sustain, or at the end to glue everything together. "

@@ -8,6 +8,7 @@
 #include "engine/blocks/BitcrusherBlock.hpp"
 #include "engine/blocks/ChorusBlock.hpp"
 #include "engine/blocks/CloudBlocks.hpp"
+#include "engine/blocks/CompBlocks.hpp"
 #include "engine/blocks/CompressorBlock.hpp"
 #include "engine/blocks/DelayBlock.hpp"
 #include "engine/blocks/DelayFxBlocks.hpp"
@@ -100,6 +101,12 @@ const BlockRegistry& BlockRegistry::builtin()
         &kBitcrusherBlockDescriptor,
         &kJawariBlockDescriptor,
         &kCompressorBlockDescriptor,
+        &kDiodeBridgeBlockDescriptor,
+        &kConsoleCompBlockDescriptor,
+        &kOptoLevelerBlockDescriptor,
+        &kOptoStompBlockDescriptor,
+        &kFetLimiterBlockDescriptor,
+        &kSquashCompBlockDescriptor,
         &kGateBlockDescriptor,
         &kVolumeBlockDescriptor,
         &kSwellBlockDescriptor,

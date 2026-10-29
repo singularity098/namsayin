@@ -137,6 +137,7 @@ add_library(namsayin-engine STATIC
   src/engine/blocks/BitcrusherBlock.cpp
   src/engine/blocks/ChorusBlock.cpp
   src/engine/blocks/CloudBlocks.cpp
+  src/engine/blocks/CompBlocks.cpp
   src/engine/blocks/CompressorBlock.cpp
   src/engine/blocks/DelayBlock.cpp
   src/engine/blocks/DelayFxBlocks.cpp
@@ -264,6 +265,7 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/BlockGlyphTests.cpp
     tests/BlockSanityTests.cpp
     tests/ChainStateTests.cpp
+    tests/CompPedalTests.cpp
     tests/CompressorBlockTests.cpp
     tests/DelayBlockTests.cpp
     tests/DiTests.cpp

@@ -300,6 +300,66 @@ const std::map<std::string, Draw>& drawings()
 
         // Dynamics
         { "compressor", compressorKnee },
+        { "diodebridge", [](Builder& b) { // a diode bridge: four diodes in a diamond
+             const Glyph::Point corners[] = { { 62, 72 }, { 88, 98 }, { 62, 124 }, { 36, 98 } };
+             b.polyline({ corners[0], corners[1], corners[2], corners[3] }, true);
+             for (int k = 0; k < 4; ++k)
+             {
+                 // each side's diode, pointing down the diamond: a triangle into a bar
+                 const auto [ax, ay] = corners[k];
+                 const auto [bx, by] = corners[(k + 1) % 4];
+                 const bool down = by > ay;
+                 const float dx = (down ? bx - ax : ax - bx) / 36.77f, dy = (down ? by - ay : ay - by) / 36.77f;
+                 const float mx = (ax + bx) / 2.0f, my = (ay + by) / 2.0f;
+                 b.polyline({ { mx - 4 * dx - 5 * dy, my - 4 * dy + 5 * dx }, { mx + 4 * dx, my + 4 * dy },
+                              { mx - 4 * dx + 5 * dy, my - 4 * dy - 5 * dx } }, true);
+                 b.polyline({ { mx + 4 * dx - 5 * dy, my + 4 * dy + 5 * dx }, { mx + 4 * dx + 5 * dy, my + 4 * dy - 5 * dx } });
+             }
+         } },
+        { "consolecomp", [](Builder& b) { // a console channel's fader in its slot, with its scale
+             b.polyline({ { 62, 70 }, { 62, 122 } });
+             b.rect(50, 90, 74, 102);
+             b.polyline({ { 50, 96 }, { 74, 96 } });
+             for (int k = 0; k < 6; ++k)
+             {
+                 const float y = 72.0f + 9.6f * k;
+                 b.polyline({ { 36, y }, { k % 2 == 0 ? 44.0f : 41.0f, y } });
+                 b.polyline({ { 80, y }, { k % 2 == 0 ? 88.0f : 85.0f, y } });
+             }
+         } },
+        { "optoleveler", [](Builder& b) { // the levelling amp's big VU meter, its needle swinging back
+             b.rect(26, 72, 98, 122);
+             b.arc(62, 124, 38, 235, 305);
+             for (int k = 0; k <= 6; ++k)
+             {
+                 const float a = rad(235.0f + 70.0f * k / 6.0f);
+                 b.polyline({ { 62 + 38 * std::cos(a), 124 + 38 * std::sin(a) }, { 62 + 32 * std::cos(a), 124 + 32 * std::sin(a) } });
+             }
+             b.polyline({ { 62, 120 }, { 62 + 34 * std::cos(rad(258.0f)), 120 + 34 * std::sin(rad(258.0f)) } });
+         } },
+        { "optostomp", [](Builder& b) { // a photocell, its winding track, and light falling on it
+             b.circle(70, 104, 17);
+             b.polyline({ { 58, 96 }, { 82, 96 }, { 82, 101 }, { 58, 101 }, { 58, 107 }, { 82, 107 }, { 82, 112 }, { 58, 112 } });
+             b.polyline({ { 30, 68 }, { 48, 86 } });
+             b.arrowhead(48, 86, 1, 1, 7);
+             b.polyline({ { 42, 66 }, { 58, 82 } });
+             b.arrowhead(58, 82, 1, 1, 7);
+         } },
+        { "fetlimiter", [](Builder& b) { // a field-effect transistor: the channel, drain, source and the gate's arrow
+             b.polyline({ { 62, 82 }, { 62, 114 } });
+             b.polyline({ { 62, 86 }, { 84, 86 }, { 84, 68 } });
+             b.polyline({ { 62, 110 }, { 84, 110 }, { 84, 124 } });
+             b.polyline({ { 32, 104 }, { 62, 104 } });
+             b.arrowhead(61, 104, 1, 0, 8);
+         } },
+        { "squashcomp", [](Builder& b) { // a ball squashed flat between two plates
+             b.polyline({ { 28, 84 }, { 96, 84 } });
+             b.polyline({ { 28, 114 }, { 96, 114 } });
+             b.plot(34, 90, [](float u) { return 99.0f - 14.0f * std::sin(kPi * u); });
+             b.plot(34, 90, [](float u) { return 99.0f + 14.0f * std::sin(kPi * u); });
+             b.polyline({ { 62, 64 }, { 62, 78 } });
+             b.arrowhead(62, 79, 0, 1, 7);
+         } },
         { "gate", [](Builder& b) { // a ringing note shut off by the gate
              b.plot(28, 72, [](float u) { return 98.0f - 16.0f * (1.0f - 0.6f * u) * sine(u, 2.0f); });
              b.line(96, 98);
