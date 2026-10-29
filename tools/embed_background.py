@@ -4,7 +4,8 @@
 """Regenerates src/ui/BackgroundImage.cpp from resources/background/background.*.
 
 The window background behind every panel (the owner's image; the panels over it are translucent black). It's embedded
-as a WebP (decoded with libwebp, src/ui/WebpImage.*): a WebP at most WIDTH px wide as it is, anything else re-encoded.
+as a WebP (decoded with libwebp, src/ui/WebpImage.*): a WebP at most WIDTH px wide byte for byte, anything else
+re-encoded losslessly (the owner saw compression artifacts in the dark gradients; it must have none).
 
 Needs Pillow. Run from the repository root after changing the image: python3 tools/embed_background.py
 """
@@ -26,7 +27,7 @@ else:
     if img.width > WIDTH:
         img = img.resize((WIDTH, round(img.height * WIDTH / img.width)), Image.LANCZOS)
     buf = io.BytesIO()
-    img.save(buf, "WEBP", quality=95, method=6, use_sharp_yuv=True)
+    img.save(buf, "WEBP", lossless=True, quality=100, method=6)
     data = buf.getvalue()
 
 lines = [

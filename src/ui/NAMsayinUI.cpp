@@ -54,11 +54,14 @@ using namespace namsayin;
 
 namespace {
 
-// Theme tokens. Very dark: a pure black window; boxes are black too, drawn as hairline grey outlines (surface()).
+// Theme tokens. Very dark: the owner's dark background image, and every box translucent black over it with a hairline
+// grey outline (surface()).
 namespace theme {
 const Color background(0x00, 0x00, 0x00);
-const Color panelFill(0x00, 0x00, 0x00, 0.88f);  // bars, panels, tiles and buttons: the background image shows faintly
-const Color dialogFill(0x07, 0x07, 0x07, 0.9f); // dialogs (and menus) stand off the window a little
+// Everything in the window is translucent black over the background image (the owner's choice, 2026-10-29)
+const Color panelFill(0x00, 0x00, 0x00, 0.9f);  // bars, panels, tiles, buttons, the tuner and the metronome
+const Color dialogFill(0x00, 0x00, 0x00, 0.9f); // dialogs and menus
+const Color itemFill(0x00, 0x00, 0x00, 0.95f);  // the blocks in Add Block, a little darker
 const Color tile(0x16, 0x16, 0x1a);       // small grey fills (hover in lists, meter boxes)
 const Color tileHover(0x1d, 0x1d, 0x22);
 const Color inset(0x05, 0x05, 0x06);
@@ -108,7 +111,7 @@ const Color pedalOther(0x70, 0x70, 0x7a);
 enum class Led { None, Off, On };
 
 // Kinds of box, for surface(): each has its own outline brightness
-enum class Surface { Bar, Panel, Tile, Button, Dialog, Inset };
+enum class Surface { Bar, Panel, Tile, Button, Dialog, Inset, Item };
 
 constexpr float kTopBarHeight = 60.0f;
 constexpr float kFontScale = 1.69f; // text is drawn this much larger than layout sizes (see fontSize())
@@ -143,6 +146,11 @@ constexpr const char* kLookaheadHelp =
     "sound is delayed by that much; your DAW makes up for it on playback and recording, but you hear the delay "
     "while you play (10 ms is like standing 3.4 m from your amp). Click to pick Off, 5, 10, 15, 20 or "
     "30 ms. Off adds no delay.";
+constexpr const char* kA2SizeHelp =
+    "For A2 models, which come in two sizes in one file. Full is the whole model: the most accurate sound, and "
+    "the most CPU. Lite is a slimmed-down version of it that sounds nearly the same for a fraction of the CPU; use "
+    "it when you run several amps, a split or a slow computer. Click to switch. Other models ignore it. The size "
+    "new blocks start with is in Settings.";
 constexpr float kTunerInTuneCents = 2.0f;
 
 // How long the audio engine gets to start a changed chain before the UI reports blocks that aren't running
@@ -3166,8 +3174,11 @@ private:
         case Surface::Button: alpha = hover ? 0.32f : 0.16f; break;
         case Surface::Dialog: alpha = 0.16f; break;
         case Surface::Inset: alpha = 0.08f; break;
+        case Surface::Item: alpha = hover ? 0.30f : 0.14f; break;
         }
-        fillRect(x, y, w, h, kind == Surface::Dialog ? theme::dialogFill : theme::panelFill, radius);
+        fillRect(x, y, w, h,
+                 kind == Surface::Dialog ? theme::dialogFill : kind == Surface::Item ? theme::itemFill : theme::panelFill,
+                 radius);
         beginPath();
         if (kind == Surface::Bar)
         {
@@ -3264,7 +3275,7 @@ private:
             onSurface(r, theme::accent, 6.0f);
         else
             surface(r.x, r.y, r.w, r.h, 6.0f, Surface::Button, hover);
-        drawIcon(icon, r.x + r.w / 2, r.y + r.h / 2, on ? theme::accent : theme::text, theme::background);
+        drawIcon(icon, r.x + r.w / 2, r.y + r.h / 2, on ? theme::accent : theme::text);
         fHits.push_back({ r, kind, index });
     }
 
@@ -3285,7 +3296,7 @@ private:
     }
 
     // An icon about 18 px across, centred on (cx, cy)
-    void drawIcon(Icon icon, float cx, float cy, const Color& color, const Color& background)
+    void drawIcon(Icon icon, float cx, float cy, const Color& color)
     {
         constexpr float pi = static_cast<float>(M_PI);
         lineCap(ROUND);
@@ -3354,34 +3365,37 @@ private:
 
         case Icon::Fretbored:
         {
-            // the Fretbored app icon (its assets/icon.svg, a 32-unit square), flat in the icon colour like the
-            // others: three strings, a root note with its ring, and two notes. Gaps in the background colour keep
-            // the notes apart from the strings.
-            const float k = 20.0f / 32.0f;
-            const float x0 = cx - 10.0f, y0 = cy - 10.0f;
+            // the Fretbored app icon (its assets/icon.svg, a 120-unit square), flat in the icon colour like the
+            // others: five strings and three frets, faint, and the notes spelling an F, its root note larger
+            const float k = 24.0f / 120.0f;
+            const float x0 = cx - 12.0f, y0 = cy - 12.0f;
             beginPath();
-            for (const float y : { 8.5f, 15.5f, 22.5f })
+            for (const float y : { 22.0f, 41.0f, 60.0f, 79.0f, 98.0f })
             {
-                moveTo(x0 + 3.0f * k, y0 + y * k);
-                lineTo(x0 + 29.0f * k, y0 + y * k);
+                moveTo(x0 + 14.0f * k, y0 + y * k);
+                lineTo(x0 + 106.0f * k, y0 + y * k);
             }
+            strokeColor(color.withAlpha(color.alpha * 0.3f));
             strokeWidth(1.0f);
             stroke();
             beginPath();
-            circle(x0 + 12.0f * k, y0 + 15.5f * k, 8.6f * k);
-            circle(x0 + 24.0f * k, y0 + 8.5f * k, 5.8f * k);
-            circle(x0 + 24.0f * k, y0 + 22.5f * k, 5.8f * k);
-            fillColor(background);
+            for (const float x : { 43.0f, 65.0f, 87.0f })
+            {
+                moveTo(x0 + x * k, y0 + 12.0f * k);
+                lineTo(x0 + x * k, y0 + 108.0f * k);
+            }
+            strokeColor(color.withAlpha(color.alpha * 0.15f));
+            strokeWidth(1.0f);
+            stroke();
+            beginPath();
+            constexpr float notes[][2] = { { 32, 41 }, { 32, 60 }, { 32, 79 }, { 32, 98 }, { 54, 22 },
+                                           { 76, 22 }, { 98, 22 }, { 54, 60 }, { 76, 60 } };
+            for (const auto& n : notes)
+                circle(x0 + n[0] * k, y0 + n[1] * k, 8.5f * k);
+            circle(x0 + 32.0f * k, y0 + 22.0f * k, 11.0f * k);
+            fillColor(color);
             fill();
-            beginPath();
-            circle(x0 + 12.0f * k, y0 + 15.5f * k, 7.0f * k);
-            strokeWidth(1.0f);
-            stroke();
-            beginPath();
-            circle(x0 + 12.0f * k, y0 + 15.5f * k, 3.4f * k);
-            circle(x0 + 24.0f * k, y0 + 8.5f * k, 3.6f * k);
-            circle(x0 + 24.0f * k, y0 + 22.5f * k, 3.6f * k);
-            stroke(); // outlined notes, to match the hairline icons
+            strokeColor(color);
             break;
         }
 
@@ -3449,6 +3463,8 @@ private:
             return { "Insert Block", "Adds a new block here, between the blocks on either side." };
         case Hit::Lookahead:
             return { "Lookahead", kLookaheadHelp };
+        case Hit::A2Size:
+            return { "A2 Full/Lite", kA2SizeHelp };
         case Hit::Split:
             return { "Split",
                      "Splits the chain here into two parallel paths, A and B, which both start empty. Add blocks to "
@@ -3575,7 +3591,7 @@ private:
 
         beginPath();
         roundedRect(x, y, width, h, 8.0f);
-        fillColor(Color(0x14, 0x14, 0x18, 0.88f));
+        fillColor(theme::dialogFill);
         fill();
         strokeColor(theme::accent.withAlpha(0.45f));
         strokeWidth(1.0f);
@@ -4649,8 +4665,8 @@ private:
     // speed proportional to how far out of tune the note is, and stand still when it's in tune.
     void drawStrobe(const Rect& r, bool active, bool inTune)
     {
-        // a black window with a hairline edge, like the knobs' bodies
-        fillRect(r.x, r.y, r.w, r.h, theme::background, 8.0f);
+        // a translucent black window with a hairline edge
+        fillRect(r.x, r.y, r.w, r.h, theme::panelFill, 8.0f);
         beginPath();
         roundedRect(r.x + 0.5f, r.y + 0.5f, r.w - 1.0f, r.h - 1.0f, 8.0f);
         strokeColor(Color(1.0f, 1.0f, 1.0f, 0.18f));
@@ -5156,10 +5172,19 @@ private:
             int param;
         };
         std::vector<Control> controls;
-        for (int p = 0; p < type->numParams; ++p)
-            controls.push_back({ Cell::Param, p });
         if (type == &kNamBlockDescriptor)
+        {
+            // the order the owner asked for; the slots keep theirs, since they're host parameters
+            for (const int p : { kNamParamInput, kNamParamBass, kNamParamMiddle, kNamParamTreble, kNamParamOutput,
+                                 kNamParamNormalize })
+                controls.push_back({ Cell::Param, p });
             controls.push_back({ Cell::A2Size, 0 });
+        }
+        else
+        {
+            for (int p = 0; p < type->numParams; ++p)
+                controls.push_back({ Cell::Param, p });
+        }
         if (type->lookahead)
             controls.push_back({ Cell::Lookahead, 0 });
         if (type->meterName)
@@ -5380,7 +5405,7 @@ private:
             if (r.y + r.h < listTop || r.y > listBottom)
                 continue;
             const bool inside = fMouseY >= listTop && fMouseY < listBottom;
-            surface(r.x, r.y, r.w, r.h, 8.0f, Surface::Tile, inside && r.contains(fMouseX, fMouseY));
+            surface(r.x, r.y, r.w, r.h, 8.0f, Surface::Item, inside && r.contains(fMouseX, fMouseY));
             if (NanoImage* img = items[i].type ? builtinThumb(items[i].type->typeId) : nullptr)
                 drawBlockImage(*img, items[i].type, -1, r.x + 10.0f, r.y + 6.0f, thumbW, r.h - 12.0f, 3.0f, false);
             else
@@ -5757,7 +5782,7 @@ private:
 
             const Rect r { x, y0, w, rowH - 4.0f };
             const bool hover = r.contains(fMouseX, fMouseY) && fMouseY >= listY && fMouseY < listY + listH;
-            surface(r.x, r.y, r.w, r.h, 6.0f, Surface::Tile, hover);
+            surface(r.x, r.y, r.w, r.h, 6.0f, Surface::Item, hover);
             const float top = std::max(r.y, listY), bottom = std::min(r.y + r.h, listY + listH);
 
             if (!row.folder.empty())
