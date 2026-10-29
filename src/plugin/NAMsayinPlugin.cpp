@@ -62,7 +62,10 @@ protected:
     const char* getMaker() const override { return "singularity098"; }
     const char* getHomePage() const override { return DISTRHO_PLUGIN_URI; }
     const char* getLicense() const override { return "MIT"; }
-    uint32_t getVersion() const override { return d_version(0, 1, 0); }
+    uint32_t getVersion() const override
+    {
+        return d_version(NAMSAYIN_VERSION_MAJOR, NAMSAYIN_VERSION_MINOR, NAMSAYIN_VERSION_PATCH);
+    }
 
     void initAudioPort(const bool input, const uint32_t index, AudioPort& port) override
     {

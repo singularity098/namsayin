@@ -83,6 +83,7 @@
     - The preset menu lists the saved presets as they're arranged in folders, instead of a Recent list (owner's decision, 2026-10-22)
     - When a preset references a NAM or IR file that no longer exists, the block is still added but grayed out, with a button to locate the file
 - Global bypass button
+- Update check (owner, 2026-10-29): once a day the plugin asks GitHub for the latest release and shows a notice in the top bar when it's newer, opening the release page; × hides it until an even newer version. It never downloads or installs anything (a plugin replacing itself inside a running DAW is fragile and a security risk), and it can be turned off in Settings (on by default)
 - At the bottom of the application, we have:
     - Input mode toggle (mono/stereo). Stereo processes both channels (double CPU) and allows stereo effects such as stereo delay
     - Input (level) knob

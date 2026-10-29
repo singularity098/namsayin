@@ -24,6 +24,8 @@ TEST_CASE("settings round-trip through JSON and a file")
     settings.embedFiles = false;
     settings.recentPresets = { "/a.namsayin", "/b.namsayin" };
     settings.defaultPreset = "/presets/Clean/Twin.namsayin";
+    settings.checkUpdates = false;
+    settings.dismissedUpdate = "1.2.0";
 
     CHECK(Settings::fromJson(settings.toJson()) == settings);
 

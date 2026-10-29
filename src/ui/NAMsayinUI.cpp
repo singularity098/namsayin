@@ -11,6 +11,7 @@
 #include "FileLooks.hpp"
 #include "FontData.hpp"
 #include "FolderPicker.hpp"
+#include "HttpGet.hpp"
 #include "KnobImages.hpp"
 #include "LedImages.hpp"
 #include "OpenUrl.hpp"
@@ -33,6 +34,7 @@
 #include "state/Preset.hpp"
 #include "state/Settings.hpp"
 #include "state/UndoStack.hpp"
+#include "state/UpdateCheck.hpp"
 #include "state/UserImages.hpp"
 
 #include <algorithm>
@@ -211,6 +213,9 @@ enum class Hit {
     SettingsNormalize,
     SettingsParallel,
     SettingsAccent, // index = accent
+    SettingsUpdates, // the update check on/off
+    UpdateOpen,     // the update banner: open the release page
+    UpdateDismiss,  // the update banner's ×: hide it for this version
     PresetMenu,
     Undo,
     Redo,
@@ -570,6 +575,8 @@ public:
         fSettingsTime = fileTime(Settings::defaultPath());
         applySettings();
         rescan();
+        fUpdateCache = UpdateCache::load();
+        fUpdateCacheTime = fileTime(UpdateCache::defaultPath());
 
         const double scaleFactor = getScaleFactor();
         setGeometryConstraints(NAMSAYIN_UI_MIN_WIDTH * scaleFactor, NAMSAYIN_UI_MIN_HEIGHT * scaleFactor, false);
@@ -1045,6 +1052,20 @@ protected:
         case Hit::SettingsParallel:
             updateSettings([](Settings& settings) { settings.parallel = !settings.parallel; });
             sendChain(); // the DSP reads the setting when it builds the chain
+            return true;
+
+        case Hit::SettingsUpdates:
+            updateSettings([](Settings& settings) { settings.checkUpdates = !settings.checkUpdates; });
+            return true;
+
+        case Hit::UpdateOpen:
+            openUrl(kLatestReleasePageUrl);
+            return true;
+
+        case Hit::UpdateDismiss:
+            updateSettings([version = fUpdateCache.latest](Settings& settings) {
+                settings.dismissedUpdate = version;
+            });
             return true;
 
         case Hit::SaveFolder:
@@ -1541,6 +1562,7 @@ protected:
                     rescan();
                 repaint();
             }
+            pollUpdateCheck();
         }
 
         // the metronome's beat pulse
@@ -2463,6 +2485,36 @@ private:
             fFields[kFieldNamDir] = fSettings.namDir;
         if (fFocusedField != kFieldIrDir)
             fFields[kFieldIrDir] = fSettings.irDir;
+    }
+
+    // Once a second: starts the daily update check when it's due (a few seconds after opening, so it doesn't compete
+    // with loading), stops it when it's turned off, and picks up the result, also when another instance checked
+    void pollUpdateCheck()
+    {
+        const bool enabled = fSettings.checkUpdates;
+        if (!enabled && fUpdateChecker.busy())
+            fUpdateChecker.stop();
+        const int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
+        const bool settled = std::chrono::steady_clock::now() - fOpenedAt > std::chrono::seconds(3);
+        if (enabled && settled && fUpdateCache.checkDue(now))
+            fUpdateChecker.start(now);
+        const int64_t time = fileTime(UpdateCache::defaultPath());
+        if (fUpdateChecker.poll() || time != fUpdateCacheTime)
+        {
+            fUpdateCacheTime = time;
+            fUpdateCache = UpdateCache::load();
+            repaint();
+        }
+    }
+
+    // The version the update banner offers, if any
+    std::optional<std::string> availableUpdate() const
+    {
+        if (!fSettings.checkUpdates)
+            return std::nullopt;
+        return updateToShow(fUpdateCache, kAppVersion, fSettings.dismissedUpdate);
     }
 
     // Changes the settings file: reloads it first, so changes made meanwhile by other instances aren't lost
@@ -3605,8 +3657,22 @@ private:
         case Hit::OpenSettings:
             return { "Settings",
                      "Opens the settings: the folders for your NAM and IR files, the default NAM A2 size, volume "
-                     "normalization for new blocks, parallel processing of a split on a second CPU core, and the "
-                     "highlight colour." };
+                     "normalization for new blocks, parallel processing of a split on a second CPU core, the "
+                     "highlight colour, and the daily check for a new version." };
+        case Hit::UpdateOpen:
+            return { "New Version",
+                     "A newer version of NAMsayin has been released. Click to open its release page in your web "
+                     "browser, where you can read what's new and download it. Close your DAW before installing. "
+                     "Your presets and projects keep working." };
+        case Hit::UpdateDismiss:
+            return { "Hide",
+                     "Hides this notice until there's an even newer version. To stop checking altogether, turn off "
+                     "Check for updates in the settings." };
+        case Hit::SettingsUpdates:
+            return { "Check for Updates",
+                     "Once a day, NAMsayin asks GitHub for the version number of its latest release and shows a "
+                     "notice in the top bar when there's a newer one. Nothing else is sent, and nothing is "
+                     "downloaded or installed. Turn it off to never contact the internet." };
         case Hit::GitHub:
             return { "NAMsayin on GitHub",
                      "Opens NAMsayin's page on GitHub in your web browser: the source code, new releases, and the "
@@ -4370,6 +4436,7 @@ private:
         if (!fUndo.canRedo())
             fillRect(redo.x, redo.y, redo.w, redo.h, theme::background.withAlpha(0.6f), 6.0f);
 
+        float bannerEnd = redo.x + redo.w;
         if (fLearnParam >= 0)
         {
             const std::string text = "MIDI learn: move a controller for " + paramName(fLearnParam) + "  (Esc cancels)";
@@ -4396,15 +4463,53 @@ private:
         drawChevron(metroPanel.x + metroPanel.w / 2, metroPanel.y + metroPanel.h / 2,
                     fMetroPanel ? theme::accent : theme::text);
 
-        // the links, Fretbored and then GitHub, as far as there's room: past the Redo button, and not at all
-        // next to the MIDI learn message unless the window is wide
-        const float room = fLearnParam >= 0 && fWidth < 1200.0f ? metro.x : redo.x + redo.w + 12.0f;
+        // a new release: after Redo (not during MIDI learn, which shows its message there), before the links
+        if (const std::optional<std::string> update = availableUpdate(); update && fLearnParam < 0)
+            bannerEnd = drawUpdateBanner(redo.x + redo.w + 16.0f, metro.x - 12.0f, by, bh, *update);
+
+        // the links, Fretbored and then GitHub, as far as there's room: past the Redo button (and the update
+        // banner), and not at all next to the MIDI learn message unless the window is wide
+        const float room = fLearnParam >= 0 && fWidth < 1200.0f ? metro.x : bannerEnd + 12.0f;
         const Rect fretbored { metro.x - step, by, iw, bh };
         const Rect github { fretbored.x - step, by, iw, bh };
         if (fretbored.x >= room)
             drawIconButton(fretbored, Icon::Fretbored, false, Hit::Fretbored, 0);
         if (github.x >= room)
             drawIconButton(github, Icon::GitHub, false, Hit::GitHub, 0);
+    }
+
+    // "NAMsayin 1.2.0 is out" (shorter when space is tight) and a ×, between x and maxX; returns where it ends
+    float drawUpdateBanner(float x, float maxX, float y, float h, const std::string& version)
+    {
+        constexpr float closeW = 30.0f;
+        fontSize(13.0f);
+        Rectangle<float> bounds;
+        std::string text = "NAMsayin " + version + " is out";
+        float textW = textBounds(0, 0, text.c_str(), nullptr, bounds);
+        if (x + textW + 24.0f + closeW > maxX)
+        {
+            text = version + " is out";
+            textW = textBounds(0, 0, text.c_str(), nullptr, bounds);
+        }
+        const Rect open { x, y, textW + 24.0f, h };
+        if (open.x + open.w + closeW > maxX)
+            return x - 16.0f; // no room at all on a narrow window; Settings still has the toggle
+        const Rect close { open.x + open.w, y, closeW, h };
+        const Rect all { x, y, open.w + close.w, h };
+        surface(all.x, all.y, all.w, all.h, 6.0f, Surface::Button, all.contains(fMouseX, fMouseY));
+        beginPath();
+        roundedRect(all.x + 0.5f, all.y + 0.5f, all.w - 1.0f, all.h - 1.0f, 6.0f);
+        strokeColor(theme::accent.withAlpha(0.8f));
+        strokeWidth(1.0f);
+        stroke();
+        const bool overOpen = open.contains(fMouseX, fMouseY), overClose = close.contains(fMouseX, fMouseY);
+        label(open.x + open.w / 2, y + h / 2, text.c_str(), overOpen ? theme::accent : theme::text, 13.0f,
+              ALIGN_CENTER | ALIGN_MIDDLE);
+        label(close.x + close.w / 2 - 2.0f, y + h / 2, "×", overClose ? theme::text : theme::textDim, 18.0f,
+              ALIGN_CENTER | ALIGN_MIDDLE);
+        fHits.push_back({ open, Hit::UpdateOpen, 0 });
+        fHits.push_back({ close, Hit::UpdateDismiss, 0 });
+        return all.x + all.w;
     }
 
     // 1 right after a beat, fading to 0 over 150 ms
@@ -6348,7 +6453,7 @@ private:
         fillRect(0, 0, fWidth, fHeight, theme::overlay);
 
         const float w = std::min(800.0f, fWidth - 64.0f);
-        const float h = std::min(464.0f, fHeight - 48.0f);
+        const float h = std::min(508.0f, fHeight - 48.0f);
         const float x = (fWidth - w) / 2, y = (fHeight - h) / 2;
         surface(x, y, w, h, 12.0f, Surface::Dialog);
         fHits.push_back({ { x, y, w, h }, Hit::DialogPanel, 0 });
@@ -6411,6 +6516,14 @@ private:
                    theme::accent, Hit::SettingsParallel, 0);
         label(controlX + 88.0f, row + 14.0f, "run the second branch of a split on another core", theme::textDim,
               11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        row += rowH;
+
+        rowLabel("Check for updates");
+        drawButton({ controlX, row, 72.0f, 28.0f }, fSettings.checkUpdates ? "On" : "Off", fSettings.checkUpdates,
+                   theme::accent, Hit::SettingsUpdates, 0);
+        label(controlX + 88.0f, row + 14.0f,
+              "once a day, from GitHub; a notice in the top bar when there's a new version", theme::textDim, 11.0f,
+              ALIGN_LEFT | ALIGN_MIDDLE);
         row += rowH;
 
         rowLabel("Accent colour");
@@ -6583,6 +6696,10 @@ private:
     std::chrono::steady_clock::time_point fSettingsCheckedAt = std::chrono::steady_clock::now();
 
     LibraryScanner fScanner;
+
+    UpdateChecker fUpdateChecker { std::make_unique<HttpGet>() };
+    UpdateCache fUpdateCache;      // the last check's result (shared by every instance)
+    int64_t fUpdateCacheTime = 0;
     std::vector<LibraryEntry> fNamLibrary, fIrLibrary;
     bool fScanning = false;
     bool fScanned = false;

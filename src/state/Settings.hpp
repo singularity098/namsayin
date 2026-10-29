@@ -26,6 +26,8 @@ struct Settings {
     bool embedFiles = true;      // exported presets carry the files they use (saved ones never do)
     std::string defaultPreset;   // loaded into new plugin instances; empty for none
     std::vector<std::string> recentPresets; // most recent first
+    bool checkUpdates = true;    // ask GitHub once a day for a newer release (src/state/UpdateCheck.hpp)
+    std::string dismissedUpdate; // the release whose banner was closed: it and older ones stay hidden
 
     static constexpr size_t kMaxRecentPresets = 8;
     void addRecentPreset(const std::string& path);

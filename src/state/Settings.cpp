@@ -25,6 +25,8 @@ std::string Settings::toJson() const
         { "embedFiles", embedFiles },
         { "defaultPreset", defaultPreset },
         { "recentPresets", recentPresets },
+        { "checkUpdates", checkUpdates },
+        { "dismissedUpdate", dismissedUpdate },
     }.dump(2);
 }
 
@@ -58,6 +60,8 @@ Settings Settings::fromJson(std::string_view text)
         get("embedFiles", settings.embedFiles);
         get("defaultPreset", settings.defaultPreset);
         get("recentPresets", settings.recentPresets);
+        get("checkUpdates", settings.checkUpdates);
+        get("dismissedUpdate", settings.dismissedUpdate);
     }
     catch (const json::exception&)
     {

@@ -190,8 +190,13 @@ add_library(namsayin-engine STATIC
   src/state/Paths.cpp
   src/state/Preset.cpp
   src/state/Settings.cpp
+  src/state/UpdateCheck.cpp
   src/state/UserImages.cpp)
 target_include_directories(namsayin-engine PUBLIC src)
+# The plugin's version (the update check compares it with the latest release)
+target_compile_definitions(namsayin-engine PUBLIC NAMSAYIN_VERSION="${PROJECT_VERSION}"
+  NAMSAYIN_VERSION_MAJOR=${PROJECT_VERSION_MAJOR} NAMSAYIN_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+  NAMSAYIN_VERSION_PATCH=${PROJECT_VERSION_PATCH})
 # Whole archive: NAM Core registers its model architectures from static initializers, which the linker would
 # otherwise drop ("No config parser registered for architecture")
 find_package(Threads REQUIRED)
@@ -233,6 +238,7 @@ dpf_add_plugin(namsayin
     src/ui/FileLooks.cpp
     src/ui/FolderPicker.cpp
     src/ui/FontData.cpp
+    src/ui/HttpGet.cpp
     src/ui/KnobImages.cpp
     src/ui/LedImages.cpp
     src/ui/ParamHelp.cpp
@@ -251,7 +257,8 @@ if(MSVC)
 endif()
 target_link_libraries(namsayin PUBLIC namsayin-engine webpdecoder)
 if(WIN32)
-  target_link_libraries(namsayin PUBLIC shell32 ole32) # ShellExecute (Fretbored link); IFileOpenDialog (folder picker)
+  # ShellExecute (Fretbored link); IFileOpenDialog (folder picker); WinHTTP (update check)
+  target_link_libraries(namsayin PUBLIC shell32 ole32 winhttp)
 endif()
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -294,15 +301,20 @@ if(NAMSAYIN_BUILD_TESTS)
     tests/TrackingTests.cpp
     tests/TunerTests.cpp
     tests/UndoStackTests.cpp
+    tests/UpdateCheckTests.cpp
     tests/UserImageTests.cpp
     tests/WebpImageTests.cpp
     src/ui/BackgroundImage.cpp
     src/ui/BlockGlyphs.cpp
     src/ui/FileLooks.cpp
+    src/ui/HttpGet.cpp
     src/ui/ParamHelp.cpp
     src/ui/PedalFaces.cpp
     src/ui/TextEdit.cpp
     src/ui/WebpImage.cpp)
+  if(WIN32)
+    target_link_libraries(namsayin-tests PRIVATE winhttp)
+  endif()
   target_include_directories(namsayin-tests PRIVATE tests deps/doctest src)
   if(APPLE)
     # the tests run on the machine that builds them: only its own architecture
