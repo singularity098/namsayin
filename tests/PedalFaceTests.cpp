@@ -10,6 +10,7 @@
 #include <cstring>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 using namespace namsayin;
 
@@ -19,9 +20,8 @@ namespace {
 // off this list when its photo and face are added.
 bool awaitingPhoto(const std::string& typeId)
 {
-    static const char* const kAwaiting[] = { "diodebridge", "consolecomp", "optoleveler", "optostomp", "fetlimiter",
-                                             "squashcomp" };
-    for (const char* id : kAwaiting)
+    static const std::vector<std::string> kAwaiting = {}; // none right now
+    for (const std::string& id : kAwaiting)
         if (typeId == id)
             return true;
     return false;
