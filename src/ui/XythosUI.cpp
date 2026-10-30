@@ -88,13 +88,14 @@ const Color warn(0xf0, 0xc0, 0x40);
 const Color bad(0xe5, 0x48, 0x4d);
 // Highlight colour, chosen in Settings from these
 const Color accents[] = {
-    Color(0x9b, 0x5c, 0xff), // purple
-    Color(0x4c, 0x8d, 0xff), // blue
-    Color(0x2f, 0xbf, 0xa8), // teal
-    Color(0x4c, 0xc9, 0x7a), // green
-    Color(0xf0, 0xa0, 0x30), // amber
-    Color(0xe5, 0x48, 0x4d), // red
-    Color(0xe0, 0x5c, 0xb0), // pink
+    // pale, which reads better than vivid colours on the black window (owner, 2026-10-30)
+    Color(0xc4, 0xab, 0xff), // lavender (was purple)
+    Color(0xa8, 0xc6, 0xff), // pale blue
+    Color(0x9e, 0xe3, 0xd6), // pale teal
+    Color(0xab, 0xe6, 0xbf), // pale green
+    Color(0xf7, 0xd6, 0x9c), // pale amber
+    Color(0xf5, 0xab, 0xab), // pale red
+    Color(0xf4, 0xb4, 0xdc), // pale pink
     Color(0xff, 0xff, 0xff), // white (default, Settings::accent)
 };
 constexpr int accentCount = sizeof(accents) / sizeof(accents[0]);
@@ -228,7 +229,13 @@ enum class Hit {
     InkCustom,      // opens the colour picker
     InkCount,       // index = how many colours (2 or 3)
     InkSlot,        // index = the colour the picker edits
-    InkChannel,     // index = 0 red, 1 green, 2 blue: drag on the picker's slider
+    AccentCustom,   // opens the colour picker for the accent (Solid)
+    InkWheel,       // the picker's colour wheel: hue and saturation (drag)
+    InkBrightness,  // the picker's brightness slider (drag)
+    InkCopy,        // copies the picker's hex value
+    InkSave,        // saves the picker's colour to the saved colours
+    InkSaved,       // index = a saved colour: use it
+    InkForget,      // index = a saved colour: remove it
     SettingsUpdates, // the update check on/off
     UpdateOpen,     // the update banner: open the release page
     UpdateDismiss,  // the update banner's ×: hide it for this version
@@ -236,6 +243,7 @@ enum class Hit {
     Undo,
     Redo,
     MenuItem,       // index = position in fMenu
+    MenuFolder,     // index = position in fMenu: a preset folder (hovering opens its submenu; a click does too)
     Locate,         // index = position in the chain
     UseLibraryMatch, // index = position in the chain
     SaveFolder,     // Save Preset dialog: index = folder in fPresetFolders, -1 for the top level
@@ -284,9 +292,11 @@ struct MenuEntry {
     std::string label;
     MenuAction action;
     int arg = 0;
-    int depth = 0;       // indentation (preset folders)
-    bool folder = false; // a folder heading
     bool current = false; // the open preset
+    // Submenus (the preset folders): the folder an entry is listed in ("" for the menu itself), and for a folder the
+    // path its own entries name as their parent. A folder opens its submenu when hovered.
+    std::string parent;
+    std::string submenu;
 };
 
 // Editable text fields
@@ -296,6 +306,7 @@ enum Field {
     kFieldIrDir,
     kFieldPresetName,   // Save Preset dialog
     kFieldPresetFolder,
+    kFieldInkHex,       // the colour picker's hex value
     kFieldCount
 };
 
@@ -965,14 +976,18 @@ protected:
             updateSettings([index = static_cast<size_t>(hit->index)](Settings& settings) {
                 settings.inkColors = hexList(ink::presets()[index].colors);
                 if (settings.inkMode == 0)
-                    settings.inkMode = 1;
+                    settings.inkMode = 2;
             });
             return true;
 
         case Hit::InkCustom:
             if (fSettings.inkMode == 0)
-                updateSettings([](Settings& settings) { settings.inkMode = 1; });
-            openDialog(Dialog::InkPicker);
+                updateSettings([](Settings& settings) { settings.inkMode = 2; });
+            openPicker(false);
+            return true;
+
+        case Hit::AccentCustom:
+            openPicker(true);
             return true;
 
         case Hit::InkCount:
@@ -980,15 +995,47 @@ protected:
                 settings.inkColors.resize(count, "#ffffff");
             });
             fInkSlot = std::min(fInkSlot, hit->index - 1);
+            pickSlot(fInkSlot);
             return true;
 
         case Hit::InkSlot:
-            fInkSlot = hit->index;
+            pickSlot(hit->index);
             return true;
 
-        case Hit::InkChannel:
-            fInkDrag = hit->index;
-            setInkChannel(hit->index, x);
+        case Hit::InkWheel:
+        case Hit::InkBrightness:
+            fInkDrag = hit->kind == Hit::InkWheel ? 0 : 1;
+            dragPicker(x, y);
+            return true;
+
+        case Hit::InkCopy:
+            copyText(pickerHex(fInkSlot));
+            showToast("Copied " + pickerHex(fInkSlot));
+            return true;
+
+        case Hit::InkSave:
+            updateSettings([hex = pickerHex(fInkSlot)](Settings& settings) {
+                if (std::find(settings.savedColors.begin(), settings.savedColors.end(), hex) == settings.savedColors.end())
+                    settings.savedColors.push_back(hex);
+            });
+            return true;
+
+        case Hit::InkSaved:
+            if (hit->index < static_cast<int>(fSettings.savedColors.size()))
+            {
+                if (const auto color = ink::parseHex(fSettings.savedColors[hit->index]))
+                {
+                    fPickHsv = ink::toHsv(*color);
+                    setPickerColor(*color, true);
+                }
+            }
+            return true;
+
+        case Hit::InkForget:
+            updateSettings([index = static_cast<size_t>(hit->index)](Settings& settings) {
+                if (index < settings.savedColors.size())
+                    settings.savedColors.erase(settings.savedColors.begin() + static_cast<std::ptrdiff_t>(index));
+            });
             return true;
 
         case Hit::DialogBackdrop:
@@ -1191,7 +1238,10 @@ protected:
             return true;
 
         case Hit::SettingsAccent:
-            updateSettings([accent = hit->index](Settings& settings) { settings.accent = accent; });
+            updateSettings([accent = hit->index](Settings& settings) {
+                settings.accent = accent;
+                settings.accentColor.clear();
+            });
             return true;
 
         case Hit::BlockImage:
@@ -1276,6 +1326,9 @@ protected:
         case Hit::MenuItem:
             runMenu(hit->index);
             return true;
+
+        case Hit::MenuFolder:
+            return true; // its submenu opens on hover, so a click (or a tap) has nothing left to do
 
         case Hit::Locate:
             fLocateIndex = hit->index;
@@ -1409,7 +1462,7 @@ protected:
 
         if (fInkDrag >= 0)
         {
-            setInkChannel(fInkDrag, x);
+            dragPicker(x, y);
             return true;
         }
         if (fDragParam >= 0 && fSliderRect.w > 0.0f)
@@ -1487,6 +1540,8 @@ protected:
             fFields[fFocusedField] = edit.text;
             if (fFocusedField == kFieldSearch)
                 fListScroll = 0.0f;
+            else if (fFocusedField == kFieldInkHex)
+                hexTyped();
             repaint();
             return true;
         }
@@ -1535,6 +1590,8 @@ protected:
             fFields[fFocusedField] = edit.text;
             if (fFocusedField == kFieldSearch)
                 fListScroll = 0.0f;
+            else if (fFocusedField == kFieldInkHex)
+                hexTyped();
             repaint();
         }
         return true;
@@ -1542,6 +1599,21 @@ protected:
 
     bool onScroll(const ScrollEvent& ev) override
     {
+        if (fDialog == Dialog::Menu)
+        {
+            // the panel under the mouse scrolls: the menu itself or one of its submenus
+            const float mx = static_cast<float>(ev.pos.getX() / getScaleFactor());
+            const float my = static_cast<float>(ev.pos.getY() / getScaleFactor());
+            for (size_t level = fMenuPanels.size(); level-- > 1;)
+            {
+                if (fMenuPanels[level].contains(mx, my) && level < fMenuScrolls.size())
+                {
+                    fMenuScrolls[level] = std::max(0.0f, fMenuScrolls[level] - static_cast<float>(ev.delta.getY()) * 40.0f);
+                    repaint();
+                    return true;
+                }
+            }
+        }
         if (fDialog != Dialog::None)
         {
             fListScroll = std::max(0.0f, fListScroll - static_cast<float>(ev.delta.getY()) * 40.0f);
@@ -2383,6 +2455,9 @@ private:
         fMenuX = x;
         fMenuY = y;
         fMenuW = width;
+        fMenuOpen.clear();
+        fMenuScrolls.clear();
+        fMenuPanels.clear();
         fPresetMenu = false;
         openDialog(Dialog::Menu);
     }
@@ -2487,15 +2562,15 @@ private:
               MenuAction::PresetEmbed },
         };
 
-        // the preset folder as it is on disk: top-level presets, then each folder with its presets (and subfolders)
-        // indented under it
+        // the preset folder as it is on disk: top-level presets, then a folder entry per folder that opens a submenu
+        // of its presets and subfolders when hovered
         const std::vector<PresetEntry> presets = listPresets(presetsDir());
         fMenuPresets.clear();
         entries.push_back({ presets.empty() ? "Presets (none saved yet)" : "Presets", MenuAction::None });
         std::set<std::string> shownFolders;
         for (const PresetEntry& preset : presets)
         {
-            int depth = 0;
+            std::string parent;
             if (!preset.folder.empty())
             {
                 size_t pos = 0;
@@ -2505,12 +2580,12 @@ private:
                     const std::string path = preset.folder.substr(0, slash);
                     if (shownFolders.insert(path).second)
                     {
-                        MenuEntry heading { path.substr(pos), MenuAction::None };
-                        heading.depth = depth;
-                        heading.folder = true;
-                        entries.push_back(std::move(heading));
+                        MenuEntry folder { path.substr(pos), MenuAction::None };
+                        folder.parent = parent;
+                        folder.submenu = path;
+                        entries.push_back(std::move(folder));
                     }
-                    ++depth;
+                    parent = path;
                     if (slash == std::string::npos)
                         break;
                     pos = slash + 1;
@@ -2518,7 +2593,7 @@ private:
             }
             MenuEntry item { preset.name + (preset.path == fSettings.defaultPreset ? "  (default)" : ""),
                              MenuAction::PresetLoad, static_cast<int>(fMenuPresets.size()) };
-            item.depth = depth;
+            item.parent = parent;
             item.current = preset.path == fChain.preset;
             entries.push_back(std::move(item));
             fMenuPresets.push_back(preset.path);
@@ -2658,6 +2733,10 @@ private:
     void applySettings()
     {
         theme::accent = theme::accents[std::clamp(fSettings.accent, 0, theme::accentCount - 1)];
+        if (const auto custom = ink::parseHex(fSettings.accentColor))
+            theme::accent = toColor(*custom);
+        if (fFocusedField != kFieldInkHex && fDialog == Dialog::InkPicker)
+            fFields[kFieldInkHex] = pickerHex(fInkSlot);
         if (fFocusedField != kFieldNamDir)
             fFields[kFieldNamDir] = fSettings.namDir;
         if (fFocusedField != kFieldIrDir)
@@ -2742,6 +2821,13 @@ private:
     void closeDialog()
     {
         blurField(true);
+        if (fDialog == Dialog::InkPicker)
+        {
+            // back to Settings, where it was opened
+            fDialog = Dialog::Settings;
+            repaint();
+            return;
+        }
         if (fDialog == Dialog::CabImages && fCabReturn != Dialog::None)
         {
             // back to Add Block, as it was
@@ -2809,6 +2895,13 @@ private:
             updateSettings([text = fFields[field]](Settings& settings) { settings.namDir = text; });
         else if (field == kFieldIrDir && fFields[field] != fSettings.irDir)
             updateSettings([text = fFields[field]](Settings& settings) { settings.irDir = text; });
+        else if (field == kFieldInkHex)
+        {
+            // a valid value is saved; anything else goes back to the colour's
+            if (const auto color = ink::parseHex(fFields[field]))
+                setPickerColor(*color, true);
+            fFields[field] = pickerHex(fInkSlot);
+        }
     }
 
     // The editor of the focused field, in step with its text (which other code may have set meanwhile)
@@ -3490,7 +3583,7 @@ private:
         if (fInkDrag >= 0)
         {
             fInkDrag = -1;
-            updateSettings([colors = fSettings.inkColors](Settings& settings) { settings.inkColors = colors; });
+            setPickerColor(ink::fromHsv(fPickHsv), true);
             return true;
         }
         if (fDragParam >= 0)
@@ -3653,6 +3746,7 @@ private:
             return;
         fInkKey = std::move(key);
         fInkImage.reset();
+        fInkPixels.clear();
         if (fSettings.inkMode < 1 || fSettings.inkMode > 2)
             return;
         std::vector<ink::Rgb> colors;
@@ -3661,9 +3755,20 @@ private:
                 colors.push_back(ink::lighten(*color));
         if (colors.empty())
             return;
-        const std::vector<uint8_t> pixels = ink::makeTexture(static_cast<ink::Mode>(fSettings.inkMode), colors);
+        fInkPixels = ink::makeTexture(static_cast<ink::Mode>(fSettings.inkMode), colors);
         fInkImage = std::make_unique<NanoImage>(
-            createImageFromRGBA(ink::kTextureWidth, ink::kTextureHeight, pixels.data(), 0));
+            createImageFromRGBA(ink::kTextureWidth, ink::kTextureHeight, fInkPixels.data(), 0));
+    }
+
+    // The highlight colour at a point of the window: the window paint's colour there, or the accent
+    Color highlightAt(float x, float y) const
+    {
+        if (fInkPixels.empty() || fWidth <= 0.0f || fHeight <= 0.0f)
+            return theme::accent;
+        const int tx = std::clamp(static_cast<int>(x / fWidth * ink::kTextureWidth), 0, ink::kTextureWidth - 1);
+        const int ty = std::clamp(static_cast<int>(y / fHeight * ink::kTextureHeight), 0, ink::kTextureHeight - 1);
+        const uint8_t* p = &fInkPixels[(static_cast<size_t>(ty) * ink::kTextureWidth + tx) * 4];
+        return Color(p[0], p[1], p[2]);
     }
 
     static std::vector<std::string> hexList(const std::vector<ink::Rgb>& colors)
@@ -3898,10 +4003,11 @@ private:
 
         case Icon::Fretbored:
         {
-            // the Fretbored app icon (its assets/icon.svg, a 120-unit square), flat in the icon colour like the
-            // others: five strings and three frets, faint, and the notes spelling an F, its root note larger
-            const float k = 24.0f / 120.0f;
-            const float x0 = cx - 12.0f, y0 = cy - 12.0f;
+            // the Fretbored app icon (its assets/icon.svg, a 120-unit square; its Ring look since 2026-10-30), flat in
+            // the icon colour like the others: five strings and three frets, faint, and the notes spelling an F as
+            // rings, its root note's ring heavier. A little larger than the other icons (28 px), so the rings stay open.
+            const float k = 28.0f / 120.0f;
+            const float x0 = cx - 14.0f, y0 = cy - 14.0f;
             beginPath();
             for (const float y : { 22.0f, 41.0f, 60.0f, 79.0f, 98.0f })
             {
@@ -3920,15 +4026,23 @@ private:
             strokeColor(color.withAlpha(color.alpha * 0.15f));
             strokeWidth(1.0f);
             stroke();
-            beginPath();
+            // the rings are filled dark first, so the strings don't show through them
             constexpr float notes[][2] = { { 32, 41 }, { 32, 60 }, { 32, 79 }, { 32, 98 }, { 54, 22 },
                                            { 76, 22 }, { 98, 22 }, { 54, 60 }, { 76, 60 } };
+            beginPath();
             for (const auto& n : notes)
-                circle(x0 + n[0] * k, y0 + n[1] * k, 8.5f * k);
-            circle(x0 + 32.0f * k, y0 + 22.0f * k, 11.0f * k);
-            fillColor(color);
+                circle(x0 + n[0] * k, y0 + n[1] * k, 7.5f * k);
+            circle(x0 + 32.0f * k, y0 + 22.0f * k, 8.5f * k);
+            NanoVG::fillColor(Color(0x0e, 0x10, 0x14));
             fill();
             strokeColor(color);
+            strokeWidth(0.8f);
+            stroke();
+            beginPath();
+            circle(x0 + 32.0f * k, y0 + 22.0f * k, 8.5f * k);
+            strokeWidth(1.3f);
+            stroke();
+            strokeWidth(1.2f);
             break;
         }
 
@@ -4878,18 +4992,20 @@ private:
     }
 
     // The logo (LogoImage.cpp: the crop circle and the wordmark, with their glow), its left edge at x and centred on
-    // y, ending by maxRight if it can (down to 70% of its size); returns where it ends. Its image has room around it
-    // for the glow, so it's drawn a little past the bar's padding.
+    // y, ending by maxRight if it can (down to 70% of its size); returns where it ends. Its images have room around
+    // them for the glow, so it's drawn a little past the bar's padding. The crop circle takes the highlight colour
+    // (owner, 2026-10-30; it was fixed violet): with a gradient on, the gradient's colour where it sits.
     float drawLogo(float x, float y, float maxRight)
     {
         constexpr float kLogoHeight = 76.0f; // the image's height, glow included: letters 36 px high, crop circle 54 across
         if (!fLogoTried)
         {
             fLogoTried = true;
-            loadImage(fLogo, kLogoImage, kLogoImageSize);
+            loadImage(fLogoMark, kLogoMark, kLogoMarkSize);
+            loadImage(fLogoWordmark, kLogoWordmark, kLogoWordmarkSize);
         }
-        const Size<uint> size = fLogo.getSize();
-        if (!fLogo.isValid() || size.getHeight() == 0)
+        const Size<uint> size = fLogoWordmark.getSize();
+        if (!fLogoMark.isValid() || !fLogoWordmark.isValid() || size.getHeight() == 0)
         {
             fontSize(24.0f);
             fillColor(theme::text);
@@ -4899,9 +5015,16 @@ private:
         const float aspect = static_cast<float>(size.getWidth()) / size.getHeight();
         const float h = std::clamp((maxRight - x) / (aspect - 0.06f), kLogoHeight * 0.7f, kLogoHeight);
         const float w = h * aspect, top = y - h / 2;
+        // the crop circle's centre is 76 of the image's 152 units across (resources/logo/xythos.svg's viewBox)
+        Paint mark = imagePattern(x, top, w, h, 0.0f, fLogoMark, 1.0f);
+        mark.innerColor = mark.outerColor = highlightAt(x + h * 76.0f / 152.0f, y);
         beginPath();
         rect(x, top, w, h);
-        fillPaint(imagePattern(x, top, w, h, 0.0f, fLogo, 1.0f));
+        fillPaint(mark);
+        fill();
+        beginPath();
+        rect(x, top, w, h);
+        fillPaint(imagePattern(x, top, w, h, 0.0f, fLogoWordmark, 1.0f));
         fill();
         return x + w - h * 0.06f; // less the glow's margin on the right
     }
@@ -6494,46 +6617,111 @@ private:
     void drawMenu()
     {
         fHits.push_back({ { 0, 0, fWidth, fHeight }, Hit::DialogBackdrop, 0 });
-        constexpr float itemH = 30.0f, indent = 16.0f;
-        const float menuW = fMenuW;
-        const float contentH = fMenu.size() * itemH + 8.0f;
-        const float h = std::min(contentH, fHeight - 16.0f); // a long preset list scrolls
-        const float x = std::min(fMenuX, fWidth - menuW - 8.0f);
-        const float y = std::min(fMenuY, fHeight - h - 8.0f);
-        fListScroll = std::clamp(fListScroll, 0.0f, contentH - h);
+        fMenuPanels.clear();
+        Rect panel = drawMenuPanel(0, std::string(), fMenuX, fMenuY, -1.0f);
+        // the open submenus, each beside the row of the folder that opened it (fMenuOpen can grow while drawing:
+        // hovering a folder opens its submenu)
+        for (size_t level = 0; level < fMenuOpen.size(); ++level)
+        {
+            const auto [path, rowY] = fMenuOpen[level];
+            panel = drawMenuPanel(static_cast<int>(level) + 1, path, panel.x + panel.w - 4.0f, rowY - 4.0f, panel.x);
+        }
+    }
+
+    // One panel of the menu: the entries listed in `parent`, at (x, y), or left of `leftOf` when there's no room to
+    // the right (-1: the menu itself). Returns where it was drawn.
+    Rect drawMenuPanel(int level, const std::string& parent, float x, float y, float leftOf)
+    {
+        constexpr float itemH = 30.0f;
+        std::vector<size_t> items;
+        for (size_t i = 0; i < fMenu.size(); ++i)
+            if (fMenu[i].parent == parent)
+                items.push_back(i);
+        const float menuW = level == 0 ? fMenuW : std::min(fMenuW, 240.0f); // submenus narrower, so a few fit side by side
+        const float contentH = items.size() * itemH + 8.0f;
+        const float h = std::min(contentH, fHeight - 16.0f); // a long list scrolls
+        if (leftOf >= 0.0f && x + menuW > fWidth - 8.0f)
+            x = leftOf - menuW + 4.0f;
+        x = std::clamp(x, 8.0f, std::max(8.0f, fWidth - menuW - 8.0f));
+        y = std::clamp(y, 8.0f, std::max(8.0f, fHeight - h - 8.0f));
+        if (fMenuScrolls.size() <= static_cast<size_t>(level))
+            fMenuScrolls.resize(level + 1, 0.0f);
+        float& scroll = level == 0 ? fListScroll : fMenuScrolls[level];
+        scroll = std::clamp(scroll, 0.0f, contentH - h);
+        const Rect bounds { x, y, menuW, h };
+        fMenuPanels.push_back(bounds);
         surface(x, y, menuW, h, 8.0f, Surface::Popup);
-        fHits.push_back({ { x, y, menuW, h }, Hit::DialogPanel, 0 });
+        fHits.push_back({ bounds, Hit::DialogPanel, 0 });
         const float itemsW = contentH > h ? menuW - kListBarWidth - 2.0f : menuW;
         if (contentH > h)
-            drawListScrollBar(x + itemsW - 2.0f, y + 6.0f, h - 12.0f, contentH - 12.0f);
+        {
+            // the list scroll bar drives fListScroll: the menu itself's
+            if (level == 0)
+                drawListScrollBar(x + itemsW - 2.0f, y + 6.0f, h - 12.0f, contentH - 12.0f);
+        }
 
+        const bool inside = bounds.contains(fMouseX, fMouseY);
         save();
         scissor(x, y + 2.0f, menuW, h - 4.0f);
-        for (size_t i = 0; i < fMenu.size(); ++i)
+        for (size_t k = 0; k < items.size(); ++k)
         {
+            const size_t i = items[k];
             const MenuEntry& entry = fMenu[i];
-            const Rect r { x + 4.0f, y + 4.0f + i * itemH - fListScroll, itemsW - 8.0f, itemH };
+            const Rect r { x + 4.0f, y + 4.0f + k * itemH - scroll, itemsW - 8.0f, itemH };
             if (r.y + r.h < y || r.y > y + h)
                 continue;
-            const bool heading = entry.action == MenuAction::None;
-            const bool inside = fMouseY >= y && fMouseY < y + h;
-            if (!heading && inside && r.contains(fMouseX, fMouseY))
-                fillRect(r.x, r.y, r.w, r.h, theme::accent.withAlpha(0.3f), 5.0f);
-            const float tx = r.x + 10.0f + entry.depth * indent;
-            // folders dim, the open preset in the highlight colour
+            const bool folder = !entry.submenu.empty();
+            const bool heading = entry.action == MenuAction::None && !folder;
+            const bool hover = inside && r.contains(fMouseX, fMouseY);
+            // hovering a row opens its folder's submenu, or closes the submenus of this panel's other folders
+            if (hover)
+            {
+                const bool alreadyOpen = folder && fMenuOpen.size() > static_cast<size_t>(level)
+                                         && fMenuOpen[level].first == entry.submenu;
+                if (!alreadyOpen && fMenuOpen.size() > static_cast<size_t>(level))
+                    fMenuOpen.resize(level);
+                if (folder && !alreadyOpen)
+                {
+                    fMenuOpen.emplace_back(entry.submenu, r.y);
+                    fMenuScrolls.resize(level + 1);
+                }
+            }
+            const bool open = folder && fMenuOpen.size() > static_cast<size_t>(level)
+                              && fMenuOpen[level].first == entry.submenu;
+            if (!heading && (hover || open))
+                fillRect(r.x, r.y, r.w, r.h, theme::accent.withAlpha(open && !hover ? 0.18f : 0.3f), 5.0f);
+            const float tx = r.x + 10.0f;
+            // the open preset in the highlight colour
             const Color color = heading ? theme::textDim : entry.current ? theme::accent : theme::text;
-            fontSize(heading && !entry.folder ? 11.0f : 13.0f);
-            const std::string text = fitText(entry.label, r.x + r.w - 8.0f - tx);
-            label(tx, r.y + r.h / 2, text.c_str(), color, heading && !entry.folder ? 11.0f : 13.0f,
-                  ALIGN_LEFT | ALIGN_MIDDLE);
+            const float size = heading ? 11.0f : 13.0f;
+            fontSize(size);
+            const std::string text = fitText(entry.label, r.x + r.w - (folder ? 24.0f : 8.0f) - tx);
+            label(tx, r.y + r.h / 2, text.c_str(), color, size, ALIGN_LEFT | ALIGN_MIDDLE);
+            if (folder)
+            {
+                // a hairline ">" at the right: it opens a submenu
+                beginPath();
+                moveTo(r.x + r.w - 14.0f, r.y + r.h / 2 - 4.5f);
+                lineTo(r.x + r.w - 9.5f, r.y + r.h / 2);
+                lineTo(r.x + r.w - 14.0f, r.y + r.h / 2 + 4.5f);
+                strokeColor(theme::textDim);
+                strokeWidth(1.2f);
+                lineCap(ROUND);
+                lineJoin(ROUND);
+                stroke();
+                lineCap(BUTT);
+                lineJoin(MITER);
+            }
             if (!heading)
             {
                 const float top = std::max(r.y, y), bottom = std::min(r.y + r.h, y + h);
                 if (bottom > top)
-                    fHits.push_back({ { r.x, top, r.w, bottom - top }, Hit::MenuItem, static_cast<int>(i) });
+                    fHits.push_back({ { r.x, top, r.w, bottom - top }, folder ? Hit::MenuFolder : Hit::MenuItem,
+                                      static_cast<int>(i) });
             }
         }
         restore();
+        return bounds;
     }
 
     void drawToast()
@@ -7119,24 +7307,33 @@ private:
         row += rowH;
 
         rowLabel("Accent colour");
-        for (int k = 0; k < theme::accentCount; ++k)
-        {
-            const int i = theme::accentOrder[k];
-            const float cx = controlX + 14.0f + k * 34.0f, cy = row + 14.0f;
+        const auto custom = ink::parseHex(fSettings.accentColor);
+        float swatchX = controlX + 14.0f;
+        const auto drawSwatch = [&](const Color& color, bool selected, Hit kind, int index) {
+            const float cy = row + 14.0f;
             beginPath();
-            circle(cx, cy, 11.0f);
-            NanoVG::fillColor(theme::accents[i]); // a plain swatch, even for the one that is the highlight
+            circle(swatchX, cy, 11.0f);
+            NanoVG::fillColor(color); // a plain swatch, even for the one that is the highlight
             fill();
-            if (i == fSettings.accent)
+            if (selected)
             {
                 beginPath();
-                circle(cx, cy, 14.5f);
-                strokeColor(theme::text);
+                circle(swatchX, cy, 14.5f);
+                NanoVG::strokeColor(theme::text);
                 strokeWidth(1.5f);
                 stroke();
             }
-            fHits.push_back({ { cx - 15.0f, cy - 15.0f, 30.0f, 30.0f }, Hit::SettingsAccent, i });
+            fHits.push_back({ { swatchX - 15.0f, cy - 15.0f, 30.0f, 30.0f }, kind, index });
+            swatchX += 34.0f;
+        };
+        for (int k = 0; k < theme::accentCount; ++k)
+        {
+            const int i = theme::accentOrder[k];
+            drawSwatch(theme::accents[i], !custom && i == fSettings.accent, Hit::SettingsAccent, i);
         }
+        if (custom)
+            drawSwatch(toColor(*custom), true, Hit::AccentCustom, 0);
+        drawButton({ swatchX - 8.0f, row, 84.0f, 28.0f }, "Custom…", false, theme::accent, Hit::AccentCustom, 0);
         row += rowH;
 
         rowLabel("Text & outlines");
@@ -7146,28 +7343,29 @@ private:
                        Hit::InkMode, m);
         label(controlX + 252.0f, row + 14.0f,
               fSettings.inkMode == 0 ? "the highlight is the accent colour above"
-                                     : "text, outlines and fills use the colours below",
+                                     : "outlines, fills and the logo use the colours below",
               theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
         row += rowH;
 
         rowLabel("Colours");
         const auto& palettes = ink::presets();
-        bool custom = fSettings.inkMode != 0;
+        bool customInk = fSettings.inkMode != 0;
+        constexpr float chipStep = 86.0f;
         for (size_t p = 0; p < palettes.size(); ++p)
         {
-            const bool on = fSettings.inkColors == hexList(palettes[p].colors);
-            custom = custom && !on;
+            const bool on = fSettings.inkMode != 0 && fSettings.inkColors == hexList(palettes[p].colors);
+            customInk = customInk && !on;
             const std::string name(palettes[p].name);
-            const Rect chip { controlX + p * 96.0f, row, 90.0f, 28.0f };
+            const Rect chip { controlX + p * chipStep, row, chipStep - 6.0f, 28.0f };
             drawButton(chip, name.c_str(), on, theme::accent, Hit::InkPreset, static_cast<int>(p));
             // the set's colours along the bottom edge
             const auto& colors = palettes[p].colors;
             const float segment = (chip.w - 12.0f) / static_cast<float>(colors.size());
             for (size_t c = 0; c < colors.size(); ++c)
                 fillRect(chip.x + 6.0f + segment * static_cast<float>(c), chip.y + chip.h - 5.0f, segment, 2.0f,
-                         Color(colors[c].r / 255.0f, colors[c].g / 255.0f, colors[c].b / 255.0f));
+                         toColor(colors[c]));
         }
-        drawButton({ controlX + palettes.size() * 96.0f, row, 84.0f, 28.0f }, "Custom…", custom, theme::accent,
+        drawButton({ controlX + palettes.size() * chipStep, row, 84.0f, 28.0f }, "Custom…", customInk, theme::accent,
                    Hit::InkCustom, 0);
         row += rowH;
 
@@ -7175,86 +7373,262 @@ private:
               ALIGN_LEFT | ALIGN_MIDDLE);
     }
 
-    // The colour picker: 2 or 3 colours, each set with three sliders (red, green, blue). Colours are kept light
-    // enough to read on the window; a colour that is too dark is lifted toward white.
+    static Color toColor(ink::Rgb color) { return Color(color.r, color.g, color.b); }
+
+    // The colour picker (owner, 2026-10-30): a colour wheel (hue around it, saturation out from the middle) with a
+    // brightness slider, the colour's name and its hex value (selectable, copyable, typed), and the user's saved
+    // colours. It edits the accent (Solid) or one of the gradient's 2-3 colours. Colours too dark to read on the window
+    // are lifted toward white (ink::lighten()).
+    void openPicker(bool solid)
+    {
+        fPickSolid = solid;
+        openDialog(Dialog::InkPicker);
+        pickSlot(0);
+    }
+
+    int pickerCount() const { return fPickSolid ? 1 : static_cast<int>(fSettings.inkColors.size()); }
+
+    std::string pickerHex(int slot) const
+    {
+        if (fPickSolid)
+            return ink::toHex(ink::Rgb { static_cast<uint8_t>(std::lround(theme::accent.red * 255.0f)),
+                                         static_cast<uint8_t>(std::lround(theme::accent.green * 255.0f)),
+                                         static_cast<uint8_t>(std::lround(theme::accent.blue * 255.0f)) });
+        if (slot < 0 || slot >= static_cast<int>(fSettings.inkColors.size()))
+            return "#ffffff";
+        return fSettings.inkColors[slot];
+    }
+
+    // The picker edits another of the colours: the wheel moves to it
+    void pickSlot(int slot)
+    {
+        fInkSlot = std::clamp(slot, 0, std::max(pickerCount() - 1, 0));
+        fPickHsv = ink::toHsv(ink::parseHex(pickerHex(fInkSlot)).value_or(ink::Rgb { 255, 255, 255 }));
+        if (fFocusedField == kFieldInkHex)
+            blurField(false);
+        fFields[kFieldInkHex] = pickerHex(fInkSlot);
+        repaint();
+    }
+
+    // Sets the colour being edited (lifted if too dark); saved to the settings when `save`, else only shown (while
+    // dragging: saved on release)
+    void setPickerColor(ink::Rgb color, bool save)
+    {
+        const std::string hex = ink::toHex(ink::lighten(color));
+        if (fPickSolid)
+        {
+            fSettings.accentColor = hex;
+            if (save)
+                updateSettings([hex](Settings& settings) { settings.accentColor = hex; });
+        }
+        else if (fInkSlot < static_cast<int>(fSettings.inkColors.size()))
+        {
+            fSettings.inkColors[fInkSlot] = hex;
+            if (save)
+                updateSettings([colors = fSettings.inkColors](Settings& settings) { settings.inkColors = colors; });
+        }
+        applySettings();
+        if (fFocusedField != kFieldInkHex)
+            fFields[kFieldInkHex] = hex;
+        repaint();
+    }
+
+    // A drag on the wheel or the brightness slider
+    void dragPicker(float x, float y)
+    {
+        if (fInkDrag == 0 && fPickWheelRadius > 0.0f)
+        {
+            const float dx = x - fPickWheelX, dy = y - fPickWheelY;
+            double hue = std::atan2(dy, dx) * 180.0 / M_PI;
+            if (hue < 0.0)
+                hue += 360.0;
+            fPickHsv.h = hue;
+            fPickHsv.s = std::clamp(std::hypot(dx, dy) / fPickWheelRadius, 0.0f, 1.0f);
+        }
+        else if (fInkDrag == 1 && fPickSlider.h > 0.0f)
+            fPickHsv.v = std::clamp(1.0f - (y - fPickSlider.y) / fPickSlider.h, 0.0f, 1.0f);
+        if (fFocusedField == kFieldInkHex)
+            blurField(false);
+        setPickerColor(ink::fromHsv(fPickHsv), false);
+    }
+
+    // The hex field changed: a complete value moves the wheel to it (saved when the field is left)
+    void hexTyped()
+    {
+        if (const auto color = ink::parseHex(fFields[kFieldInkHex]))
+        {
+            fPickHsv = ink::toHsv(*color);
+            setPickerColor(*color, false);
+        }
+    }
+
     void drawInkPicker()
     {
         fHits.push_back({ { 0, 0, fWidth, fHeight }, Hit::DialogBackdrop, 0 });
         fillRect(0, 0, fWidth, fHeight, theme::overlay);
 
-        const float w = std::min(440.0f, fWidth - 64.0f);
-        const float h = std::min(360.0f, fHeight - 48.0f);
+        const float w = std::min(560.0f, fWidth - 32.0f);
+        const float h = std::min(500.0f, fHeight - 32.0f);
         const float x = (fWidth - w) / 2, y = (fHeight - h) / 2;
         surface(x, y, w, h, 12.0f, Surface::Popup);
         fHits.push_back({ { x, y, w, h }, Hit::DialogPanel, 0 });
 
-        label(x + 20.0f, y + 26.0f, "Custom colours", theme::text, 16.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        label(x + 20.0f, y + 26.0f, fPickSolid ? "Accent colour" : "Gradient colours", theme::text, 16.0f,
+              ALIGN_LEFT | ALIGN_MIDDLE);
         const Rect close { x + w - 40.0f, y + 10.0f, 30.0f, 30.0f };
         label(close.x + 15.0f, close.y + 15.0f, "×", theme::textDim, 22.0f, ALIGN_CENTER | ALIGN_MIDDLE);
         fHits.push_back({ close, Hit::DialogClose, 0 });
 
-        const int count = static_cast<int>(fSettings.inkColors.size());
-        drawButton({ x + 20.0f, y + 56.0f, 120.0f, 28.0f }, "2 colours", count == 2, theme::accent, Hit::InkCount, 2);
-        drawButton({ x + 148.0f, y + 56.0f, 120.0f, 28.0f }, "3 colours", count == 3, theme::accent, Hit::InkCount, 3);
-
-        fInkSlot = std::clamp(fInkSlot, 0, std::max(count - 1, 0));
-        for (int s = 0; s < count; ++s)
+        // the gradient's colours: how many, and which one the wheel edits
+        float top = y + 56.0f;
+        if (!fPickSolid)
         {
-            const Rect slot { x + 20.0f + s * 104.0f, y + 100.0f, 96.0f, 40.0f };
-            const ink::Rgb color = ink::parseHex(fSettings.inkColors[s]).value_or(ink::Rgb { 255, 255, 255 });
-            fillRect(slot.x, slot.y, slot.w, slot.h, Color(color.r / 255.0f, color.g / 255.0f, color.b / 255.0f), 6.0f);
-            if (s == fInkSlot)
+            const int count = static_cast<int>(fSettings.inkColors.size());
+            drawButton({ x + 20.0f, top, 96.0f, 28.0f }, "2 colours", count == 2, theme::accent, Hit::InkCount, 2);
+            drawButton({ x + 122.0f, top, 96.0f, 28.0f }, "3 colours", count == 3, theme::accent, Hit::InkCount, 3);
+            fInkSlot = std::clamp(fInkSlot, 0, std::max(count - 1, 0));
+            for (int s = 0; s < count; ++s)
+            {
+                const Rect slot { x + 240.0f + s * 64.0f, top, 56.0f, 28.0f };
+                fillRect(slot.x, slot.y, slot.w, slot.h,
+                         toColor(ink::parseHex(fSettings.inkColors[s]).value_or(ink::Rgb { 255, 255, 255 })), 6.0f);
+                if (s == fInkSlot)
+                {
+                    beginPath();
+                    roundedRect(slot.x - 3.0f, slot.y - 3.0f, slot.w + 6.0f, slot.h + 6.0f, 8.0f);
+                    NanoVG::strokeColor(theme::text);
+                    strokeWidth(1.5f);
+                    stroke();
+                }
+                fHits.push_back({ slot, Hit::InkSlot, s });
+            }
+            top += 44.0f;
+        }
+
+        // the wheel: hue around it, saturation from grey in the middle to full at the rim, at the slider's brightness
+        constexpr float radius = 104.0f;
+        const float cx = x + 20.0f + radius, cy = top + 8.0f + radius;
+        fPickWheelX = cx;
+        fPickWheelY = cy;
+        fPickWheelRadius = radius;
+        const float v = static_cast<float>(fPickHsv.v);
+        constexpr int sectors = 48;
+        constexpr float tau = 2.0f * static_cast<float>(M_PI);
+        for (int i = 0; i < sectors; ++i)
+        {
+            const float a0 = tau * i / sectors, a1 = tau * (i + 1) / sectors;
+            const auto hueColor = [v](float a) {
+                return toColor(ink::fromHsv({ a * 180.0 / M_PI, 1.0, v }));
+            };
+            beginPath();
+            moveTo(cx, cy);
+            arc(cx, cy, radius, a0 - 0.01f, a1 + 0.01f, CW);
+            closePath();
+            fillPaint(linearGradient(cx + std::cos(a0) * radius, cy + std::sin(a0) * radius,
+                                     cx + std::cos(a1) * radius, cy + std::sin(a1) * radius, hueColor(a0),
+                                     hueColor(a1)));
+            fill();
+        }
+        beginPath();
+        circle(cx, cy, radius);
+        fillPaint(radialGradient(cx, cy, 0.0f, radius, Color(v, v, v, 1.0f), Color(v, v, v, 0.0f)));
+        fill();
+        fHits.push_back({ { cx - radius, cy - radius, radius * 2, radius * 2 }, Hit::InkWheel, 0 });
+        {
+            const float a = static_cast<float>(fPickHsv.h * M_PI / 180.0);
+            const float r = static_cast<float>(fPickHsv.s) * radius;
+            const float mx = cx + std::cos(a) * r, my = cy + std::sin(a) * r;
+            beginPath();
+            circle(mx, my, 7.0f);
+            NanoVG::strokeColor(Color(0.0f, 0.0f, 0.0f, 0.7f));
+            strokeWidth(3.0f);
+            stroke();
+            beginPath();
+            circle(mx, my, 7.0f);
+            NanoVG::strokeColor(Color(1.0f, 1.0f, 1.0f));
+            strokeWidth(1.5f);
+            stroke();
+        }
+
+        // brightness: from the wheel's colour at full brightness down to black
+        fPickSlider = { cx + radius + 20.0f, cy - radius, 18.0f, radius * 2 };
+        beginPath();
+        roundedRect(fPickSlider.x, fPickSlider.y, fPickSlider.w, fPickSlider.h, 6.0f);
+        fillPaint(linearGradient(0.0f, fPickSlider.y, 0.0f, fPickSlider.y + fPickSlider.h,
+                                 toColor(ink::fromHsv({ fPickHsv.h, fPickHsv.s, 1.0 })), Color(0, 0, 0)));
+        fill();
+        beginPath();
+        roundedRect(fPickSlider.x + 0.5f, fPickSlider.y + 0.5f, fPickSlider.w - 1.0f, fPickSlider.h - 1.0f, 6.0f);
+        NanoVG::strokeColor(theme::border);
+        strokeWidth(1.0f);
+        stroke();
+        {
+            const float hy = fPickSlider.y + (1.0f - v) * fPickSlider.h;
+            beginPath();
+            roundedRect(fPickSlider.x - 3.0f, hy - 3.0f, fPickSlider.w + 6.0f, 6.0f, 3.0f);
+            NanoVG::fillColor(theme::text);
+            fill();
+        }
+        fHits.push_back({ { fPickSlider.x - 6.0f, fPickSlider.y - 6.0f, fPickSlider.w + 12.0f, fPickSlider.h + 12.0f },
+                          Hit::InkBrightness, 0 });
+
+        // the colour: a swatch, its name, its hex value (select it, copy it, or type one)
+        const ink::Rgb current = ink::parseHex(pickerHex(fInkSlot)).value_or(ink::Rgb { 255, 255, 255 });
+        const float rx = fPickSlider.x + fPickSlider.w + 24.0f, rw = x + w - 20.0f - rx;
+        fillRect(rx, cy - radius, rw, 64.0f, toColor(current), 8.0f);
+        label(rx, cy - radius + 88.0f, ink::colorName(current).c_str(), theme::text, 16.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        drawTextField({ rx, cy - radius + 112.0f, rw - 70.0f, 28.0f }, kFieldInkHex, "#rrggbb");
+        drawButton({ rx + rw - 64.0f, cy - radius + 112.0f, 64.0f, 28.0f }, "Copy", false, theme::accent, Hit::InkCopy,
+                   0);
+        const bool saved = std::find(fSettings.savedColors.begin(), fSettings.savedColors.end(), ink::toHex(current))
+                           != fSettings.savedColors.end();
+        drawButton({ rx, cy - radius + 152.0f, rw, 28.0f }, saved ? "Saved" : "Save colour", saved, theme::accent,
+                   Hit::InkSave, 0);
+
+        // the saved colours: click one to use it, its × forgets it
+        float sy = cy + radius + 28.0f;
+        label(x + 20.0f, sy, fSettings.savedColors.empty() ? "Saved colours: none yet (Save colour keeps one here)"
+                                                           : "Saved colours",
+              theme::textDim, 12.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        sy += 24.0f;
+        constexpr float dot = 24.0f, step = 32.0f;
+        const int perRow = std::max(1, static_cast<int>((w - 40.0f) / step));
+        for (size_t i = 0; i < fSettings.savedColors.size(); ++i)
+        {
+            const float sx = x + 20.0f + (i % perRow) * step + dot / 2;
+            const float syc = sy + (i / perRow) * step + dot / 2;
+            if (syc > y + h - 56.0f)
+                break;
+            const ink::Rgb color = ink::parseHex(fSettings.savedColors[i]).value_or(ink::Rgb { 255, 255, 255 });
+            beginPath();
+            circle(sx, syc, dot / 2);
+            NanoVG::fillColor(toColor(color));
+            fill();
+            if (ink::toHex(color) == ink::toHex(current))
             {
                 beginPath();
-                rect(slot.x - 3.0f, slot.y - 3.0f, slot.w + 6.0f, slot.h + 6.0f);
-                strokeColor(theme::text);
+                circle(sx, syc, dot / 2 + 3.0f);
+                NanoVG::strokeColor(theme::text);
                 strokeWidth(1.5f);
                 stroke();
             }
-            fHits.push_back({ slot, Hit::InkSlot, s });
+            const Rect r { sx - dot / 2, syc - dot / 2, dot, dot };
+            fHits.push_back({ r, Hit::InkSaved, static_cast<int>(i) });
+            if (r.contains(fMouseX, fMouseY))
+            {
+                const float bx = r.x + r.w - 2.0f, by = r.y + 2.0f;
+                beginPath();
+                circle(bx, by, 6.5f);
+                NanoVG::fillColor(Color(0.0f, 0.0f, 0.0f, 0.9f));
+                fill();
+                label(bx, by, "×", theme::text, 11.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+                fHits.push_back({ { bx - 7.0f, by - 7.0f, 14.0f, 14.0f }, Hit::InkForget, static_cast<int>(i) });
+            }
         }
 
-        const ink::Rgb active = ink::parseHex(fSettings.inkColors[fInkSlot]).value_or(ink::Rgb { 255, 255, 255 });
-        const uint8_t values[] = { active.r, active.g, active.b };
-        static constexpr const char* names[] = { "Red", "Green", "Blue" };
-        for (int channel = 0; channel < 3; ++channel)
-        {
-            const float ry = y + 168.0f + channel * 38.0f;
-            label(x + 20.0f, ry + 10.0f, names[channel], theme::textDim, 13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
-            const Rect track { x + 80.0f, ry, w - 80.0f - 60.0f, 20.0f };
-            fInkSliders[channel] = track;
-            const float fraction = values[channel] / 255.0f;
-            fillRect(track.x, track.y + 7.0f, track.w, 6.0f, theme::inset, 3.0f);
-            fillRect(track.x, track.y + 7.0f, track.w * fraction, 6.0f, theme::text, 3.0f);
-            fillRect(track.x + track.w * fraction - 4.0f, track.y + 1.0f, 8.0f, 18.0f, theme::text, 2.0f);
-            fHits.push_back({ { track.x, track.y - 6.0f, track.w, track.h + 12.0f }, Hit::InkChannel, channel });
-            label(track.x + track.w + 14.0f, ry + 10.0f, std::to_string(values[channel]).c_str(), theme::text, 13.0f,
-                  ALIGN_LEFT | ALIGN_MIDDLE);
-        }
-        label(x + 20.0f, y + 284.0f, ("Hex " + ink::toHex(active)).c_str(), theme::textDim, 12.0f,
-              ALIGN_LEFT | ALIGN_MIDDLE);
-        label(x + 20.0f, y + h - 56.0f, "Colours too dark to read on the window are lifted toward white.",
+        label(x + 20.0f, y + h - 30.0f, "Colours too dark to read on the window are lifted toward white.",
               theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
         drawButton({ x + w - 108.0f, y + h - 44.0f, 88.0f, 28.0f }, "Done", false, theme::accent, Hit::DialogClose, 0);
-    }
-
-    // Sets a channel of the colour being edited from a point on its slider. Kept light; saved on release.
-    void setInkChannel(int channel, float x)
-    {
-        const Rect& track = fInkSliders[channel];
-        if (track.w <= 0.0f || fInkSlot >= static_cast<int>(fSettings.inkColors.size()))
-            return;
-        const float fraction = std::clamp((x - track.x) / track.w, 0.0f, 1.0f);
-        ink::Rgb color = ink::parseHex(fSettings.inkColors[fInkSlot]).value_or(ink::Rgb { 255, 255, 255 });
-        const auto value = static_cast<uint8_t>(std::lround(fraction * 255.0f));
-        if (channel == 0)
-            color.r = value;
-        else if (channel == 1)
-            color.g = value;
-        else
-            color.b = value;
-        fSettings.inkColors[fInkSlot] = ink::toHex(ink::lighten(color));
-        repaint();
     }
 
     void drawMergePanel(float top)
@@ -7344,13 +7718,17 @@ private:
     // Ink: the window's paint (its texture is made when the mode or the colours change), the frame's transform, and
     // the colour picker's state
     std::unique_ptr<NanoImage> fInkImage;
+    std::vector<uint8_t> fInkPixels; // its pixels (RGBA), for highlightAt()
     std::vector<std::string> fInkKey; // the mode and colours fInkImage was made from
     float fFrameXform[6] = {};        // the frame's transform (logical to pixels), before anything is drawn
     Color fFillColor;                 // the colour of the last fillColor() call, and whether it was ink
     bool fFillIsInk = false;
     int fInkSlot = 0;                 // the colour the picker edits
-    int fInkDrag = -1;                // the picker slider being dragged (0 red, 1 green, 2 blue)
-    Rect fInkSliders[3];              // the picker's slider tracks, as drawn
+    int fInkDrag = -1;                // what of the picker is being dragged: 0 the wheel, 1 the brightness slider
+    bool fPickSolid = false;          // the picker edits the accent (Solid), else the gradient's colours
+    ink::Hsv fPickHsv;                // where the wheel and slider are (kept apart from the colour, which is lifted)
+    float fPickWheelX = 0.0f, fPickWheelY = 0.0f, fPickWheelRadius = 0.0f; // the wheel, as drawn
+    Rect fPickSlider;                 // the brightness slider, as drawn
     int fDragParam = -1;
     int fMomentaryParam = -1; // a momentary button being held
     std::chrono::steady_clock::time_point fMomentaryPressedAt;
@@ -7371,6 +7749,9 @@ private:
     Dialog fDialog = Dialog::None;
     std::vector<MenuEntry> fMenu;
     float fMenuX = 0.0f, fMenuY = 0.0f, fMenuW = 300.0f;
+    std::vector<std::pair<std::string, float>> fMenuOpen; // the open submenus: their folder, and its row's top
+    std::vector<float> fMenuScrolls;                      // each submenu's scroll (the menu itself uses fListScroll)
+    std::vector<Rect> fMenuPanels;                        // the menu's panels, as last drawn
     bool fPresetMenu = false; // the open menu is the preset menu
     uint32_t fMenuParam = kNoParam; // the parameter a context menu is for
     int fMenuTile = -1;
@@ -7482,7 +7863,7 @@ private:
     bool fDefaultPending = false; // the default preset may still be loaded (a new instance)
     NanoImage fBackground;
     bool fBackgroundTried = false;
-    NanoImage fLogo;
+    NanoImage fLogoMark, fLogoWordmark;
     bool fLogoTried = false;
     bool fDimControls = false; // drawing a bypassed block's controls (dimmed())
     std::vector<int> fNamToneSlots; // the host's chain had NAM blocks without tone controls (slots): send flat ones

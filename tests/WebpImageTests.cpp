@@ -88,12 +88,24 @@ TEST_CASE("the background image decodes, and other data isn't taken for a WebP")
     CHECK(img.pixels.empty());
 }
 
-TEST_CASE("the logo decodes, with its transparency")
+TEST_CASE("the logo's layers decode, the same size, with their transparency")
 {
-    RgbaImage img;
-    REQUIRE(decodeWebp(kLogoImage, kLogoImageSize, img));
-    CHECK(img.width > 3 * img.height); // the crop circle beside the wordmark
-    CHECK(img.height >= 256);          // sharp at the top bar's size at 3-4x scaling
-    REQUIRE(img.pixels.size() == size_t(img.width) * img.height * 4);
-    CHECK(img.pixels[3] == 0); // a corner is clear, so the bar shows through
+    RgbaImage mark, wordmark;
+    REQUIRE(decodeWebp(kLogoMark, kLogoMarkSize, mark));
+    REQUIRE(decodeWebp(kLogoWordmark, kLogoWordmarkSize, wordmark));
+    // drawn over each other, so they line up
+    CHECK(mark.width == wordmark.width);
+    CHECK(mark.height == wordmark.height);
+    CHECK(mark.width > 3 * mark.height); // the crop circle beside the wordmark
+    CHECK(mark.height >= 256);           // sharp at the top bar's size at 3-4x scaling
+    REQUIRE(mark.pixels.size() == size_t(mark.width) * mark.height * 4);
+    CHECK(mark.pixels[3] == 0); // a corner is clear, so the bar shows through
+    CHECK(wordmark.pixels[3] == 0);
+    // the crop circle is white, so tinting it gives the highlight colour; it has no letters, the wordmark no circle
+    const auto at = [](const RgbaImage& img, int x, int y) { return &img.pixels[(size_t(y) * img.width + x) * 4]; };
+    const int cx = mark.height * 76 / 152, cy = mark.height * 76 / 152; // the centre dot (76, 76 into the viewBox)
+    CHECK(at(mark, cx, cy)[3] > 200);
+    CHECK(at(mark, cx, cy)[0] > 240);
+    CHECK(at(mark, cx, cy)[2] > 240);
+    CHECK(at(wordmark, cx, cy)[3] == 0);
 }

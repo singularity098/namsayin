@@ -45,6 +45,17 @@ Rgb lighten(Rgb color);
 std::string toHex(Rgb color);
 std::optional<Rgb> parseHex(std::string_view text);
 
+// Hue in degrees (0..360, red at 0), saturation and value (brightness) 0..1: the colour wheel's coordinates
+struct Hsv
+{
+    double h = 0.0, s = 0.0, v = 1.0;
+};
+Hsv toHsv(Rgb color);
+Rgb fromHsv(Hsv hsv);
+
+// A plain-English name for a colour, shown as the picker moves: "pale indigo", "deep teal", "light grey"
+std::string colorName(Rgb color);
+
 // The texture the paint is drawn from: kTextureWidth x kTextureHeight RGBA pixels, stretched over the window.
 // Smooth runs the colours left to right, slightly tilted; Splotch fills the window with soft, almost random blobs
 // of them (fixed noise, so it looks the same every time). Solid is one colour.

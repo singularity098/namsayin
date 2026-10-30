@@ -23,8 +23,13 @@ struct Settings {
     bool normalize = true;       // default normalization for new NAM and IR blocks
     bool parallel = true;        // run split branch B on a second core
     int accent = 7;              // index into the UI's accent colours (7: white)
-    int inkMode = 0;             // ink::Mode: the highlight is the accent (0), or 2-3 colours across the window
-    std::vector<std::string> inkColors = { "#ff6a3d", "#ff2e88", "#7b5cff" }; // hex, 2 or 3 (Sunset to start)
+    std::string accentColor;     // a colour from the picker (hex) used instead of accent; empty for none
+    // ink::Mode: the highlight is the accent (0), or 2-3 colours across the window; Splotchy in the owner's colours
+    // to start (2026-10-30). Stored as "highlightStyle"/"highlightColors": the earlier "inkMode"/"inkColors" (never
+    // released) are ignored, so this default reaches everyone.
+    int inkMode = 2;
+    std::vector<std::string> inkColors = { "#7278fe", "#c688d6", "#a85eea" }; // hex, 2 or 3 (Iris to start)
+    std::vector<std::string> savedColors; // colours saved from the picker (hex), oldest first
     std::set<std::string> favorites; // content hashes (XXH3-128, hex)
     bool embedFiles = true;      // exported presets carry the files they use (saved ones never do)
     std::string defaultPreset;   // loaded into new plugin instances; empty for none

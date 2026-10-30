@@ -12,10 +12,13 @@ namespace xythos::ink {
 const std::vector<Palette>& presets()
 {
     static const std::vector<Palette> palettes = {
-        { "Sunset", { { 0xff, 0x6a, 0x3d }, { 0xff, 0x2e, 0x88 }, { 0x7b, 0x5c, 0xff } } },
-        { "Ocean", { { 0x00, 0xd2, 0xff }, { 0x3a, 0x7b, 0xd5 }, { 0x6f, 0x5c, 0xff } } },
-        { "Mint", { { 0x00, 0xf5, 0xa0 }, { 0x00, 0xd9, 0xf5 }, { 0x7b, 0x2f, 0xf7 } } },
-        { "Gold", { { 0xff, 0xd2, 0x00 }, { 0xff, 0x8a, 0x00 }, { 0xff, 0x3d, 0x6e } } },
+        // the owner's colours (2026-10-30), Splotchy by default
+        { "Iris", { { 0x72, 0x78, 0xfe }, { 0xc6, 0x88, 0xd6 }, { 0xa8, 0x5e, 0xea } } },
+        // pale, which reads better than vivid colours on the black window (owner, 2026-10-30)
+        { "Sunset", { { 0xff, 0xb4, 0x9c }, { 0xff, 0xa3, 0xc8 }, { 0xb9, 0xab, 0xff } } },
+        { "Ocean", { { 0x9e, 0xe6, 0xff }, { 0xa3, 0xc2, 0xf0 }, { 0xb5, 0xac, 0xff } } },
+        { "Mint", { { 0xa2, 0xf5, 0xd3 }, { 0xa0, 0xe9, 0xf5 }, { 0xc6, 0xae, 0xfb } } },
+        { "Gold", { { 0xff, 0xe6, 0x8f }, { 0xff, 0xc9, 0x8f }, { 0xff, 0xa8, 0xbc } } },
     };
     return palettes;
 }
@@ -124,6 +127,95 @@ Rgb sample(const std::vector<Rgb>& colors, double t)
     const Rgb& b = colors[index + 1];
     auto channel = [f](uint8_t x, uint8_t y) { return static_cast<uint8_t>(std::lround(x + (y - x) * f)); };
     return Rgb { channel(a.r, b.r), channel(a.g, b.g), channel(a.b, b.b) };
+}
+
+Hsv toHsv(Rgb color)
+{
+    const double r = color.r / 255.0, g = color.g / 255.0, b = color.b / 255.0;
+    const double high = std::max({ r, g, b }), low = std::min({ r, g, b }), span = high - low;
+    Hsv hsv { 0.0, high > 0.0 ? span / high : 0.0, high };
+    if (span > 0.0)
+    {
+        if (high == r)
+            hsv.h = 60.0 * std::fmod((g - b) / span + 6.0, 6.0);
+        else if (high == g)
+            hsv.h = 60.0 * ((b - r) / span + 2.0);
+        else
+            hsv.h = 60.0 * ((r - g) / span + 4.0);
+    }
+    return hsv;
+}
+
+Rgb fromHsv(Hsv hsv)
+{
+    const double h = std::fmod(std::fmod(hsv.h, 360.0) + 360.0, 360.0) / 60.0;
+    const double s = std::clamp(hsv.s, 0.0, 1.0), v = std::clamp(hsv.v, 0.0, 1.0);
+    const double c = v * s, x = c * (1.0 - std::fabs(std::fmod(h, 2.0) - 1.0)), m = v - c;
+    double r = 0.0, g = 0.0, b = 0.0;
+    switch (static_cast<int>(h))
+    {
+    case 0: r = c, g = x; break;
+    case 1: r = x, g = c; break;
+    case 2: g = c, b = x; break;
+    case 3: g = x, b = c; break;
+    case 4: r = x, b = c; break;
+    default: r = c, b = x; break;
+    }
+    auto channel = [m](double value) { return static_cast<uint8_t>(std::lround((value + m) * 255.0)); };
+    return Rgb { channel(r), channel(g), channel(b) };
+}
+
+std::string colorName(Rgb color)
+{
+    const Hsv hsv = toHsv(color);
+    // greys first: too little colour to name a hue
+    if (hsv.s < 0.1 || (hsv.s < 0.18 && hsv.v < 0.3))
+    {
+        if (hsv.v > 0.94)
+            return "white";
+        if (hsv.v > 0.75)
+            return "light grey";
+        if (hsv.v > 0.45)
+            return "grey";
+        if (hsv.v > 0.18)
+            return "dark grey";
+        return "black";
+    }
+    // hues by where they start, in degrees
+    static constexpr std::pair<double, const char*> hues[] = {
+        { 0, "red" },        { 10, "scarlet" },  { 20, "orange" },     { 38, "amber" },  { 48, "yellow" },
+        { 64, "chartreuse" }, { 85, "green" },   { 140, "emerald" },   { 160, "teal" },  { 175, "cyan" },
+        { 195, "azure" },    { 215, "blue" },    { 235, "indigo" },    { 255, "violet" }, { 275, "purple" },
+        { 290, "magenta" },  { 315, "rose" },    { 345, "red" },
+    };
+    std::string hue = "red";
+    for (const auto& [start, name] : hues)
+        if (hsv.h >= start)
+            hue = name;
+    // dark oranges are browns, dark yellows olives: they take no "deep"
+    const bool earthy = (hue == "orange" || hue == "amber" || hue == "scarlet") ? hsv.v < 0.6
+                        : (hue == "yellow" || hue == "chartreuse")             ? hsv.v < 0.6
+                                                                               : false;
+    if (earthy)
+        hue = hue == "yellow" || hue == "chartreuse" ? "olive" : "brown";
+    // and pale oranges are peach
+    if ((hue == "orange" || hue == "scarlet") && hsv.v > 0.8 && hsv.s < 0.6)
+        return hsv.s < 0.35 ? "pale peach" : "peach";
+
+    std::string shade;
+    if (hsv.v < 0.35)
+        shade = "dark";
+    else if (hsv.v < 0.6 && !earthy)
+        shade = hsv.s > 0.5 ? "deep" : "dusky";
+    else if (hsv.v > 0.8 && hsv.s < 0.35)
+        shade = "pale";
+    else if (hsv.v > 0.8 && hsv.s < 0.6)
+        shade = "light";
+    else if (hsv.s < 0.35)
+        shade = "muted";
+    else if (hsv.s > 0.85 && hsv.v > 0.85)
+        shade = "vivid";
+    return shade.empty() ? hue : shade + " " + hue;
 }
 
 std::vector<uint8_t> makeTexture(Mode mode, const std::vector<Rgb>& colors)
