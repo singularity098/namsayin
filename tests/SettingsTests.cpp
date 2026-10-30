@@ -56,6 +56,25 @@ TEST_CASE("paths convert to and from UTF-8")
     CHECK(pathToUtf8(pathFromUtf8(text)) == text);
 }
 
+TEST_CASE("paths show the home folder as ~")
+{
+    const std::string home = "/home/me";
+    CHECK(shortenHomePath("/home/me/NAM", home) == "~/NAM");
+    CHECK(shortenHomePath("/home/me/NAM/amps.zip!/inner/a.nam", home) == "~/NAM/amps.zip!/inner/a.nam");
+    CHECK(shortenHomePath("/home/me", home) == "~");
+    CHECK(shortenHomePath("/home/me/NAM", "/home/me/") == "~/NAM");
+    CHECK(shortenHomePath("/home/me2/NAM", home) == "/home/me2/NAM");
+    CHECK(shortenHomePath("/opt/NAM", home) == "/opt/NAM");
+    CHECK(shortenHomePath("/opt/NAM", "/") == "/opt/NAM");
+    CHECK(shortenHomePath("", home).empty());
+
+    CHECK(expandHomePath("~/NAM", home) == "/home/me/NAM");
+    CHECK(expandHomePath("~", home) == "/home/me");
+    CHECK(expandHomePath("~other/NAM", home) == "~other/NAM");
+    CHECK(expandHomePath("/opt/~/NAM", home) == "/opt/~/NAM");
+    CHECK(expandHomePath(shortenHomePath("/home/me/IRs", home), home) == "/home/me/IRs");
+}
+
 TEST_CASE("recent presets: most recent first, no duplicates, bounded")
 {
     Settings settings;

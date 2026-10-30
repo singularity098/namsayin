@@ -32,7 +32,65 @@ fs::path homeDir()
     return fs::current_path();
 }
 
+bool isSeparator(char c)
+{
+#ifdef _WIN32
+    return c == '/' || c == '\\';
+#else
+    return c == '/';
+#endif
+}
+
+// The home folder as UTF-8 without trailing separators ("" when there's none worth shortening, like "/")
+std::string homeText(const std::string& home)
+{
+    std::string text = home.empty() ? pathToUtf8(homeDir()) : home;
+    while (!text.empty() && isSeparator(text.back()))
+        text.pop_back();
+    return text;
+}
+
+bool samePrefix(const std::string& path, const std::string& prefix)
+{
+    if (path.size() < prefix.size())
+        return false;
+#ifdef _WIN32
+    // Windows paths ignore case
+    for (size_t i = 0; i < prefix.size(); ++i)
+    {
+        const auto lower = [](char c) { return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c; };
+        if (lower(path[i]) != lower(prefix[i]) && !(isSeparator(path[i]) && isSeparator(prefix[i])))
+            return false;
+    }
+    return true;
+#else
+    return path.compare(0, prefix.size(), prefix) == 0;
+#endif
+}
+
 } // namespace
+
+std::string shortenHomePath(const std::string& utf8, const std::string& home)
+{
+    const std::string prefix = homeText(home);
+    if (prefix.empty() || !samePrefix(utf8, prefix))
+        return utf8;
+    if (utf8.size() == prefix.size())
+        return "~";
+    if (!isSeparator(utf8[prefix.size()]))
+        return utf8; // "/home/me2" isn't inside "/home/me"
+    return "~" + utf8.substr(prefix.size());
+}
+
+std::string expandHomePath(const std::string& utf8, const std::string& home)
+{
+    if (utf8.empty() || utf8[0] != '~' || (utf8.size() > 1 && !isSeparator(utf8[1])))
+        return utf8; // "~other" (another user's home) stays as typed
+    const std::string prefix = homeText(home);
+    if (prefix.empty())
+        return utf8;
+    return prefix + utf8.substr(1);
+}
 
 fs::path configDir()
 {

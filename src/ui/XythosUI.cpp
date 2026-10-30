@@ -217,6 +217,7 @@ enum class Hit {
     LibraryFavorites,
     LibraryBrowse,
     LibraryUp,      // the library list: up a folder
+    LibraryCrumb,   // the library list's path: index = how many folders below the library root to go to
     TextField,      // index = Field
     FieldClear,     // index = Field: empty it
     OpenSettings,
@@ -316,6 +317,12 @@ enum class Dialog { None, AddBlock, Settings, Menu, SavePreset, Presets, Images,
 
 // What a file picked in the file browser is for
 enum class BrowseTarget { AddBlock, NamDir, IrDir, OpenPreset, ExportPreset, Locate, AddImage };
+
+// The folders a library list showed before and after the current one (back and forward)
+struct LibraryHistory {
+    std::vector<std::string> back, forward;
+};
+constexpr size_t kMaxLibraryHistory = 100;
 
 struct HitArea {
     Rect rect;
@@ -820,6 +827,9 @@ protected:
             fScrollGrabValue = fScrollX;
             return true;
         }
+        // a mouse's back and forward buttons (DPF numbers them 4 and 5 everywhere)
+        if (ev.button == 4 || ev.button == 5)
+            return stepLibraryHistory(ev.button == 5);
         if (ev.button != kMouseButtonLeft)
             return false;
 
@@ -1076,9 +1086,7 @@ protected:
         case Hit::ListRow: {
             if (hit->index < static_cast<int>(fRows.size()) && !fRows[hit->index].folder.empty())
             {
-                libraryDir() = fRows[hit->index].folder;
-                fListScroll = 0.0f;
-                repaint();
+                openLibraryDir(fRows[hit->index].folder);
                 return true;
             }
             if (hit->index >= static_cast<int>(fRows.size()) || fRows[hit->index].type == nullptr)
@@ -1104,11 +1112,19 @@ protected:
         }
 
         case Hit::LibraryUp: {
-            std::string& dir = libraryDir();
+            const std::string& dir = libraryDir();
             const size_t slash = dir.rfind('/');
-            dir = slash == std::string::npos ? std::string() : dir.substr(0, slash);
-            fListScroll = 0.0f;
-            repaint();
+            openLibraryDir(slash == std::string::npos ? std::string() : dir.substr(0, slash));
+            return true;
+        }
+
+        case Hit::LibraryCrumb: {
+            // the first `index` folders of where we are
+            const std::string& dir = libraryDir();
+            size_t end = 0;
+            for (int level = 0; level < hit->index && end != std::string::npos; ++level)
+                end = dir.find('/', end == 0 ? 0 : end + 1);
+            openLibraryDir(hit->index == 0 ? std::string() : dir.substr(0, end));
             return true;
         }
 
@@ -1503,6 +1519,13 @@ protected:
     {
         if (!ev.press)
             return fFocusedField >= 0;
+
+        // back and forward through the library list's folders, as in a file browser or web browser: Alt+Left/Right,
+        // and Cmd+[ / Cmd+] on macOS (also with the search field focused, where they mean nothing else)
+        const bool alt = (ev.mod & kModifierAlt) != 0, super = (ev.mod & kModifierSuper) != 0;
+        if (((alt && (ev.key == kKeyLeft || ev.key == kKeyRight)) || (super && (ev.key == '[' || ev.key == ']')))
+            && stepLibraryHistory(ev.key == kKeyRight || ev.key == ']'))
+            return true;
 
         if (fFocusedField >= 0)
         {
@@ -2856,10 +2879,11 @@ private:
             theme::accent = toColor(*custom);
         if (fFocusedField != kFieldInkHex && fDialog == Dialog::InkPicker)
             fFields[kFieldInkHex] = pickerHex(fInkSlot);
+        // the folder fields show the home folder as ~ (and take paths typed that way)
         if (fFocusedField != kFieldNamDir)
-            fFields[kFieldNamDir] = fSettings.namDir;
+            fFields[kFieldNamDir] = shortenHomePath(fSettings.namDir);
         if (fFocusedField != kFieldIrDir)
-            fFields[kFieldIrDir] = fSettings.irDir;
+            fFields[kFieldIrDir] = shortenHomePath(fSettings.irDir);
     }
 
     // Once a second: starts the daily update check when it's due (a few seconds after opening, so it doesn't compete
@@ -3010,10 +3034,14 @@ private:
 
     void commitField(Field field)
     {
-        if (field == kFieldNamDir && fFields[field] != fSettings.namDir)
-            updateSettings([text = fFields[field]](Settings& settings) { settings.namDir = text; });
-        else if (field == kFieldIrDir && fFields[field] != fSettings.irDir)
-            updateSettings([text = fFields[field]](Settings& settings) { settings.irDir = text; });
+        if (field == kFieldNamDir || field == kFieldIrDir)
+        {
+            const bool nam = field == kFieldNamDir;
+            const std::string text = expandHomePath(fFields[field]);
+            if (text != (nam ? fSettings.namDir : fSettings.irDir))
+                updateSettings([&](Settings& settings) { (nam ? settings.namDir : settings.irDir) = text; });
+            fFields[field] = shortenHomePath(text);
+        }
         else if (field == kFieldInkHex)
         {
             // a valid value is saved; anything else goes back to the colour's
@@ -6175,7 +6203,7 @@ private:
         char slotText[32];
         std::snprintf(slotText, sizeof(slotText), "Slot %02d", block.slot + 1);
         std::string detail = path.empty() ? categoryName(type->category) + std::string("  ·  ") + slotText
-                                          : slotText + std::string("  ·  ") + path;
+                                          : slotText + std::string("  ·  ") + shortenHomePath(path);
         if (type == &kNamBlockDescriptor)
         {
             const NamFileInfo& nam = namFileInfo(block);
@@ -6473,6 +6501,40 @@ private:
     // The library list for NAM / IR: favorites filter, browse, and the scanned files
     // The folder the NAM or IR list shows, relative to the library root ("" at the top)
     std::string& libraryDir() { return fLibraryDir[fDialogCategory == Category::Ir ? 1 : 0]; }
+    LibraryHistory& libraryHistory() { return fLibraryHistory[fDialogCategory == Category::Ir ? 1 : 0]; }
+
+    // Shows another folder in the library list, remembering where we were for Back
+    void openLibraryDir(const std::string& dir)
+    {
+        std::string& current = libraryDir();
+        if (dir == current)
+            return;
+        LibraryHistory& history = libraryHistory();
+        history.back.push_back(std::exchange(current, dir));
+        if (history.back.size() > kMaxLibraryHistory)
+            history.back.erase(history.back.begin());
+        history.forward.clear();
+        fListScroll = 0.0f;
+        repaint();
+    }
+
+    // Back (or forward) to the folder the library list showed before; false when the list isn't shown or there's
+    // nowhere to go
+    bool stepLibraryHistory(bool forward)
+    {
+        if (fDialog != Dialog::AddBlock || !isLibraryCategory(fDialogCategory) || fFavoritesOnly
+            || !fFields[kFieldSearch].empty())
+            return false;
+        LibraryHistory& history = libraryHistory();
+        std::vector<std::string>& from = forward ? history.forward : history.back;
+        if (from.empty())
+            return false;
+        (forward ? history.back : history.forward).push_back(std::exchange(libraryDir(), from.back()));
+        from.pop_back();
+        fListScroll = 0.0f;
+        repaint();
+        return true;
+    }
 
     // The library list for NAM / IR: the current folder's subfolders and files (or every favorite), with Up, the
     // folder, favorites and browse above it
@@ -6508,39 +6570,67 @@ private:
         }
         if (!folder.empty())
         {
-            std::string root = pathToUtf8(pathFromUtf8(folder).filename());
-            if (root.empty())
-                root = folder;
-            std::string where = root;
-            if (browsing && !dir.empty())
+            // where we are: the library folder (home as ~), then each folder below it; a click on one goes there
+            struct Crumb {
+                std::string text;
+                int level; // folders below the root; -1: not clickable
+            };
+            std::vector<Crumb> crumbs { { shortenHomePath(folder), browsing ? 0 : -1 } };
+            if (browsing)
             {
-                std::string rest = dir;
-                for (size_t slash; (slash = rest.find('/')) != std::string::npos;)
-                    rest.replace(slash, 1, "  ›  ");
-                where += "  ›  " + rest;
-            }
-            else if (!browsing)
-                where += "  ·  favorites in every folder";
-            fontSize(12.0f);
-            // keep the end (the folder we're in) when it's too long
-            const float room = x + w - 204.0f - pathX;
-            Rectangle<float> bounds;
-            while (where.size() > 1 && textBounds(0, 0, ("…" + where).c_str(), nullptr, bounds) > room
-                   && textBounds(0, 0, where.c_str(), nullptr, bounds) > room)
-            {
-                size_t cut = 1;
-                while (cut < where.size() && (static_cast<unsigned char>(where[cut]) & 0xc0) == 0x80)
-                    ++cut;
-                where.erase(0, cut);
-                if (textBounds(0, 0, ("…" + where).c_str(), nullptr, bounds) <= room)
+                size_t start = 0;
+                for (int level = 1; start < dir.size(); ++level)
                 {
-                    where = "…" + where;
-                    break;
+                    const size_t slash = std::min(dir.find('/', start), dir.size());
+                    crumbs.push_back({ dir.substr(start, slash - start), level });
+                    start = slash + 1;
                 }
+            }
+            else
+                crumbs.push_back({ "favorites in every folder", -1 });
+            const char* separator = browsing ? "  ›  " : "  ·  ";
+            fontSize(12.0f);
+            Rectangle<float> bounds;
+            auto width = [&](const std::string& str) { return textBounds(0, 0, str.c_str(), nullptr, bounds); };
+            const float sepW = width(separator);
+            float total = -sepW;
+            for (const Crumb& crumb : crumbs)
+                total += width(crumb.text) + sepW;
+            // too long: the first folders give way to "…" (which goes to the last of them), keeping where we are
+            const float room = x + w - 204.0f - pathX;
+            size_t first = 0;
+            while (total > room && first + 1 < crumbs.size())
+            {
+                total -= width(crumbs[first].text) + sepW;
+                ++first;
+            }
+            if (first > 0)
+            {
+                --first;
+                crumbs[first].text = "…";
             }
             save();
             scissor(pathX, y, std::max(0.0f, room), headerH);
-            label(pathX, y + headerH / 2, where.c_str(), theme::textDim, 12.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+            float cx = pathX;
+            for (size_t i = first; i < crumbs.size(); ++i)
+            {
+                const Crumb& crumb = crumbs[i];
+                const float cw = width(crumb.text);
+                const bool here = i + 1 == crumbs.size();
+                const Rect r { cx - 3.0f, y, cw + 6.0f, headerH };
+                const bool clickable = crumb.level >= 0 && !here;
+                const bool hover = clickable && r.contains(fMouseX, fMouseY);
+                label(cx, y + headerH / 2, crumb.text.c_str(),
+                      hover ? theme::accent : here ? theme::text : theme::textDim, 12.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+                if (clickable)
+                    fHits.push_back({ r, Hit::LibraryCrumb, crumb.level });
+                cx += cw;
+                if (!here)
+                {
+                    label(cx, y + headerH / 2, separator, theme::textDim, 12.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+                    cx += sepW;
+                }
+            }
             restore();
         }
         drawButton({ x + w - 192.0f, y, 92.0f, headerH }, "★ Favorites", fFavoritesOnly, theme::accent,
@@ -7553,7 +7643,7 @@ private:
                    Hit::InkCustom, 0);
         row += rowH;
 
-        label(x + 24.0f, y + h - 18.0f, pathToUtf8(Settings::defaultPath()).c_str(), theme::textDim, 10.0f,
+        label(x + 24.0f, y + h - 18.0f, shortenHomePath(pathToUtf8(Settings::defaultPath())).c_str(), theme::textDim, 10.0f,
               ALIGN_LEFT | ALIGN_MIDDLE);
     }
 
@@ -7955,6 +8045,7 @@ private:
     float fListScroll = 0.0f;
     bool fFavoritesOnly = false;
     std::string fLibraryDir[2]; // the folder the NAM [0] and IR [1] lists show, relative to the library root
+    LibraryHistory fLibraryHistory[2]; // where they were before, for back and forward
     std::vector<AddRow> fRows; // the Add Block list rows drawn last, for hit indices
     BrowseTarget fBrowseTarget = BrowseTarget::AddBlock;
 
