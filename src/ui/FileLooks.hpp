@@ -67,4 +67,10 @@ std::string_view cabSizeInName(std::string_view name);
 // are some, else among the 4x12s. An empty key (no file) gets the first 4x12. "" if `ids` is empty.
 std::string defaultCabImage(std::string_view key, std::string_view fileName, const std::vector<std::string>& ids);
 
+// The built-in generic pedal images (resources/pedals/, BlockImages.hpp), "pedal-<n>": NAM pedal captures show one
+// until the user picks another, and so do pedals without a photo of their own yet (owner, 2026-10-30). Picked from
+// `ids` by `key` (a NAM file's content hash, or the block's typeId), so the same file or pedal always gets the same
+// one; an empty key gets the first. "" if `ids` is empty.
+std::string defaultPedalImage(std::string_view key, const std::vector<std::string>& ids);
+
 } // namespace xythos

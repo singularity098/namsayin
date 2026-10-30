@@ -15,7 +15,7 @@ namespace xythos {
 // Bass, Middle and Treble shape the model's output (the global tone stack's EQ), for sculpting each side of a split.
 // They came after the first NAM blocks, whose unused slots saved 0 (-12 dB): a block without "tone" in its config
 // stays flat whatever they're set to, and the UI moves such blocks to flat controls and adds "tone"
-// (migrateNamTone()).
+// (migrateBlocks()).
 //
 // Not done yet: resampling when the host rate differs from the model's training rate (the model runs at the host
 // rate, which changes its tone slightly). See docs/Architecture.md 4.5.

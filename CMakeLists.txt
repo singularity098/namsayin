@@ -236,6 +236,17 @@ add_custom_command(
   DEPENDS ${XYTHOS_CAB_IMAGES} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedBlockImages.cmake
   COMMENT "Embedding the cab images"
   VERBATIM)
+# The built-in generic pedal images for NAM pedals and pedals awaiting their own photo: resources/pedals/ (made by
+# tools/prepare_pedal_images.py), the same way
+file(GLOB XYTHOS_PEDAL_IMAGES CONFIGURE_DEPENDS resources/pedals/*.webp resources/pedals/thumbs/*.webp)
+set(XYTHOS_PEDAL_IMAGES_CPP ${CMAKE_CURRENT_BINARY_DIR}/generated/PedalImages.cpp)
+add_custom_command(
+  OUTPUT ${XYTHOS_PEDAL_IMAGES_CPP}
+  COMMAND ${CMAKE_COMMAND} -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/resources/pedals -DOUT=${XYTHOS_PEDAL_IMAGES_CPP}
+          -DKIND=Pedal -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedBlockImages.cmake
+  DEPENDS ${XYTHOS_PEDAL_IMAGES} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedBlockImages.cmake
+  COMMENT "Embedding the generic pedal images"
+  VERBATIM)
 
 dpf_add_plugin(xythos
   TARGETS ${XYTHOS_FORMATS}
@@ -247,6 +258,7 @@ dpf_add_plugin(xythos
     src/ui/BlockGlyphs.cpp
     ${XYTHOS_BLOCK_IMAGES_CPP}
     ${XYTHOS_CAB_IMAGES_CPP}
+    ${XYTHOS_PEDAL_IMAGES_CPP}
     src/ui/FileLooks.cpp
     src/ui/FolderPicker.cpp
     src/ui/FontData.cpp
@@ -340,6 +352,7 @@ if(XYTHOS_BUILD_TESTS)
   target_compile_definitions(xythos-tests PRIVATE XYTHOS_EXAMPLE_MODELS="${NAM_DIR}/example_models"
     XYTHOS_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/recordings" XYTHOS_RECORDINGS_WAV="${CMAKE_BINARY_DIR}/recordings"
     XYTHOS_BLOCK_IMAGES="${CMAKE_CURRENT_SOURCE_DIR}/resources/blocks"
-    XYTHOS_CAB_IMAGES="${CMAKE_CURRENT_SOURCE_DIR}/resources/cabs")
+    XYTHOS_CAB_IMAGES="${CMAKE_CURRENT_SOURCE_DIR}/resources/cabs"
+    XYTHOS_PEDAL_IMAGES="${CMAKE_CURRENT_SOURCE_DIR}/resources/pedals")
   add_test(NAME xythos-tests COMMAND xythos-tests)
 endif()

@@ -192,3 +192,28 @@ TEST_CASE("each IR gets a 4x12 cab image from its hash, or one of the size its n
         CHECK(n > 4000 / static_cast<int>(fours.size()) / 3);
     }
 }
+
+TEST_CASE("each NAM pedal gets a generic pedal image from its hash, spread over all of them")
+{
+    std::vector<std::string> ids;
+    for (const auto& entry : std::filesystem::directory_iterator(XYTHOS_PEDAL_IMAGES))
+        if (entry.path().extension() == ".webp")
+            ids.push_back(entry.path().stem().string());
+    REQUIRE(ids.size() >= 49);
+    CHECK(defaultPedalImage("", {}).empty());
+    CHECK(defaultPedalImage("", ids) == "pedal-1");
+
+    // the same file always gets the same pedal, whatever order the ids come in
+    const std::string hash = "00112233445566778899aabbccddeeff";
+    std::vector<std::string> reversed(ids.rbegin(), ids.rend());
+    CHECK(defaultPedalImage(hash, ids) == defaultPedalImage(hash, reversed));
+    // pinned: changing the pick (or the ids' order) changes how everyone's pedals look
+    CHECK(defaultPedalImage(hash, ids) == "pedal-14");
+
+    std::map<std::string, int> uses;
+    for (int i = 0; i < 10000; ++i)
+        ++uses[defaultPedalImage("hash " + std::to_string(i), ids)];
+    CHECK(uses.size() == ids.size());
+    for (const auto& [id, n] : uses)
+        CHECK(n > 10000 / static_cast<int>(ids.size()) / 3);
+}

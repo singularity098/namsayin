@@ -73,6 +73,30 @@ TEST_CASE("every built-in cab image and thumbnail decodes, at its size")
     CHECK(count >= 42);
 }
 
+TEST_CASE("every built-in generic pedal image and thumbnail decodes, at its height")
+{
+    const std::filesystem::path images = XYTHOS_PEDAL_IMAGES;
+    int count = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(images))
+    {
+        if (entry.path().extension() != ".webp")
+            continue;
+        CAPTURE(entry.path().filename().string());
+        ++count;
+        for (const auto& [path, height] : { std::pair { entry.path(), 1280u },
+                                            std::pair { images / "thumbs" / entry.path().filename(), 384u } })
+        {
+            const std::vector<unsigned char> data = readFile(path);
+            RgbaImage img;
+            REQUIRE(decodeWebp(data.data(), data.size(), img));
+            CHECK(img.height == height);
+            CHECK(img.width > height / 3);
+            CHECK(img.width < height);
+        }
+    }
+    CHECK(count >= 49);
+}
+
 TEST_CASE("the background image decodes, and other data isn't taken for a WebP")
 {
     RgbaImage img;

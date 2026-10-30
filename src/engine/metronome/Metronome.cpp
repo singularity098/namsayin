@@ -68,6 +68,11 @@ std::vector<float> digitalClick(double frequency, double rate)
 
 } // namespace
 
+std::vector<float> classicMetronomeClick(bool accent, double sampleRate)
+{
+    return classicClick(accent ? kClassicAccentHz : kClassicBeatHz, sampleRate);
+}
+
 const Metronome::Offsets& Metronome::subdivisionOffsets(MetroSubdivision subdivision)
 {
     // (constant: a table of vectors was built on the first click, allocating on the audio thread)

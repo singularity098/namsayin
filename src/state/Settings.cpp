@@ -32,6 +32,7 @@ std::string Settings::toJson() const
         { "checkUpdates", checkUpdates },
         { "dismissedUpdate", dismissedUpdate },
         { "cabImages", cabImages },
+        { "pedalImages", pedalImages },
     }.dump(2);
 }
 
@@ -72,6 +73,7 @@ Settings Settings::fromJson(std::string_view text)
         get("checkUpdates", settings.checkUpdates);
         get("dismissedUpdate", settings.dismissedUpdate);
         get("cabImages", settings.cabImages);
+        get("pedalImages", settings.pedalImages);
     }
     catch (const json::exception&)
     {

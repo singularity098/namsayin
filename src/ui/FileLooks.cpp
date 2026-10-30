@@ -128,4 +128,19 @@ std::string defaultCabImage(std::string_view key, std::string_view fileName, con
     return pool[static_cast<size_t>(dice.below(static_cast<int>(pool.size())))];
 }
 
+std::string defaultPedalImage(std::string_view key, const std::vector<std::string>& ids)
+{
+    if (ids.empty())
+        return {};
+    // in their numbers' order, so a new image (a higher number) only changes some files' picks, never the order
+    std::vector<std::string> sorted = ids;
+    const auto number = [](const std::string& id) { return std::atoi(id.c_str() + id.rfind('-') + 1); };
+    std::stable_sort(sorted.begin(), sorted.end(),
+                     [&number](const std::string& a, const std::string& b) { return number(a) < number(b); });
+    if (key.empty())
+        return sorted.front();
+    Dice dice(key);
+    return sorted[static_cast<size_t>(dice.below(static_cast<int>(sorted.size())))];
+}
+
 } // namespace xythos

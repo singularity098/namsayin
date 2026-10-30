@@ -42,6 +42,10 @@ struct Transport {
 //
 // Free mode runs on its own tempo from when it's switched on. In sync mode it follows the host's tempo, meter and
 // transport position, and only clicks while the transport plays.
+// The Classic click (accent or beat) rendered at this rate, for other parts that click on the beat (the looper's
+// count-in). Non-RT: allocates.
+std::vector<float> classicMetronomeClick(bool accent, double sampleRate);
+
 class Metronome {
 public:
     static constexpr int kMaxBeats = 16;

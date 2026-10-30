@@ -880,6 +880,136 @@ TEST_CASE("looper buttons act on presses, not releases")
     CHECK(looperStatus(*block).state == LooperState::Recording);
 }
 
+TEST_CASE("looper blocks saved before Count In stay in Free mode")
+{
+    // no "countIn" in the config (createWithDefaults() configures an empty one): recording starts at once
+    auto block = make(kLooperBlockDescriptor);
+    press(*block, kLooperParamRecDub);
+    std::vector<std::vector<float>> x(1, std::vector<float>(4800, 0.1f));
+    testing::runBlock(*block, x);
+    CHECK(looperStatus(*block).state == LooperState::Recording);
+}
+
+namespace {
+
+// A looper made since Count In existed, in Count In mode at 120 BPM (0.5 s a beat) in 4/4
+std::unique_ptr<Block> countInLooper(int countIn, int measures, int loops)
+{
+    auto block = make(kLooperBlockDescriptor);
+    block->configure({ { kLooperCountInKey, true } });
+    block->setParam(kLooperParamMode, 0.0f);
+    block->setParam(kLooperParamBpm, 120.0f);
+    block->setParam(kLooperParamBeats, 4.0f);
+    block->setParam(kLooperParamCountIn, static_cast<float>(countIn));
+    block->setParam(kLooperParamMeasures, static_cast<float>(measures));
+    block->setParam(kLooperParamLoops, static_cast<float>(loops));
+    block->setParam(kLooperParamClick, 100.0f);
+    return block;
+}
+
+// Where the clicks start: the first sample of each burst after silence
+std::vector<size_t> clickStarts(const std::vector<float>& x)
+{
+    std::vector<size_t> starts;
+    size_t quiet = 1000000;
+    for (size_t i = 0; i < x.size(); ++i)
+    {
+        if (std::abs(x[i]) > 1e-4f)
+        {
+            if (quiet > 4800)
+                starts.push_back(i);
+            quiet = 0;
+        }
+        else
+            ++quiet;
+    }
+    return starts;
+}
+
+} // namespace
+
+TEST_CASE("looper count in: clicks four, records the bars with the click, then plays without it")
+{
+    CHECK(kLooperBlockDescriptor.params[kLooperParamMode].def == 0.0f); // Count In is the default (owner)
+    auto block = countInLooper(4, 1, 1);
+    press(*block, kLooperParamRecDub);
+
+    // silence in: only the clicks come out, on every beat (24000 samples) from the press, 4 counting in + 4 recorded
+    std::vector<std::vector<float>> first(1, std::vector<float>(24000 * 4 - 100, 0.0f));
+    int allocations = 0;
+    testing::runBlock(*block, first, 128, &allocations);
+    CHECK(looperStatus(*block).state == LooperState::CountIn);
+    CHECK(looperStatus(*block).progress == 4);
+    std::vector<std::vector<float>> second(1, std::vector<float>(24000 * 4 - 200, 0.0f));
+    testing::runBlock(*block, second, 128, &allocations);
+    CHECK(looperStatus(*block).state == LooperState::Recording);
+    std::vector<std::vector<float>> third(1, std::vector<float>(24000 * 4 + 300, 0.0f));
+    testing::runBlock(*block, third, 128, &allocations);
+    CHECK(allocations == 0);
+    // the loop closed itself after one bar: playing, and the clicks never went into it
+    CHECK(looperStatus(*block).state == LooperState::Playing);
+    CHECK(looperStatus(*block).lengthTenths == 20);
+
+    std::vector<float> all = first[0];
+    all.insert(all.end(), second[0].begin(), second[0].end());
+    all.insert(all.end(), third[0].begin(), third[0].end());
+    const std::vector<size_t> starts = clickStarts(all);
+    REQUIRE(starts.size() == 8);
+    for (size_t k = 0; k < starts.size(); ++k)
+    {
+        // (a click's first sample is 0: it fades in)
+        CHECK(starts[k] >= k * 24000);
+        CHECK(starts[k] <= k * 24000 + 2);
+    }
+    // the accents: the first count-in click and the recording's first beat
+    const auto peak = [&all](size_t from) {
+        float p = 0.0f;
+        for (size_t i = from; i < from + 2400; ++i)
+            p = std::max(p, std::abs(all[i]));
+        return p;
+    };
+    CHECK(peak(0) > peak(24000) * 1.1f);
+    CHECK(peak(4 * 24000) > peak(5 * 24000) * 1.1f);
+    CHECK(testing::rms(all, 8 * 24000, all.size()) == 0.0);
+}
+
+TEST_CASE("looper count in records only during the bars, and overdubs the extra loops")
+{
+    auto block = countInLooper(2, 1, 2);
+    block->setParam(kLooperParamClick, 0.0f);
+    press(*block, kLooperParamRecDub);
+    // count-in (1 s): the tone isn't recorded; then the bar (2 s) is, and a second pass (2 s) overdubs it
+    auto tone = sine(440.0, 0.2f, 48000 * 5);
+    testing::runBlock(*block, tone);
+    CHECK(looperStatus(*block).state == LooperState::Overdubbing);
+    CHECK(looperStatus(*block).lengthTenths == 20);
+
+    // played back: the tone twice over (in phase: a whole number of cycles a beat)
+    std::vector<std::vector<float>> out(1, std::vector<float>(96000, 0.0f));
+    testing::runBlock(*block, out);
+    CHECK(looperStatus(*block).state == LooperState::Playing);
+    CHECK(testing::rms(out[0], 2000, 90000) == doctest::Approx(0.4 / std::sqrt(2.0)).epsilon(0.03));
+}
+
+TEST_CASE("looper count in: a second press calls it off, and Free mode records at once")
+{
+    auto block = countInLooper(4, 1, 1);
+    press(*block, kLooperParamRecDub);
+    std::vector<std::vector<float>> x(1, std::vector<float>(4800, 0.0f));
+    testing::runBlock(*block, x);
+    CHECK(looperStatus(*block).state == LooperState::CountIn);
+    press(*block, kLooperParamRecDub);
+    testing::runBlock(*block, x);
+    CHECK(looperStatus(*block).state == LooperState::Empty);
+
+    block->setParam(kLooperParamMode, 1.0f);
+    press(*block, kLooperParamRecDub);
+    std::vector<std::vector<float>> quiet(1, std::vector<float>(48000, 0.0f));
+    testing::runBlock(*block, quiet);
+    CHECK(looperStatus(*block).state == LooperState::Recording);
+    CHECK(testing::rms(quiet[0], 0, 48000) == 0.0); // no click
+}
+
 TEST_CASE("harmonizer intervals follow the scale")
 {
     // C major (key 0, scale 0): a third above C (60) is E (+4), above D (62) is F (+3), above B (71) is D (+3)

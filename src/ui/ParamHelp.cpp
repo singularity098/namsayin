@@ -898,7 +898,9 @@ constexpr BlockHelp kBlockHelp[] = {
     // Looper
     { "looper", "Rec/Dub",
       "Press to record. Press again to close the loop and play it back. While it plays, press to overdub more "
-      "layers, and again to go back to just playing. Map a footswitch to it with MIDI learn." },
+      "layers, and again to go back to just playing. In Count In mode the first press starts the count-in (press "
+      "again to call it off), and the loop closes by itself after the bars you set. Map a footswitch to it with "
+      "MIDI learn." },
     { "looper", "Play/Stop",
       "Stops the loop, or starts it again from the beginning. While recording, it closes the loop and plays it." },
     { "looper", "Clear",
@@ -916,6 +918,27 @@ constexpr BlockHelp kBlockHelp[] = {
     { "looper", "Half Speed",
       "Plays the loop at half speed, so it sounds an octave lower and twice as long. Great for a slowed-down, "
       "dreamy version of what you just played." },
+    { "looper", "Mode",
+      "Count In: pressing Rec/Dub starts a metronome that counts you in, records exactly the bars you set (Measures) "
+      "with the click going, then plays the loop back without it. Free: recording starts the moment you press "
+      "Rec/Dub and stops when you press it again, with no click." },
+    { "looper", "BPM",
+      "The tempo of the count-in metronome, in beats per minute. It sets how long the loop is: Measures bars of "
+      "Beats beats at this tempo. Set it before pressing Rec/Dub." },
+    { "looper", "Beats",
+      "Beats to the bar for the count-in metronome (4 for 4/4, 3 for a waltz). The first beat of each bar clicks "
+      "higher." },
+    { "looper", "Count-In",
+      "How many clicks the metronome counts before recording starts. 4 gives you one bar of 4/4 to get ready; 0 "
+      "starts recording on the first click." },
+    { "looper", "Measures",
+      "How many bars Count In mode records. When they're done the loop closes on its own and plays back, so you "
+      "don't need to hit the footswitch on the beat." },
+    { "looper", "Loops",
+      "How many times round the loop Count In mode records. 1 records the loop once; with more, each extra pass "
+      "overdubs on top (the click keeps going) before it settles into playback." },
+    { "looper", "Click",
+      "The volume of the count-in metronome. The click is only heard, never recorded into the loop." },
 
     // Octave
     { "octave", "Sub 1",
@@ -2091,8 +2114,9 @@ constexpr TypeHelp kTypeHelp[] = {
       "Threshold so your playing ducks the echoes, and Duck for how much." },
     { "looper",
       "Records a phrase and plays it back as a loop, so you can play over it. Rec/Dub records, then overdubs on "
-      "top; Play/Stop and Clear control the loop. Reverse and Half Speed change the playback. Map the buttons to "
-      "MIDI footswitches with MIDI learn. Keeps one loop of up to a minute." },
+      "top; Play/Stop and Clear control the loop. In Count In mode a metronome counts you in and clicks while you "
+      "record a set number of bars, then the loop plays on without it. Reverse and Half Speed change the playback. "
+      "Map the buttons to MIDI footswitches with MIDI learn. Keeps one loop of up to a minute." },
     { "octave",
       "Adds notes one and two octaves below, and one above, what you play, for bass-like riffs and big, organ-like "
       "sounds. It tracks single notes; play cleanly and put it before any drive for the best tracking. Raise "

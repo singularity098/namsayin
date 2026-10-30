@@ -26,4 +26,11 @@ BuiltinImage builtinCabImage(const char* id);
 BuiltinImage builtinCabThumb(const char* id);
 const std::vector<std::string>& builtinCabIds();
 
+// The built-in generic pedal images, which NAM pedal captures and pedals without their own photo show (FileLooks.hpp,
+// defaultPedalImage()), by image id: "pedal-<n>". PedalImages.cpp is generated the same way, from resources/pedals/
+// (tools/prepare_pedal_images.py).
+BuiltinImage builtinPedalImage(const char* id);
+BuiltinImage builtinPedalThumb(const char* id);
+const std::vector<std::string>& builtinPedalIds();
+
 } // namespace xythos

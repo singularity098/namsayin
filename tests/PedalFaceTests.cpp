@@ -125,3 +125,33 @@ TEST_CASE("every pedal has an image with its knobs, power LED and footswitch")
         }
     }
 }
+
+TEST_CASE("every generic pedal photo has a footswitch and an LED, and no knobs")
+{
+    const std::filesystem::path images = XYTHOS_PEDAL_IMAGES;
+    int count = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(images))
+    {
+        if (entry.path().extension() != ".webp")
+            continue;
+        const std::string id = entry.path().stem().string();
+        CAPTURE(id);
+        ++count;
+        const PedalFace* face = genericPedalFace(id.c_str());
+        REQUIRE(face != nullptr);
+        CHECK(face->knobs.empty()); // the painted knobs aren't any particular controls
+        REQUIRE(face->leds.size() == 1);
+        const FaceLed& led = face->leds[0];
+        const FaceSwitch& sw = face->footswitch;
+        CHECK(sw.radius > 0.0f);
+        CHECK(sw.x - sw.radius >= 0.0f);
+        CHECK(sw.x + sw.radius <= 1.0f);
+        CHECK(led.radius > 0.0f);
+        CHECK(led.x - led.radius * 1.42f >= 0.0f);
+        CHECK(led.x + led.radius * 1.42f <= 1.0f);
+        // above the footswitch, not on it (the photos are 823 x 1280)
+        CHECK(led.y < sw.y);
+        CHECK(std::hypot(led.x - sw.x, (led.y - sw.y) * 1280.0f / 823.0f) >= led.radius + sw.radius);
+    }
+    CHECK(count == static_cast<int>(genericPedalFaces().size()));
+}

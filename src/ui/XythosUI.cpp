@@ -217,6 +217,7 @@ enum class Hit {
     LibraryFavorites,
     LibraryBrowse,
     LibraryUp,      // the library list: up a folder
+    LibraryHome,    // the library list: straight back to the library folder (the NAM or IR root)
     LibraryCrumb,   // the library list's path: index = how many folders below the library root to go to
     TextField,      // index = Field
     FieldClear,     // index = Field: empty it
@@ -677,7 +678,7 @@ protected:
             // an empty state is a new instance's (it may still get the default preset); a saved chain is never empty
             fGotChainState = value[0] != '\0';
             fChain = std::move(*chain);
-            fNamToneSlots = migrateNamTone(fChain);
+            fMigratedSlots = migrateBlocks(fChain);
             fSavedChain = fChain; // the host's state: nothing to mark as modified, nothing to undo
             fUndo.clear();
             chainChanged();
@@ -811,7 +812,8 @@ protected:
             return onRightClick(x, y);
         if (ev.button == kMouseButtonMiddle)
         {
-            // a middle click on a block removes it; middle-drag anywhere else over the chain scrolls it
+            // a middle click on a block turns it on or off (owner, 2026-10-30; it removed it); middle-drag anywhere
+            // else over the chain scrolls it
             const bool chainShown = !fMetroPanel && fParams[kParamTuner] < 0.5f;
             if (!chainShown || fDialog != Dialog::None || y < kChainTop - 12.0f
                 || y > kChainTop + fLayout.height + 20.0f)
@@ -819,7 +821,7 @@ protected:
             if (const HitArea* hit = hitAt(x, y);
                 hit && (hit->kind == Hit::Tile || hit->kind == Hit::TileBypass || hit->kind == Hit::TileRemove))
             {
-                removeBlock(hit->index);
+                toggleBlockBypass(hit->index);
                 return true;
             }
             fPanning = true;
@@ -1118,6 +1120,10 @@ protected:
             return true;
         }
 
+        case Hit::LibraryHome:
+            openLibraryDir(std::string());
+            return true;
+
         case Hit::LibraryCrumb: {
             // the first `index` folders of where we are
             const std::string& dir = libraryDir();
@@ -1285,16 +1291,19 @@ protected:
             return true;
 
         case Hit::CabChoose: {
-            // kept in the settings by the IR's content, so it follows the file into every chain and preset
-            const std::vector<std::string>& ids = builtinCabIds();
+            // kept in the settings by the IR's (or NAM pedal's) content, so it follows the file into every chain and
+            // preset
+            const bool pedal = fCabPedal;
+            const std::vector<std::string>& ids = pedal ? builtinPedalIds() : builtinCabIds();
             const std::string id = hit->index >= 0 && hit->index < static_cast<int>(ids.size()) ? ids[hit->index]
                                                                                                  : std::string();
             const std::string key = cabKey(fCabHash, fCabPath);
-            updateSettings([&key, &id](Settings& settings) {
+            updateSettings([&key, &id, pedal](Settings& settings) {
+                std::map<std::string, std::string>& picks = pedal ? settings.pedalImages : settings.cabImages;
                 if (id.empty())
-                    settings.cabImages.erase(key);
+                    picks.erase(key);
                 else
-                    settings.cabImages[key] = id;
+                    picks[key] = id;
             });
             closeDialog();
             return true;
@@ -1714,18 +1723,20 @@ protected:
             repaint(); // the readout itself counts frames, so keep drawing
         if (fMomentaryReleasePending && std::chrono::steady_clock::now() - fMomentaryPressedAt >= kMomentaryMinHold)
             releaseMomentary();
-        if (!fNamToneSlots.empty())
+        if (!fMigratedSlots.empty())
         {
-            // the host has the old blocks' unused values (-12 dB): flat first, then the chain that turns them on
-            const std::vector<int> slots = std::exchange(fNamToneSlots, {});
+            // the host has the old blocks' unused values (0; -12 dB for NAM tone): the defaults first, then the chain
+            // that turns them on
+            const std::vector<int> slots = std::exchange(fMigratedSlots, {});
             for (BlockState& block : fChain.blocks)
-                if (std::find(slots.begin(), slots.end(), block.slot) != slots.end())
-                    for (int p = kNamParamBass; p <= kNamParamTreble; ++p)
-                    {
-                        const ParamSpec& spec = kNamBlockDescriptor.params[p];
-                        block.params[p] = spec.toNormalized(spec.def);
-                        setHostParameter(slotParam(block.slot, p), block.params[p]);
-                    }
+            {
+                const Migration* migration = migrationFor(block.typeId);
+                if (migration == nullptr || std::find(slots.begin(), slots.end(), block.slot) == slots.end())
+                    continue;
+                setMigratedDefaults(block, *migration);
+                for (int p = migration->first; p <= migration->last; ++p)
+                    setHostParameter(slotParam(block.slot, p), block.params[p]);
+            }
             fSavedChain = fChain;
             sendChain();
         }
@@ -2042,7 +2053,9 @@ private:
                 std::snprintf(buf, sizeof(buf), "%.2f ms", v);
                 return buf;
             }
-            if (std::strcmp(spec->unit, "Hz") == 0 && v >= 1000.0f)
+            if (std::strcmp(spec->unit, "BPM") == 0)
+                std::snprintf(buf, sizeof(buf), "%.0f BPM", v);
+            else if (std::strcmp(spec->unit, "Hz") == 0 && v >= 1000.0f)
                 std::snprintf(buf, sizeof(buf), "%.1f kHz", v / 1000.0f);
             else if (std::strcmp(spec->unit, "Hz") == 0 && v < 10.0f)
                 std::snprintf(buf, sizeof(buf), "%.2f Hz", v); // LFO rates
@@ -2112,18 +2125,21 @@ private:
         if (block < 0 || block >= static_cast<int>(fChain.blocks.size()))
             return;
         const BlockState& state = fChain.blocks[block];
-        openCabDialog(state.config.value("hash", std::string()), state.config.value("path", std::string()));
+        openCabDialog(state.config.value("hash", std::string()), state.config.value("path", std::string()),
+                      isNamPedal(state));
     }
 
-    // The Cab Image dialog for an IR file (its content hash and path); from Add Block, closing it goes back there
-    void openCabDialog(const std::string& hash, const std::string& path)
+    // The Cab Image dialog for an IR file (its content hash and path), or the Pedal Image dialog for a NAM pedal
+    // capture; from Add Block, closing it goes back there
+    void openCabDialog(const std::string& hash, const std::string& path, bool pedal = false)
     {
         fCabHash = hash;
         fCabPath = path;
+        fCabPedal = pedal;
         fCabReturn = fDialog == Dialog::AddBlock ? Dialog::AddBlock : Dialog::None;
         fCabReturnScroll = fListScroll;
         // the current image's size starts open
-        const std::string_view size = cabImageSize(cabImageFor(hash, path));
+        const std::string_view size = pedal ? std::string_view() : cabImageSize(cabImageFor(hash, path));
         for (size_t i = 0; i < fCabOpen.size(); ++i)
             fCabOpen[i] = size == kCabSizes[i];
         blurField(true);
@@ -2177,21 +2193,48 @@ private:
         openDialog(Dialog::AddBlock);
     }
 
-    // NAM blocks from before their tone controls (no "tone" in the config; see NamBlock.hpp) get flat ones: their
-    // values are set to 0 dB and the config marks them, so the DSP applies them. Returns the slots changed.
-    static std::vector<int> migrateNamTone(ChainState& chain)
+    // Controls added to a block type after it was released: blocks saved before them lack the config key, and
+    // their new controls hold the host's unused values (0), so the DSP ignores them until the key is there
+    struct Migration {
+        const BlockDescriptor* type;
+        const char* key;
+        int first, last; // the controls added
+    };
+    static constexpr Migration kMigrations[] = {
+        { &kNamBlockDescriptor, kNamToneKey, kNamParamBass, kNamParamTreble },             // NamBlock.hpp
+        { &kLooperBlockDescriptor, kLooperCountInKey, kLooperParamMode, kLooperParamClick }, // LooperBlock.hpp
+    };
+
+    static const Migration* migrationFor(const std::string& typeId)
+    {
+        for (const Migration& migration : kMigrations)
+            if (typeId == migration.type->typeId)
+                return &migration;
+        return nullptr;
+    }
+
+    // Sets a migrated block's new controls to their defaults (NAM tone: 0 dB, flat)
+    static void setMigratedDefaults(BlockState& block, const Migration& migration)
+    {
+        for (int p = migration.first; p <= migration.last; ++p)
+        {
+            const ParamSpec& spec = migration.type->params[p];
+            block.params[p] = spec.toNormalized(spec.def);
+        }
+    }
+
+    // Blocks from before their type's later controls (kMigrations) get them at their defaults, and the config marks
+    // them, so the DSP applies them. Returns the slots changed.
+    static std::vector<int> migrateBlocks(ChainState& chain)
     {
         std::vector<int> changed;
         for (BlockState& block : chain.blocks)
         {
-            if (block.typeId != kNamBlockDescriptor.typeId || block.config.contains(kNamToneKey))
+            const Migration* migration = migrationFor(block.typeId);
+            if (migration == nullptr || block.config.contains(migration->key))
                 continue;
-            for (int p = kNamParamBass; p <= kNamParamTreble; ++p)
-            {
-                const ParamSpec& spec = kNamBlockDescriptor.params[p];
-                block.params[p] = spec.toNormalized(spec.def);
-            }
-            block.config[kNamToneKey] = true;
+            setMigratedDefaults(block, *migration);
+            block.config[migration->key] = true;
             changed.push_back(block.slot);
         }
         return changed;
@@ -2200,7 +2243,7 @@ private:
     // Replaces the chain (undo, redo, presets): the host gets every block's values back
     void applyChain(ChainState chain, bool restoreLatches = false)
     {
-        migrateNamTone(chain);
+        migrateBlocks(chain);
         fChain = std::move(chain);
         for (const BlockState& block : fChain.blocks)
         {
@@ -2609,12 +2652,21 @@ private:
         const HitArea* hit = hitAt(x, y);
         if (hit == nullptr)
             return false;
-        // an IR in Add Block's list: pick its cab image
+        // an IR in Add Block's list: pick its cab image; a NAM pedal: its pedal image
         if (fDialog == Dialog::AddBlock && hit->kind == Hit::ListRow && hit->index < static_cast<int>(fRows.size())
-            && fRows[hit->index].entry != nullptr && fRows[hit->index].type == &kIrBlockDescriptor)
+            && fRows[hit->index].entry != nullptr)
         {
-            openCabDialog(fRows[hit->index].entry->hash, fRows[hit->index].entry->path);
-            return true;
+            const AddRow& row = fRows[hit->index];
+            if (row.type == &kIrBlockDescriptor)
+            {
+                openCabDialog(row.entry->hash, row.entry->path);
+                return true;
+            }
+            if (row.type == &kNamBlockDescriptor && namGear(row.entry->gearType) == NamGear::Pedal)
+            {
+                openCabDialog(row.entry->hash, row.entry->path, true);
+                return true;
+            }
         }
         if (fDialog != Dialog::None)
             return false;
@@ -2653,6 +2705,8 @@ private:
             entries.push_back({ "Remove", MenuAction::RemoveBlock });
             if (fChain.blocks[hit->index].typeId == kIrBlockDescriptor.typeId && userImage(fChain.blocks[hit->index]) == nullptr)
                 entries.push_back({ "Cab Image…", MenuAction::CabImage });
+            if (isNamPedal(fChain.blocks[hit->index]) && userImage(fChain.blocks[hit->index]) == nullptr)
+                entries.push_back({ "Pedal Image…", MenuAction::CabImage });
             entries.push_back({ "Copy", MenuAction::CopyBlock });
             if (gBlockClipboard)
                 entries.push_back({ "Paste after", MenuAction::PasteBlock });
@@ -3127,12 +3181,59 @@ private:
         return stockImage(block, thumb);
     }
 
-    // A block's own built-in image: IR blocks show their cab image (cabImageFor()), the others their type's
+    // A block's own built-in image: IR blocks show their cab image (cabImageFor()), NAM pedal captures a generic
+    // pedal (pedalImageFor()), the others their type's (typeImage())
     NanoImage* stockImage(const BlockState& block, bool thumb)
     {
         if (block.typeId == kIrBlockDescriptor.typeId)
             return cabImage(cabImageFor(block), thumb);
-        return thumb ? builtinThumb(block.typeId) : builtinImage(block.typeId);
+        if (isNamPedal(block))
+            return pedalImage(pedalImageFor(block), thumb);
+        return typeImage(BlockRegistry::builtin().find(block.typeId), thumb);
+    }
+
+    // A block type's built-in image; a pedal without a photo of its own yet shows a generic pedal picked by its
+    // typeId (owner, 2026-10-30), until the owner sends its render. NAM and IR blocks have none of their own.
+    NanoImage* typeImage(const BlockDescriptor* type, bool thumb)
+    {
+        if (type == nullptr)
+            return nullptr;
+        if (NanoImage* img = thumb ? builtinThumb(type->typeId) : builtinImage(type->typeId))
+            return img;
+        if (type == &kNamBlockDescriptor || type == &kIrBlockDescriptor)
+            return nullptr;
+        return pedalImage(defaultPedalImage(type->typeId, builtinPedalIds()), thumb);
+    }
+
+    // A built-in generic pedal image (resources/pedals/), or its thumbnail; cached with the block types' images
+    NanoImage* pedalImage(const std::string& id, bool thumb)
+    {
+        if (id.empty())
+            return nullptr;
+        const std::string key = std::string(kPedalKey) + id;
+        return thumb ? builtinThumb(key) : builtinImage(key);
+    }
+
+    // A NAM block whose file captures a pedal (its metadata's gear type)
+    bool isNamPedal(const BlockState& block) const
+    {
+        return block.typeId == kNamBlockDescriptor.typeId && namGear(namFileInfo(block).gearType) == NamGear::Pedal;
+    }
+
+    // The pedal image a NAM pedal shows: the one the user picked for it (Settings::pedalImages), else one picked by
+    // its hash
+    std::string pedalImageFor(const std::string& hash, const std::string& path) const
+    {
+        const std::vector<std::string>& ids = builtinPedalIds();
+        const auto picked = fSettings.pedalImages.find(cabKey(hash, path));
+        if (picked != fSettings.pedalImages.end() && std::find(ids.begin(), ids.end(), picked->second) != ids.end())
+            return picked->second;
+        return defaultPedalImage(cabKey(hash, path), ids);
+    }
+
+    std::string pedalImageFor(const BlockState& block) const
+    {
+        return pedalImageFor(block.config.value("hash", std::string()), block.config.value("path", std::string()));
     }
 
     // A built-in cab image (resources/cabs/), or its thumbnail; cached with the block types' images
@@ -3144,7 +3245,8 @@ private:
         return thumb ? builtinThumb(key) : builtinImage(key);
     }
 
-    // What an IR's picked cab image is stored under in the settings: its content hash (its path if it has none)
+    // What an IR's picked cab image (or a NAM pedal's picked pedal image) is stored under in the settings: its
+    // content hash (its path if it has none)
     static std::string cabKey(const std::string& hash, const std::string& path) { return hash.empty() ? path : hash; }
 
     // The cab image an IR shows: the one the user picked for it (Settings::cabImages), else one picked by its hash
@@ -3206,8 +3308,10 @@ private:
         fill();
     }
 
-    // The built-in images are cached by typeId, and the cab images by kCabKey and their id
+    // The built-in images are cached by typeId, the cab images by kCabKey and their id, the generic pedal images by
+    // kPedalKey and theirs
     static constexpr std::string_view kCabKey = "cab:";
+    static constexpr std::string_view kPedalKey = "pedal:";
 
     static BuiltinImage builtinData(const std::string& key, bool thumb)
     {
@@ -3215,6 +3319,11 @@ private:
         {
             const char* const id = key.c_str() + kCabKey.size();
             return thumb ? builtinCabThumb(id) : builtinCabImage(id);
+        }
+        if (key.starts_with(kPedalKey))
+        {
+            const char* const id = key.c_str() + kPedalKey.size();
+            return thumb ? builtinPedalThumb(id) : builtinPedalImage(id);
         }
         return thumb ? builtinBlockThumb(key.c_str()) : builtinBlockImage(key.c_str());
     }
@@ -3275,6 +3384,21 @@ private:
     }
 
     // Whether an image is a block type's built-in one (full or thumbnail), so its face's knobs and LEDs fit it
+    // The face drawn over an image: its type's, on the type's own built-in image; a generic pedal photo's (its
+    // footswitch and LED, no knobs) on one of those; none on a user's image
+    const PedalFace* faceOf(const NanoImage& img, const BlockDescriptor* type) const
+    {
+        if (type != nullptr && isBuiltinImage(img, type->typeId))
+            return pedalFace(type->typeId);
+        for (const auto& [key, cached] : fBuiltinImages)
+            if (cached.image.get() == &img && key.starts_with(kPedalKey))
+                return genericPedalFace(key.c_str() + kPedalKey.size());
+        for (const auto& [key, thumb] : fBuiltinThumbs)
+            if (thumb.get() == &img && key.starts_with(kPedalKey))
+                return genericPedalFace(key.c_str() + kPedalKey.size());
+        return nullptr;
+    }
+
     bool isBuiltinImage(const NanoImage& img, const char* typeId) const
     {
         const auto full = fBuiltinImages.find(typeId);
@@ -3308,8 +3432,8 @@ private:
                         float radius, bool interactive, Led led = Led::None, int block = -1)
     {
         const Rect r = drawImageFit(img, x, y, w, h, radius);
-        const PedalFace* face = type ? pedalFace(type->typeId) : nullptr;
-        if (face == nullptr || r.w <= 0.0f || !isBuiltinImage(img, type->typeId))
+        const PedalFace* face = faceOf(img, type);
+        if (face == nullptr || r.w <= 0.0f)
             return;
         if (interactive && block >= 0 && face->footswitch.radius > 0.0f)
         {
@@ -3608,6 +3732,10 @@ private:
             block.config[kNamToneKey] = true;
             block.params[kNamParamNormalize] = fSettings.normalize ? 1.0f : 0.0f;
         }
+        else if (type == &kLooperBlockDescriptor)
+        {
+            block.config[kLooperCountInKey] = true;
+        }
         else if (type == &kIrBlockDescriptor)
         {
             block.params[kIrParamNormalize] = fSettings.normalize ? 1.0f : 0.0f;
@@ -3687,7 +3815,7 @@ private:
         if (std::optional<ChainState> chain = ChainState::fromJson(*json))
         {
             fChain = std::move(*chain);
-            fNamToneSlots = migrateNamTone(fChain);
+            fMigratedSlots = migrateBlocks(fChain);
             fSavedChain = fChain;
             fUndo.clear();
             if (fSelected >= static_cast<int>(fChain.blocks.size()))
@@ -4067,7 +4195,7 @@ private:
         fHits.push_back({ r, kind, index });
     }
 
-    enum class Icon { Power, Gear, TuningFork, Metronome, Fretbored, GitHub };
+    enum class Icon { Power, Gear, TuningFork, Metronome, Fretbored, GitHub, Up, Home, Star, Folder };
 
     // A square button with an icon instead of a label
     void drawIconButton(const Rect& r, Icon icon, bool on, Hit kind, int index)
@@ -4233,6 +4361,55 @@ private:
             bezierTo(cx - 3.4f, cy + 6.9f, cx - 4.2f, cy + 5.4f, cx - 5.4f, cy + 5.0f);
             stroke();
             break;
+
+        case Icon::Up:
+            // an arrow pointing up: up a folder
+            beginPath();
+            moveTo(cx, cy + 7.0f);
+            lineTo(cx, cy - 7.0f);
+            moveTo(cx - 5.5f, cy - 1.5f);
+            lineTo(cx, cy - 7.0f);
+            lineTo(cx + 5.5f, cy - 1.5f);
+            stroke();
+            break;
+
+        case Icon::Home:
+            // a house: the roof, the walls and a door
+            beginPath();
+            moveTo(cx - 8.0f, cy - 0.5f);
+            lineTo(cx, cy - 7.5f);
+            lineTo(cx + 8.0f, cy - 0.5f);
+            moveTo(cx - 5.5f, cy - 2.5f);
+            lineTo(cx - 5.5f, cy + 7.0f);
+            lineTo(cx + 5.5f, cy + 7.0f);
+            lineTo(cx + 5.5f, cy - 2.5f);
+            moveTo(cx - 2.0f, cy + 7.0f);
+            lineTo(cx - 2.0f, cy + 2.5f);
+            lineTo(cx + 2.0f, cy + 2.5f);
+            lineTo(cx + 2.0f, cy + 7.0f);
+            stroke();
+            break;
+
+        case Icon::Star:
+            // a five-pointed star
+            beginPath();
+            for (int k = 0; k < 10; ++k)
+            {
+                const float a = -pi / 2 + k * pi / 5;
+                const float rr = k % 2 == 0 ? 8.5f : 3.6f;
+                if (k == 0)
+                    moveTo(cx + rr * std::cos(a), cy + 0.8f + rr * std::sin(a));
+                else
+                    lineTo(cx + rr * std::cos(a), cy + 0.8f + rr * std::sin(a));
+            }
+            closePath();
+            stroke();
+            break;
+
+        case Icon::Folder:
+            // a folder: browse for another library folder
+            drawFolderIcon(cx - 10.0f, cy - 9.0f, 20.0f, 18.0f, color);
+            break;
         }
         lineCap(BUTT);
         lineJoin(MITER);
@@ -4277,6 +4454,12 @@ private:
         case Hit::A2Size:
             return { "A2 Full/Lite", kA2SizeHelp };
         case Hit::CabImage:
+            if (hit.index >= 0 && hit.index < static_cast<int>(fChain.blocks.size()) && isNamPedal(fChain.blocks[hit.index]))
+                return { "Pedal Image",
+                         "The pedal shown for this NAM pedal capture. Each capture gets one of the built-in pedals "
+                         "from its file's content. Right-click it to pick another: your pick follows the file into "
+                         "every chain and preset, until you pick again or reset it to the default. You can also "
+                         "right-click a pedal capture in Add Block." };
             return { "Cab Image",
                      "The speaker cabinet shown for this IR. Each IR gets one of the built-in cabs from its file's "
                      "content (one of the size its name gives, like 4x12, if it gives one). Right-click it to pick "
@@ -4285,7 +4468,8 @@ private:
         case Hit::CabChoose:
             if (hit.index < 0)
                 return { "Reset to Default",
-                         "Shows the cab this IR gets by default again: picked from its file's content." };
+                         fCabPedal ? "Shows the pedal this capture gets by default again: picked from its file's content."
+                                   : "Shows the cab this IR gets by default again: picked from its file's content." };
             return {};
         case Hit::BlockImage:
             return { "Image",
@@ -4362,6 +4546,19 @@ private:
                      "Once a day, Xythos asks GitHub for the version number of its latest release and shows a "
                      "notice in the top bar when there's a newer one. Nothing else is sent, and nothing is "
                      "downloaded or installed. Turn it off to never contact the internet." };
+        case Hit::LibraryUp:
+            return { "Up", "Goes up one folder in your library." };
+        case Hit::LibraryHome:
+            return { "Home",
+                     "Goes straight back to the top of your library: the NAM or IR folder set in the settings." };
+        case Hit::LibraryFavorites:
+            return { "Favorites",
+                     "Shows only your favorite files, from every folder of the library. Click again to browse the "
+                     "folders. Star a file in the list to make it a favorite." };
+        case Hit::LibraryBrowse:
+            return { "Browse",
+                     "Opens your system's file dialog to add a NAM model (or, in IR, a cab IR) from anywhere on your "
+                     "computer, outside the library folder." };
         case Hit::GitHub:
             return { "Xythos on GitHub",
                      "Opens Xythos's page on GitHub in your web browser: the source code, new releases, and the "
@@ -4527,19 +4724,40 @@ private:
     }
 
     // The looper's state, position in the loop and length
-    void drawLooperStatus(float cx, float cy, float value)
+    // The looper's status: its state, a bar for the position in the loop (or how much of a Count In recording is
+    // done), and the loop's length; while counting in, the click being counted ("2 / 4"). `slot` is the block's, for
+    // its Count-In and Measures controls.
+    void drawLooperStatus(float cx, float cy, float value, int slot)
     {
         const LooperStatus status = LooperStatus::decode(value);
-        static constexpr const char* names[] = { "Empty", "Recording", "Playing", "Overdub", "Stopped" };
-        const Color colors[] = { theme::textDim, theme::bad, theme::good, theme::warn, theme::textDim };
+        static constexpr const char* names[] = { "Empty", "Recording", "Playing", "Overdub", "Stopped", "Count In" };
+        const Color colors[] = { theme::textDim, theme::bad, theme::good, theme::warn, theme::textDim, theme::warn };
         const int state = static_cast<int>(status.state);
         label(cx, cy - 18.0f, names[state], colors[state], 13.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        const auto control = [&](int param) {
+            return static_cast<int>(kLooperBlockDescriptor.params[param].toValue(fParams[slotParam(slot, param)]));
+        };
+        char text[40];
+        if (status.state == LooperState::CountIn)
+        {
+            std::snprintf(text, sizeof(text), "%d / %d", status.progress, control(kLooperParamCountIn));
+            label(cx, cy + 4.0f, text, theme::text, 16.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+            return;
+        }
         const float w = 84.0f;
         fillRect(cx - w / 2, cy - 4.0f, w, 8.0f, theme::inset, 3.0f);
-        if (status.state == LooperState::Playing || status.state == LooperState::Overdubbing)
+        // a timed (Count In) recording counts its progress; a free one doesn't know its end
+        const bool timed = status.state == LooperState::Recording && status.progress > 0;
+        if (status.state == LooperState::Playing || status.state == LooperState::Overdubbing || timed)
             fillRect(cx - w / 2, cy - 4.0f, w * (status.progress + 1) / 100.0f, 8.0f, colors[state], 3.0f);
-        char text[24];
-        std::snprintf(text, sizeof(text), "%.1f s", status.lengthTenths / 10.0);
+        if (timed)
+        {
+            const int measures = std::max(1, control(kLooperParamMeasures));
+            std::snprintf(text, sizeof(text), "Bar %d / %d", std::min(measures, status.progress * measures / 100 + 1),
+                          measures);
+        }
+        else
+            std::snprintf(text, sizeof(text), "%.1f s", status.lengthTenths / 10.0);
         label(cx, cy + 18.0f, text, theme::text, 12.0f, ALIGN_CENTER | ALIGN_MIDDLE);
     }
 
@@ -6176,6 +6394,10 @@ private:
         {
             surface(imageX, imageY, imageW, imageH, 8.0f, Surface::Inset);
             const bool bypassed = fParams[slotBypassParam(block.slot)] >= 0.5f;
+            // an IR's cab image, or a NAM pedal's pedal image: right-click (or click) to pick another; under the
+            // image's footswitch, which drawBlockImage() adds
+            if (img && (type == &kIrBlockDescriptor || isNamPedal(block)) && userImage(block) == nullptr)
+                fHits.push_back({ { imageX, imageY, imageW, imageH }, Hit::CabImage, fSelected });
             globalAlpha(bypassed ? 0.35f : 1.0f);
             const Led led = bypassed ? Led::Off : Led::On;
             if (img)
@@ -6185,9 +6407,6 @@ private:
                 drawBlockArt(type, imageX + imageW * 0.1f, imageY + imageH * 0.1f, imageW * 0.8f, imageH * 0.8f, true,
                              fileLookKey(block), led);
             globalAlpha(1.0f);
-            // an IR's cab image: right-click (or click) to pick another
-            if (img && type == &kIrBlockDescriptor && userImage(block) == nullptr)
-                fHits.push_back({ { imageX, imageY, imageW, imageH }, Hit::CabImage, fSelected });
         }
 
         // Header: name and file, above the controls, and the Image button (the user's own images) on the right
@@ -6278,7 +6497,7 @@ private:
             if (control.cell == Cell::Meter)
             {
                 if (type->meterStyle == MeterStyle::Looper)
-                    drawLooperStatus(cx, cy, fParams[slotMeterParam(block.slot)]);
+                    drawLooperStatus(cx, cy, fParams[slotMeterParam(block.slot)], static_cast<int>(block.slot));
                 else
                     drawBlockMeter(cx, cy, fParams[slotMeterParam(block.slot)], type->meterRange, type->meterName);
                 continue;
@@ -6385,7 +6604,7 @@ private:
                 continue;
             const bool inside = fMouseY >= listTop && fMouseY < listBottom;
             surface(r.x, r.y, r.w, r.h, 8.0f, Surface::PopupItem, inside && r.contains(fMouseX, fMouseY));
-            if (NanoImage* img = items[i].type ? builtinThumb(items[i].type->typeId) : nullptr)
+            if (NanoImage* img = typeImage(items[i].type, true))
                 drawBlockImage(*img, items[i].type, -1, r.x + 10.0f, r.y + 6.0f, thumbW, r.h - 12.0f, 3.0f, false);
             else
                 drawBlockArt(items[i].type, r.x + 10.0f, r.y + 8.0f, thumbW, r.h - 16.0f, false);
@@ -6563,10 +6782,13 @@ private:
         float pathX = x + 2.0f;
         if (browsing && !folder.empty())
         {
+            // up a folder, and home: the library folder itself (owner, 2026-10-30); icons only, so the path has
+            // the room (their names are in the hover help)
             globalAlpha(dir.empty() ? 0.4f : 1.0f);
-            drawButton({ x, y, 64.0f, headerH }, "↑ Up", false, theme::accent, Hit::LibraryUp, 0);
+            drawIconButton({ x, y, headerH, headerH }, Icon::Up, false, Hit::LibraryUp, 0);
+            drawIconButton({ x + headerH + 6.0f, y, headerH, headerH }, Icon::Home, false, Hit::LibraryHome, 0);
             globalAlpha(1.0f);
-            pathX = x + 74.0f;
+            pathX = x + 2 * headerH + 16.0f;
         }
         if (!folder.empty())
         {
@@ -6597,7 +6819,7 @@ private:
             for (const Crumb& crumb : crumbs)
                 total += width(crumb.text) + sepW;
             // too long: the first folders give way to "…" (which goes to the last of them), keeping where we are
-            const float room = x + w - 204.0f - pathX;
+            const float room = x + w - 2 * headerH - 16.0f - pathX;
             size_t first = 0;
             while (total > room && first + 1 < crumbs.size())
             {
@@ -6633,9 +6855,9 @@ private:
             }
             restore();
         }
-        drawButton({ x + w - 192.0f, y, 92.0f, headerH }, "★ Favorites", fFavoritesOnly, theme::accent,
-                   Hit::LibraryFavorites, 0);
-        drawButton({ x + w - 92.0f, y, 92.0f, headerH }, "Browse…", false, theme::accent, Hit::LibraryBrowse, 0);
+        drawIconButton({ x + w - 2 * headerH - 6.0f, y, headerH, headerH }, Icon::Star, fFavoritesOnly,
+                       Hit::LibraryFavorites, 0);
+        drawIconButton({ x + w - headerH, y, headerH, headerH }, Icon::Folder, false, Hit::LibraryBrowse, 0);
 
         const float listY = y + headerH + 10.0f;
         const float listH = h - headerH - 10.0f - kCountHeight;
@@ -6841,9 +7063,12 @@ private:
                 continue;
             }
 
-            NanoImage* img = row.entry == nullptr                 ? builtinThumb(row.type->typeId)
-                           : row.type == &kIrBlockDescriptor ? cabImage(cabImageFor(row.entry->hash, row.entry->path), true)
-                                                             : nullptr;
+            NanoImage* img = row.entry == nullptr ? typeImage(row.type, true)
+                           : row.type == &kIrBlockDescriptor
+                               ? cabImage(cabImageFor(row.entry->hash, row.entry->path), true)
+                           : namGear(row.entry->gearType) == NamGear::Pedal
+                               ? pedalImage(pedalImageFor(row.entry->hash, row.entry->path), true)
+                               : nullptr;
             if (img)
                 drawBlockImage(*img, row.type, -1, r.x + 8.0f, r.y + 4.0f, thumbW, r.h - 8.0f, 3.0f, false);
             else
@@ -7239,6 +7464,7 @@ private:
 
     // The Cab Image dialog: the built-in cab images by size, in sections to open (bass: 1x10, 2x10, 4x10; guitar:
     // 1x12, 2x12, 4x12). Clicking one shows it for the IR (fCabHash) from then on; Reset to Default undoes that.
+    // For a NAM pedal (fCabPedal) it's the Pedal Image dialog: the generic pedal images, all in one grid.
     void drawCabDialog()
     {
         fHits.push_back({ { 0, 0, fWidth, fHeight }, Hit::DialogBackdrop, 0 });
@@ -7250,32 +7476,40 @@ private:
         surface(x, y, w, h, 12.0f, Surface::Dialog);
         fHits.push_back({ { x, y, w, h }, Hit::DialogPanel, 0 });
 
-        label(x + 20.0f, y + 26.0f, "Cab Image", theme::text, 16.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        const bool pedal = fCabPedal;
+        label(x + 20.0f, y + 26.0f, pedal ? "Pedal Image" : "Cab Image", theme::text, 16.0f, ALIGN_LEFT | ALIGN_MIDDLE);
         const Rect close { x + w - 40.0f, y + 10.0f, 30.0f, 30.0f };
         label(close.x + 15.0f, close.y + 15.0f, "×", theme::textDim, 22.0f, ALIGN_CENTER | ALIGN_MIDDLE);
         fHits.push_back({ close, Hit::DialogClose, 0 });
         fontSize(11.0f);
-        const std::string file = fitText(fCabPath.empty() ? std::string("IR") : fileStem(fCabPath), w - 80.0f);
+        const std::string file = fitText(fCabPath.empty() ? std::string(pedal ? "NAM" : "IR") : fileStem(fCabPath),
+                                         w - 80.0f);
         label(x + 20.0f, y + 48.0f, file.c_str(), theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
 
-        const std::vector<std::string>& ids = builtinCabIds();
-        const std::string current = cabImageFor(fCabHash, fCabPath);
-        const std::string fallback = defaultCabImage(cabKey(fCabHash, fCabPath),
-                                                     fCabPath.empty() ? std::string() : fileStem(fCabPath), ids);
-        std::array<std::vector<std::string>, kCabSizes.size()> sizes;
-        for (size_t i = 0; i < sizes.size(); ++i)
-            sizes[i] = cabImagesOfSize(ids, kCabSizes[i]);
+        const std::vector<std::string>& ids = pedal ? builtinPedalIds() : builtinCabIds();
+        const std::string current = pedal ? pedalImageFor(fCabHash, fCabPath) : cabImageFor(fCabHash, fCabPath);
+        const std::string fallback = pedal ? defaultPedalImage(cabKey(fCabHash, fCabPath), ids)
+                                           : defaultCabImage(cabKey(fCabHash, fCabPath),
+                                                             fCabPath.empty() ? std::string() : fileStem(fCabPath), ids);
+        // the sections: a cab size each, or for pedals one without a heading
+        std::vector<std::vector<std::string>> sizes;
+        if (pedal)
+            sizes.push_back(cabImagesOfSize(ids, "pedal"));
+        else
+            for (const char* size : kCabSizes)
+                sizes.push_back(cabImagesOfSize(ids, size));
+        const auto open = [&](size_t i) { return pedal || fCabOpen[i]; };
 
         constexpr float groupH = 30.0f, sectionH = 40.0f, tile = 124.0f, gap = 10.0f;
         const float listX = x + 16.0f, listY = y + 66.0f, listH = h - 66.0f - 64.0f;
         float listW = w - 32.0f;
         const auto columnsFor = [&](float width) { return std::max(1, static_cast<int>((width + gap) / (tile + gap))); };
         const auto contentFor = [&](int columns) {
-            float total = 2 * groupH;
+            float total = pedal ? 0.0f : 2 * groupH;
             for (size_t i = 0; i < sizes.size(); ++i)
             {
-                total += sectionH;
-                if (fCabOpen[i] && !sizes[i].empty())
+                total += pedal ? 0.0f : sectionH;
+                if (open(i) && !sizes[i].empty())
                     total += ((sizes[i].size() + columns - 1) / columns) * (tile + gap) + gap;
             }
             return total;
@@ -7304,7 +7538,7 @@ private:
         float ry = listY - fListScroll;
         for (size_t i = 0; i < sizes.size(); ++i)
         {
-            if (i == 0 || i == kBassCabSizes)
+            if (!pedal && (i == 0 || i == kBassCabSizes))
             {
                 if (visible(ry, groupH))
                     label(listX + 4.0f, ry + groupH - 10.0f, i == 0 ? "Bass" : "Guitar", theme::accent, 12.0f,
@@ -7314,7 +7548,7 @@ private:
 
             // the section's heading: an arrow, the size, and how many cabs
             const Rect heading { listX, ry, listW, sectionH - 6.0f };
-            if (visible(heading.y, heading.h))
+            if (!pedal && visible(heading.y, heading.h))
             {
                 const bool hover = heading.contains(fMouseX, fMouseY) && fMouseY >= listY && fMouseY < listY + listH;
                 surface(heading.x, heading.y, heading.w, heading.h, 6.0f, Surface::Item, hover);
@@ -7344,8 +7578,9 @@ private:
                 label(heading.x + heading.w - 14.0f, ay, count, theme::textDim, 11.0f, ALIGN_RIGHT | ALIGN_MIDDLE);
                 fHits.push_back({ clipped(heading), Hit::CabSection, static_cast<int>(i) });
             }
-            ry += sectionH;
-            if (!fCabOpen[i] || sizes[i].empty())
+            if (!pedal)
+                ry += sectionH;
+            if (!open(i) || sizes[i].empty())
                 continue;
 
             // its cabs: the IR's current one outlined, the default one labelled
@@ -7357,7 +7592,7 @@ private:
                 const std::string& id = sizes[i][k];
                 const bool hover = r.contains(fMouseX, fMouseY) && fMouseY >= listY && fMouseY < listY + listH;
                 surface(r.x, r.y, r.w, r.h, 6.0f, Surface::Item, hover);
-                if (NanoImage* img = cabImage(id, true))
+                if (NanoImage* img = pedal ? pedalImage(id, true) : cabImage(id, true))
                     drawImageFit(*img, r.x + 6.0f, r.y + 6.0f, r.w - 12.0f, r.h - 12.0f, 3.0f);
                 if (id == current)
                 {
@@ -7384,16 +7619,20 @@ private:
         }
         restore();
 
-        const bool picked = fSettings.cabImages.count(cabKey(fCabHash, fCabPath)) != 0;
+        const bool picked = (pedal ? fSettings.pedalImages : fSettings.cabImages).count(cabKey(fCabHash, fCabPath)) != 0;
         const Rect reset { x + w - 24.0f - 150.0f, y + h - 48.0f, 150.0f, 30.0f };
         if (picked)
             drawButton(reset, "Reset to Default", false, theme::accent, Hit::CabChoose, -1);
         label(x + 20.0f, y + h - 40.0f,
-              picked ? "You picked this IR's cab. It follows the file into every chain and preset."
-                     : "This IR shows its default cab, picked from the file's content.",
+              pedal ? (picked ? "You picked this capture's pedal. It follows the file into every chain and preset."
+                              : "This capture shows its default pedal, picked from the file's content.")
+                    : (picked ? "You picked this IR's cab. It follows the file into every chain and preset."
+                              : "This IR shows its default cab, picked from the file's content."),
               theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
-        label(x + 20.0f, y + h - 24.0f, "Click a cab to show it for this IR from now on.", theme::textDim, 11.0f,
-              ALIGN_LEFT | ALIGN_MIDDLE);
+        label(x + 20.0f, y + h - 24.0f,
+              pedal ? "Click a pedal to show it for this capture from now on."
+                    : "Click a cab to show it for this IR from now on.",
+              theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
     }
 
     // The saved presets, by folder: click one to load it; Default marks the one new plugin instances start with
@@ -8142,7 +8381,7 @@ private:
     NanoImage fLogoMark, fLogoWordmark;
     bool fLogoTried = false;
     bool fDimControls = false; // drawing a bypassed block's controls (dimmed())
-    std::vector<int> fNamToneSlots; // the host's chain had NAM blocks without tone controls (slots): send flat ones
+    std::vector<int> fMigratedSlots; // the host's chain had blocks without their later controls (slots; kMigrations)
     std::chrono::steady_clock::time_point fOpenedAt = std::chrono::steady_clock::now();
     std::vector<std::string> fPresetFolders;  // Save Preset dialog
     std::vector<std::string> fMenuPresets;    // the preset menu's presets, by MenuEntry::arg
@@ -8167,6 +8406,7 @@ private:
     Dialog fCabReturn = Dialog::None;
     float fCabReturnScroll = 0.0f;
     std::array<bool, kCabSizes.size()> fCabOpen {};
+    bool fCabPedal = false; // the dialog picks a NAM pedal's generic pedal image instead
 
     std::chrono::steady_clock::time_point fChainChangedAt = std::chrono::steady_clock::now();
     bool fStatusPending = true;

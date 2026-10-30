@@ -24,7 +24,7 @@
 - Put an image next to a model (`My Amp.nam` + `My Amp.png`) and it shows on the block.
 
 **The chain**
-- Up to 32 blocks, left to right. Drag to reorder, middle-click to remove, double-click to replace.
+- Up to 32 blocks, left to right. Drag to reorder, middle-click to enable or bypass, double-click to replace.
 - Split the chain into two parallel paths and merge them back, with balance, level, pan and phase invert per path. Run two amps at once, or a wet/dry rig. The second path can run on a second CPU core.
 - Zero latency: nothing in the chain adds latency, and the plugin reports zero to your DAW.
 - Mono or stereo processing, with a global input level, bass/middle/treble, output level, meters and an output limiter.

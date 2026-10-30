@@ -52,4 +52,9 @@ const PedalFace* pedalFace(const char* typeId);
 
 const std::vector<PedalFace>& pedalFaces();
 
+// The generic pedal photos' faces (resources/pedals/, by image id "pedal-<n>"): a working footswitch and a power LED,
+// and no knobs (owner, 2026-10-30): their painted knobs aren't any particular controls. nullptr for an unknown id.
+const PedalFace* genericPedalFace(const char* id);
+const std::vector<PedalFace>& genericPedalFaces();
+
 } // namespace xythos
