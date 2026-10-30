@@ -24,6 +24,9 @@ using nlohmann::json;
 
 namespace {
 
+// 2: NAM files' gear type and architecture
+constexpr int kIndexVersion = 2;
+
 
 std::string lower(std::string text)
 {
@@ -111,39 +114,42 @@ private:
     bool fOpen = false;
 };
 
-// A short description from a .nam file's metadata: "make model · type"
-std::string namInfo(const std::string& bytes)
+// A WaveNet's architecture name: A2 has one layer array (kernel sizes per layer, or slimmable channels); A1 has two,
+// and its sizes (the trainer's Standard, Lite, Feather and Nano) differ by their channels
+std::string waveNetArchitecture(const json& config)
 {
-    try
+    const auto layers = config.find("layers");
+    if (layers == config.end() || !layers->is_array() || layers->empty())
+        return "WaveNet";
+    for (const json& layer : *layers)
     {
-        const json root = json::parse(bytes);
-        const auto meta = root.find("metadata");
-        if (meta == root.end() || !meta->is_object())
-            return "";
-        auto field = [&meta](const char* key) {
-            const auto it = meta->find(key);
-            return it != meta->end() && it->is_string() ? it->get<std::string>() : std::string();
-        };
-        std::string gear = field("gear_make");
-        const std::string model = field("gear_model");
-        if (!model.empty())
-            gear += (gear.empty() ? "" : " ") + model;
-        if (gear.empty())
-            gear = field("name");
-        const std::string type = field("gear_type");
-        if (!type.empty())
-            gear += (gear.empty() ? "" : " · ") + type;
-        return gear;
+        if (layer.is_object() && (layer.contains("slimmable") || layer.contains("kernel_sizes")))
+            return "A2";
     }
-    catch (const json::exception&)
+    if (layers->size() != 2)
+        return "WaveNet";
+    const int first = (*layers)[0].is_object() ? (*layers)[0].value("channels", 0) : 0;
+    const int second = (*layers)[1].is_object() ? (*layers)[1].value("channels", 0) : 0;
+    static constexpr struct {
+        int first, second;
+        const char* name;
+    } kSizes[] = { { 16, 8, "A1 Standard" }, { 12, 6, "A1 Lite" }, { 8, 4, "A1 Feather" }, { 4, 2, "A1 Nano" } };
+    for (const auto& size : kSizes)
     {
-        return "";
+        if (first == size.first && second == size.second)
+            return size.name;
     }
+    return "A1";
 }
 
-std::string describe(LibraryKind kind, const std::string& bytes)
+std::string describe(LibraryKind kind, const std::string& bytes, std::string* gearType, std::string* arch)
 {
-    return kind == LibraryKind::Nam ? namInfo(bytes) : std::string();
+    if (kind != LibraryKind::Nam)
+        return "";
+    NamFileInfo nam = describeNamFile(bytes);
+    *gearType = std::move(nam.gearType);
+    *arch = std::move(nam.arch);
+    return nam.info;
 }
 
 std::string relativeFolder(const fs::path& root, const fs::path& dir)
@@ -157,6 +163,96 @@ std::string relativeFolder(const fs::path& root, const fs::path& dir)
 }
 
 } // namespace
+
+NamGear namGear(std::string_view gearType)
+{
+    std::string type = lower(std::string(gearType));
+    std::replace(type.begin(), type.end(), '-', '_');
+    static constexpr struct {
+        const char* type;
+        NamGear gear;
+    } kTypes[] = {
+        { "amp_cab", NamGear::AmpCab },   { "amp_pedal_cab", NamGear::AmpCab },
+        { "full_rig", NamGear::AmpCab },  { "amp", NamGear::Amp },
+        { "pedal_amp", NamGear::Amp },    { "amp_pedal", NamGear::Amp },
+        { "preamp", NamGear::Amp },       { "cab", NamGear::Cab },
+        { "ir", NamGear::Cab },           { "pedal", NamGear::Pedal },
+        { "outboard", NamGear::Outboard }, { "studio", NamGear::Outboard },
+        { "space", NamGear::Space },      { "spaces", NamGear::Space },
+        { "experimental", NamGear::Experimental },
+    };
+    for (const auto& known : kTypes)
+    {
+        if (type == known.type)
+            return known.gear;
+    }
+    // others by their parts, like a future "pedal_amp_cab"
+    bool amp = false, cab = false;
+    size_t start = 0;
+    while (start <= type.size())
+    {
+        const size_t end = std::min(type.find('_', start), type.size());
+        const std::string_view part = std::string_view(type).substr(start, end - start);
+        amp = amp || part == "amp" || part == "preamp";
+        cab = cab || part == "cab";
+        start = end + 1;
+    }
+    return amp && cab ? NamGear::AmpCab : cab ? NamGear::Cab : amp ? NamGear::Amp : NamGear::Unknown;
+}
+
+const char* namGearName(NamGear gear)
+{
+    switch (gear)
+    {
+    case NamGear::AmpCab: return "Amp + Cab";
+    case NamGear::Amp: return "Amp Head";
+    case NamGear::Cab: return "Cabinet";
+    case NamGear::Pedal: return "Pedal";
+    case NamGear::Outboard: return "Outboard";
+    case NamGear::Space: return "Spaces";
+    case NamGear::Experimental: return "Experimental";
+    case NamGear::Unknown: break;
+    }
+    return "";
+}
+
+NamFileInfo describeNamFile(std::string_view bytes)
+{
+    NamFileInfo result;
+    try
+    {
+        const json root = json::parse(bytes);
+        if (!root.is_object())
+            return result;
+        const std::string arch = root.value("architecture", std::string());
+        if (arch == "SlimmableContainer")
+            result.arch = "A2";
+        else if (arch == "WaveNet")
+            result.arch = waveNetArchitecture(root.value("config", json::object()));
+        else
+            result.arch = arch;
+
+        const auto meta = root.find("metadata");
+        if (meta == root.end() || !meta->is_object())
+            return result;
+        auto field = [&meta](const char* key) {
+            const auto it = meta->find(key);
+            return it != meta->end() && it->is_string() ? it->get<std::string>() : std::string();
+        };
+        std::string gear = field("gear_make");
+        const std::string model = field("gear_model");
+        if (!model.empty())
+            gear += (gear.empty() ? "" : " ") + model;
+        if (gear.empty())
+            gear = field("name");
+        result.info = std::move(gear);
+        result.gearType = field("gear_type");
+    }
+    catch (const json::exception&)
+    {
+    }
+    return result;
+}
 
 std::optional<ArchivePath> splitArchivePath(const std::string& path)
 {
@@ -239,12 +335,16 @@ void LibraryIndex::load(const fs::path& path)
     try
     {
         const json root = json::parse(*text);
+        if (root.value("version", 0) != kIndexVersion)
+            return; // made by an older version, without what's read from files since: rescan them all
         for (const json& item : root.at("entries"))
         {
             LibraryEntry entry;
             entry.path = item.at("path").get<std::string>();
             entry.hash = item.at("hash").get<std::string>();
             entry.info = item.value("info", std::string());
+            entry.gearType = item.value("gearType", std::string());
+            entry.arch = item.value("arch", std::string());
             entry.size = item.at("size").get<uint64_t>();
             entry.mtime = item.at("mtime").get<int64_t>();
             fEntries[entry.path] = std::move(entry);
@@ -264,10 +364,12 @@ bool LibraryIndex::save(const fs::path& path) const
         entries.push_back({ { "path", entry.path },
                             { "hash", entry.hash },
                             { "info", entry.info },
+                            { "gearType", entry.gearType },
+                            { "arch", entry.arch },
                             { "size", entry.size },
                             { "mtime", entry.mtime } });
     }
-    return writeFileAtomic(path, json { { "version", 1 }, { "entries", entries } }.dump());
+    return writeFileAtomic(path, json { { "version", kIndexVersion }, { "entries", entries } }.dump());
 }
 
 const LibraryEntry* LibraryIndex::find(const std::string& path, uint64_t size, int64_t mtime) const
@@ -291,13 +393,15 @@ std::vector<LibraryEntry> scanLibrary(const fs::path& root, LibraryKind kind, Li
         {
             entry.hash = cached->hash;
             entry.info = cached->info;
+            entry.gearType = cached->gearType;
+            entry.arch = cached->arch;
             return true;
         }
         const std::optional<std::string> bytes = readBytes();
         if (!bytes)
             return false;
         entry.hash = hashBytes(*bytes);
-        entry.info = describe(kind, *bytes);
+        entry.info = describe(kind, *bytes, &entry.gearType, &entry.arch);
         return true;
     };
 

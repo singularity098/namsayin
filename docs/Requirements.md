@@ -24,6 +24,7 @@
     - Multi-core processing: the two parallel branches of a split run on separate cores
 - Settings and favorites are stored in one global config file per user, shared by all plugin instances
 - The scanner for NAM and IR files is able to see inside of zip files and load those files as if they were already extracted
+- NAM models show what they capture, from the file's gear type (Amp + Cab, Amp Head, Cabinet, Pedal, Outboard, Spaces, Experimental), and their architecture (A1 with its size, A2, LSTM, ...), in Add Block, on the block's tile and in its panel (owner, 2026-10-30). A warning shows when an Amp + Cab model has an IR (or a cabinet model) after it, or an Amp Head model has none after it
 - Allows user to star/favorite NAM files in the interface. Favorites are tied to the file's content hash, so they survive the file being moved or renamed
 - Has a built-in very high performance and high accuracy tuner, with traditional or strobe modes. The tuner can be toggled on with a button in the top-right of the window.  The guitar sound is by default muted when the tuner is engaged, but the mute also can be toggled on or off
     - The tuner reads the dry input (before the signal chain), with a gain boost so that quiet inputs are not a problem

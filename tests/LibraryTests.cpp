@@ -86,7 +86,8 @@ TEST_CASE("library scan finds files in folders and zips, with hashes and info")
     CHECK(nam[0].name == "A Amp");
     CHECK(nam[0].folder == "");
     CHECK(nam[0].hash == hashBytes(kAmpA));
-    CHECK(nam[0].info == "Fender Deluxe · amp");
+    CHECK(nam[0].info == "Fender Deluxe");
+    CHECK(nam[0].gearType == "amp");
 
     CHECK(nam[1].name == "c");
     CHECK(nam[1].folder == "Pack/Amps");
@@ -95,7 +96,8 @@ TEST_CASE("library scan finds files in folders and zips, with hashes and info")
 
     CHECK(nam[2].name == "b");
     CHECK(nam[2].folder == "sub");
-    CHECK(nam[2].info == "Pedal B · pedal");
+    CHECK(nam[2].info == "Pedal B");
+    CHECK(nam[2].gearType == "pedal");
 
     LibraryIndex irIndex;
     const std::vector<LibraryEntry> ir = scanLibrary(lib, LibraryKind::Ir, irIndex);
@@ -103,6 +105,73 @@ TEST_CASE("library scan finds files in folders and zips, with hashes and info")
     CHECK(ir[0].name == "cab");
     CHECK(ir[0].folder == "Pack");
 }
+
+TEST_CASE("NAM gear types map to the categories, from NAM's trainer and TONE3000")
+{
+    CHECK(namGear("amp_cab") == NamGear::AmpCab);
+    CHECK(namGear("amp-cab") == NamGear::AmpCab);
+    CHECK(namGear("amp_pedal_cab") == NamGear::AmpCab);
+    CHECK(namGear("full-rig") == NamGear::AmpCab);
+    CHECK(namGear("amp") == NamGear::Amp);
+    CHECK(namGear("pedal_amp") == NamGear::Amp);
+    CHECK(namGear("preamp") == NamGear::Amp);
+    CHECK(namGear("cab") == NamGear::Cab);
+    CHECK(namGear("ir") == NamGear::Cab);
+    CHECK(namGear("Pedal") == NamGear::Pedal);
+    CHECK(namGear("outboard") == NamGear::Outboard);
+    CHECK(namGear("studio") == NamGear::Outboard);
+    CHECK(namGear("space") == NamGear::Space);
+    CHECK(namGear("experimental") == NamGear::Experimental);
+    CHECK(namGear("pedal_amp_cab") == NamGear::AmpCab);
+    CHECK(namGear("") == NamGear::Unknown);
+    CHECK(namGear("toaster") == NamGear::Unknown);
+    CHECK(std::string(namGearName(NamGear::AmpCab)) == "Amp + Cab");
+    CHECK(std::string(namGearName(NamGear::Amp)) == "Amp Head");
+    CHECK(std::string(namGearName(NamGear::Cab)) == "Cabinet");
+    CHECK(std::string(namGearName(NamGear::Space)) == "Spaces");
+    CHECK(std::string(namGearName(NamGear::Unknown)).empty());
+}
+
+TEST_CASE("NAM files describe their architecture")
+{
+    auto wavenet = [](int a, int b) {
+        return R"({"architecture": "WaveNet", "config": {"layers": [{"channels": )" + std::to_string(a) +
+               R"(}, {"channels": )" + std::to_string(b) + "}]}}";
+    };
+    CHECK(describeNamFile(wavenet(16, 8)).arch == "A1 Standard");
+    CHECK(describeNamFile(wavenet(12, 6)).arch == "A1 Lite");
+    CHECK(describeNamFile(wavenet(8, 4)).arch == "A1 Feather");
+    CHECK(describeNamFile(wavenet(4, 2)).arch == "A1 Nano");
+    CHECK(describeNamFile(wavenet(20, 10)).arch == "A1");
+    CHECK(describeNamFile(R"({"architecture": "SlimmableContainer", "config": {}})").arch == "A2");
+    CHECK(describeNamFile(R"({"architecture": "WaveNet", "config": {"layers": [{"channels": 3, "slimmable": {}}]}})")
+              .arch == "A2");
+    CHECK(describeNamFile(R"({"architecture": "WaveNet", "config": {"layers": [{"channels": 8, "kernel_sizes": [3]}]}})")
+              .arch == "A2");
+    CHECK(describeNamFile(R"({"architecture": "LSTM", "config": {}})").arch == "LSTM");
+    CHECK(describeNamFile("not json").arch.empty());
+
+    const NamFileInfo info = describeNamFile(
+        R"({"architecture": "LSTM", "metadata": {"name": "Plexi", "gear_type": "amp-cab"}})");
+    CHECK(info.info == "Plexi");
+    CHECK(info.gearType == "amp-cab");
+}
+
+#ifdef XYTHOS_EXAMPLE_MODELS
+TEST_CASE("NAM Core's example models' architectures")
+{
+    const fs::path dir = XYTHOS_EXAMPLE_MODELS;
+    auto arch = [&](const char* name) {
+        const std::optional<std::string> bytes = readLibraryFile(pathToUtf8(dir / name));
+        REQUIRE(bytes);
+        return describeNamFile(*bytes).arch;
+    };
+    CHECK(arch("wavenet_a1_standard.nam") == "A1 Standard");
+    CHECK(arch("A2.nam") == "A2");
+    CHECK(arch("slimmable_wavenet.nam") == "A2");
+    CHECK(arch("lstm.nam") == "LSTM");
+}
+#endif
 
 TEST_CASE("library rescans reuse the index for unchanged files and rehash changed ones")
 {

@@ -22,6 +22,24 @@ namespace xythos {
 
 enum class LibraryKind { Nam, Ir };
 
+// What a NAM model captures, from its metadata's gear_type: NAM's trainer writes amp, pedal, pedal_amp, amp_cab,
+// amp_pedal_cab, preamp and studio; TONE3000 amp, amp-cab, pedal, outboard, cab, space and experimental (and, in older
+// files, full-rig and ir). Unknown when the file doesn't say.
+enum class NamGear { Unknown, AmpCab, Amp, Cab, Pedal, Outboard, Space, Experimental };
+
+NamGear namGear(std::string_view gearType);
+// "Amp + Cab", "Amp Head", "Cabinet", "Pedal", "Outboard", "Spaces", "Experimental"; "" for Unknown
+const char* namGearName(NamGear gear);
+
+// What a .nam file says about itself
+struct NamFileInfo {
+    std::string info;     // "make model", or the model's name
+    std::string gearType; // metadata gear_type as written (namGear() reads it)
+    std::string arch;     // "A1 Standard" (Lite, Feather, Nano; "A1" for other sizes), "A2", "LSTM", ...; "" if unreadable
+};
+
+NamFileInfo describeNamFile(std::string_view bytes);
+
 constexpr std::string_view kArchiveSeparator = "!/";
 
 struct ArchivePath {
@@ -37,7 +55,9 @@ struct LibraryEntry {
     std::string name;   // file name without extension
     std::string folder; // folder relative to the library root ('/'-separated, a zip counts as a folder), "" at the top
     std::string hash;   // content hash: XXH3-128 of the file's bytes, 32 hex digits
-    std::string info;   // short description from the file's metadata, e.g. "Fender Deluxe · amp"
+    std::string info;   // short description from the file's metadata, e.g. "Fender Deluxe"
+    std::string gearType; // NAM: metadata gear_type, as written (namGear())
+    std::string arch;     // NAM: the architecture, e.g. "A1 Standard" or "A2" (describeNamFile())
     uint64_t size = 0;  // bytes
     int64_t mtime = 0;  // modification time (of the archive, for zip entries)
 

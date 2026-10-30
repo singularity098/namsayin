@@ -53,6 +53,7 @@
 #include <set>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 START_NAMESPACE_DISTRHO
@@ -182,6 +183,7 @@ enum class Hit {
     Tile,         // index = position in the chain
     TileBypass,
     TileRemove,
+    CabWarning,   // index = position in the chain (a NAM block with no cab after it, or with two)
     AddBlock,     // index = Section
     Split,        // add an empty split; index = position in the chain
     Insert,       // add a block at a gap; index = drop point in the layout
@@ -479,7 +481,9 @@ bool matchesWords(const std::string& text, const std::string& query)
 
 bool matchesSearch(const LibraryEntry& entry, const std::string& query)
 {
-    return matchesWords(entry.name + " " + entry.folder + " " + entry.info, query);
+    return matchesWords(entry.name + " " + entry.folder + " " + entry.info + " " +
+                            namGearName(namGear(entry.gearType)) + " " + entry.arch,
+                        query);
 }
 
 bool matchesSearch(const BlockDescriptor& type, const std::string& query)
@@ -893,6 +897,12 @@ protected:
 
         case Hit::TileRemove:
             removeBlock(hit->index);
+            return true;
+
+        case Hit::CabWarning:
+            fSelected = hit->index;
+            fMergeSelected = false;
+            repaint();
             return true;
 
         case Hit::Split: {
@@ -1701,6 +1711,7 @@ protected:
         if (std::optional<LibraryScanner::Result> result = fScanner.poll())
         {
             fNamLibrary = std::move(result->nam);
+            fNamInfo.clear();
             fIrLibrary = std::move(result->ir);
             fScanned = true;
             repaint();
@@ -2371,6 +2382,114 @@ private:
                 return &entry;
         }
         return nullptr;
+    }
+
+    // What a NAM block's file says about itself: from the library scan, else read once and kept
+    const NamFileInfo& namFileInfo(const BlockState& block) const
+    {
+        static const NamFileInfo kNone;
+        const std::string path = block.config.value("path", std::string());
+        if (block.typeId != kNamBlockDescriptor.typeId || path.empty())
+            return kNone;
+        if (const auto it = fNamInfo.find(path); it != fNamInfo.end())
+            return it->second;
+        NamFileInfo info;
+        const auto entry = std::find_if(fNamLibrary.begin(), fNamLibrary.end(),
+                                        [&](const LibraryEntry& e) { return e.path == path; });
+        if (entry != fNamLibrary.end())
+            info = { entry->info, entry->gearType, entry->arch };
+        else if (!fileExists(path))
+            return kNone; // not kept: it may be located or put back
+        else if (const std::optional<std::string> bytes = readLibraryFile(path))
+            info = describeNamFile(*bytes);
+        return fNamInfo.emplace(path, std::move(info)).first->second;
+    }
+
+    // "Amp Head · A1 Standard": a NAM model's gear type and architecture, either of them if only one is known
+    static std::string namTypeText(const std::string& gearType, const std::string& arch, const char* separator = "  ·  ")
+    {
+        const std::string gear = namGearName(namGear(gearType));
+        return gear.empty() || arch.empty() ? gear + arch : gear + separator + arch;
+    }
+
+    // A NAM block whose model doesn't fit the cabs after it: an amp without its cab and no cab after it on every
+    // path, or an amp with its cab and another cab after it (an IR, or a NAM cabinet). Bypassed blocks don't count.
+    enum class CabProblem { None, NoCab, TwoCabs };
+
+    CabProblem cabProblem(int index) const
+    {
+        if (index < 0 || index >= static_cast<int>(fChain.blocks.size()))
+            return CabProblem::None;
+        const BlockState& block = fChain.blocks[index];
+        if (fParams[slotBypassParam(block.slot)] >= 0.5f)
+            return CabProblem::None;
+        const NamGear gear = namGear(namFileInfo(block).gearType);
+        if (gear != NamGear::Amp && gear != NamGear::AmpCab)
+            return CabProblem::None;
+
+        // whether any of `indices` after `index` is a cab
+        auto cabIn = [&](Section section) {
+            for (const int i : fChain.sectionIndices(section))
+            {
+                const BlockState& other = fChain.blocks[i];
+                if (i <= index || fParams[slotBypassParam(other.slot)] >= 0.5f)
+                    continue;
+                if (other.typeId == kIrBlockDescriptor.typeId ||
+                    namGear(namFileInfo(other).gearType) == NamGear::Cab)
+                    return true;
+            }
+            return false;
+        };
+        bool any = false, every = false; // a cab after it on some path, on every path
+        switch (fChain.sectionOf(index))
+        {
+        case Section::Pre: {
+            const bool pre = cabIn(Section::Pre), post = cabIn(Section::Post);
+            const bool a = fChain.split && cabIn(Section::A), b = fChain.split && cabIn(Section::B);
+            any = pre || post || a || b;
+            every = pre || post || (a && b);
+            break;
+        }
+        case Section::A:
+        case Section::B:
+            any = every = cabIn(fChain.sectionOf(index)) || cabIn(Section::Post);
+            break;
+        case Section::Post:
+            any = every = cabIn(Section::Post);
+            break;
+        }
+        if (gear == NamGear::AmpCab && any)
+            return CabProblem::TwoCabs;
+        if (gear == NamGear::Amp && !every)
+            return CabProblem::NoCab;
+        return CabProblem::None;
+    }
+
+    // A small warning sign: a triangle with "!", centred at (cx, cy)
+    void drawWarningSign(float cx, float cy, float r)
+    {
+        beginPath();
+        moveTo(cx, cy - r);
+        lineTo(cx + r * 1.1f, cy + r * 0.8f);
+        lineTo(cx - r * 1.1f, cy + r * 0.8f);
+        closePath();
+        fillColor(Color(0x00, 0x00, 0x00, 0.6f));
+        fill();
+        strokeColor(theme::warn);
+        strokeWidth(1.2f);
+        lineJoin(ROUND);
+        stroke();
+        beginPath();
+        moveTo(cx, cy - r * 0.4f);
+        lineTo(cx, cy + r * 0.2f);
+        lineCap(ROUND);
+        stroke();
+        beginPath();
+        circle(cx, cy + r * 0.48f, 0.9f);
+        fillColor(theme::warn);
+        fill();
+        lineCap(BUTT);
+        lineJoin(MITER);
     }
 
     void locateFile(int index, const std::string& path)
@@ -4137,6 +4256,16 @@ private:
             return { "Split",
                      "Splits the chain here into two parallel paths, A and B, which both start empty. Add blocks to "
                      "each with its +; the merge after them mixes the two back together. One split at a time." };
+        case Hit::CabWarning:
+            if (cabProblem(hit.index) == CabProblem::TwoCabs)
+                return { "Two Cabs",
+                         "This NAM model was captured with its cab (Amp + Cab), so it already sounds like an amp "
+                         "through a speaker. An IR block (or a cabinet model) after it adds a second cab, which "
+                         "usually sounds muffled and boxy. Bypass or remove the IR, or use an amp-only model." };
+            return { "No Cab",
+                     "This NAM model is an amp without its cab (Amp Head), so on its own it sounds harsh and fizzy, "
+                     "like an amp's output without a speaker. Add an IR block after it, or a cabinet model, for the "
+                     "sound of the amp through a speaker cab. With a split, each path after it needs one." };
         case Hit::Tile:
             if (hit.index >= 0 && hit.index < static_cast<int>(fChain.blocks.size()))
                 return typeHelp(BlockRegistry::builtin().find(fChain.blocks[hit.index].typeId));
@@ -5841,8 +5970,22 @@ private:
               ALIGN_CENTER | ALIGN_MIDDLE);
         globalAlpha(1.0f);
 
-        label(kTileSize / 2, 109, type ? categoryName(type->category) : "", theme::textFaint, 9.0f,
+        // under the name: the category, or for a NAM model what it captures and its architecture; in amber with a
+        // warning sign when it doesn't fit the cabs after it
+        const CabProblem cab = cabProblem(i);
+        std::string kind = type ? categoryName(type->category) : "";
+        if (type == &kNamBlockDescriptor)
+        {
+            const NamFileInfo& nam = namFileInfo(block);
+            if (const std::string text = namTypeText(nam.gearType, nam.arch, " · "); !text.empty())
+                kind = text;
+        }
+        fontSize(9.0f);
+        kind = fitText(kind, kTileSize - 12.0f);
+        label(kTileSize / 2, 109, kind.c_str(), cab != CabProblem::None ? theme::warn : theme::textFaint, 9.0f,
               ALIGN_CENTER | ALIGN_MIDDLE);
+        if (cab != CabProblem::None)
+            drawWarningSign(kTileSize - 36, 14, 7.0f);
 
         // bypass (top left) and remove (top right)
         const bool powerHover = hitRect(4, 3, 24, 24).contains(fMouseX, fMouseY);
@@ -5853,6 +5996,8 @@ private:
         fHits.push_back({ { x, y, size, size }, Hit::Tile, i });
         fHits.push_back({ hitRect(4, 3, 24, 24), Hit::TileBypass, i });
         fHits.push_back({ hitRect(kTileSize - 24, 4, 18, 18), Hit::TileRemove, i });
+        if (cab != CabProblem::None)
+            fHits.push_back({ hitRect(kTileSize - 46, 4, 20, 20), Hit::CabWarning, i });
     }
 
     // A block's power button: a round black button with a hairline bezel and the power symbol, white with a soft glow
@@ -6012,9 +6157,28 @@ private:
         // the slot names the block's parameters in the DAW ("Slot 05 P2")
         char slotText[32];
         std::snprintf(slotText, sizeof(slotText), "Slot %02d", block.slot + 1);
-        const std::string detail = path.empty() ? categoryName(type->category) + std::string("  ·  ") + slotText
-                                                : slotText + std::string("  ·  ") + path;
+        std::string detail = path.empty() ? categoryName(type->category) + std::string("  ·  ") + slotText
+                                          : slotText + std::string("  ·  ") + path;
+        if (type == &kNamBlockDescriptor)
+        {
+            const NamFileInfo& nam = namFileInfo(block);
+            if (const std::string text = namTypeText(nam.gearType, nam.arch); !text.empty())
+                detail = text + "  ·  " + detail;
+        }
+        fontSize(11.0f);
+        detail = fitText(detail, std::max(0.0f, imageButton.x - 12.0f - textX));
         label(textX, top + 54.0f, detail.c_str(), theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+
+        if (const CabProblem cab = path.empty() || !fileExists(path) ? CabProblem::None : cabProblem(fSelected);
+            cab != CabProblem::None)
+        {
+            const char* text = cab == CabProblem::NoCab
+                                   ? "This model is an amp without a cab: add an IR block after it."
+                                   : "This model includes its cab: bypass or remove the IR after it.";
+            drawWarningSign(textX + 7.0f, top + 70.0f, 7.0f);
+            label(textX + 20.0f, top + 70.0f, text, theme::warn, 12.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+            fHits.push_back({ { textX, top + 61.0f, 420.0f, 18.0f }, Hit::CabWarning, fSelected });
+        }
 
         if (!path.empty() && !fileExists(path))
         {
@@ -6585,6 +6749,8 @@ private:
                     detail = row.entry->folder;
                 if (!row.entry->info.empty())
                     detail += (detail.empty() ? "" : "  ·  ") + row.entry->info;
+                if (const std::string kind = namTypeText(row.entry->gearType, row.entry->arch); !kind.empty())
+                    detail += (detail.empty() ? "" : "  ·  ") + kind;
             }
             else
             {
@@ -7796,6 +7962,7 @@ private:
     UpdateCache fUpdateCache;      // the last check's result (shared by every instance)
     int64_t fUpdateCacheTime = 0;
     std::vector<LibraryEntry> fNamLibrary, fIrLibrary;
+    mutable std::unordered_map<std::string, NamFileInfo> fNamInfo; // by path: namFileInfo()
     bool fScanning = false;
     bool fScanned = false;
 
