@@ -185,6 +185,7 @@ add_library(xythos-engine STATIC
   src/engine/Params.cpp
   src/state/ChainExchange.cpp
   src/state/ChainState.cpp
+  src/state/Ink.cpp
   src/state/Library.cpp
   src/state/LibraryScanner.cpp
   src/state/Paths.cpp
@@ -293,6 +294,7 @@ if(XYTHOS_BUILD_TESTS)
     tests/DspTests.cpp
     tests/EngineTests.cpp
     tests/FileLookTests.cpp
+    tests/InkTests.cpp
     tests/IrBlockTests.cpp
     tests/LibraryTests.cpp
     tests/MetronomeTests.cpp

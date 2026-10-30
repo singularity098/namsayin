@@ -2,6 +2,7 @@
 // Copyright (c) 2026 singularity098
 
 #include "DistrhoUI.hpp"
+#include <memory>
 #include "src/nanovg/nanovg.h" // DPF's NanoVG class has no fallback-font call
 
 #include "BlockGlyphs.hpp"
@@ -29,6 +30,7 @@
 #include "engine/blocks/NamBlock.hpp"
 #include "state/ChainExchange.hpp"
 #include "state/ChainState.hpp"
+#include "state/Ink.hpp"
 #include "state/Library.hpp"
 #include "state/LibraryScanner.hpp"
 #include "state/Paths.hpp"
@@ -221,6 +223,12 @@ enum class Hit {
     SettingsNormalize,
     SettingsParallel,
     SettingsAccent, // index = accent
+    InkMode,        // index = ink::Mode: Solid (the accent), Smooth or Splotchy
+    InkPreset,      // index = position in ink::presets()
+    InkCustom,      // opens the colour picker
+    InkCount,       // index = how many colours (2 or 3)
+    InkSlot,        // index = the colour the picker edits
+    InkChannel,     // index = 0 red, 1 green, 2 blue: drag on the picker's slider
     SettingsUpdates, // the update check on/off
     UpdateOpen,     // the update banner: open the release page
     UpdateDismiss,  // the update banner's ×: hide it for this version
@@ -291,7 +299,7 @@ enum Field {
     kFieldCount
 };
 
-enum class Dialog { None, AddBlock, Settings, Menu, SavePreset, Presets, Images, CabImages };
+enum class Dialog { None, AddBlock, Settings, Menu, SavePreset, Presets, Images, CabImages, InkPicker };
 
 // What a file picked in the file browser is for
 enum class BrowseTarget { AddBlock, NamDir, IrDir, OpenPreset, ExportPreset, Locate, AddImage };
@@ -714,6 +722,8 @@ protected:
 
         save();
         this->scale(scale, scale);
+        currentTransform(fFrameXform);
+        updateInkImage();
         fontSize(14.0f);
 
         drawBackground();
@@ -747,6 +757,8 @@ protected:
             drawImagesDialog();
         else if (fDialog == Dialog::CabImages)
             drawCabDialog();
+        else if (fDialog == Dialog::InkPicker)
+            drawInkPicker();
         drawHelp();
         if (fShowFps)
             drawFps(drawStart);
@@ -944,6 +956,40 @@ protected:
             openChoiceMenu(static_cast<uint32_t>(hit->index), *spec, hit->rect);
             return true;
         }
+
+        case Hit::InkMode:
+            updateSettings([mode = hit->index](Settings& settings) { settings.inkMode = mode; });
+            return true;
+
+        case Hit::InkPreset:
+            updateSettings([index = static_cast<size_t>(hit->index)](Settings& settings) {
+                settings.inkColors = hexList(ink::presets()[index].colors);
+                if (settings.inkMode == 0)
+                    settings.inkMode = 1;
+            });
+            return true;
+
+        case Hit::InkCustom:
+            if (fSettings.inkMode == 0)
+                updateSettings([](Settings& settings) { settings.inkMode = 1; });
+            openDialog(Dialog::InkPicker);
+            return true;
+
+        case Hit::InkCount:
+            updateSettings([count = static_cast<size_t>(hit->index)](Settings& settings) {
+                settings.inkColors.resize(count, "#ffffff");
+            });
+            fInkSlot = std::min(fInkSlot, hit->index - 1);
+            return true;
+
+        case Hit::InkSlot:
+            fInkSlot = hit->index;
+            return true;
+
+        case Hit::InkChannel:
+            fInkDrag = hit->index;
+            setInkChannel(hit->index, x);
+            return true;
 
         case Hit::DialogBackdrop:
         case Hit::DialogClose:
@@ -1361,6 +1407,11 @@ protected:
             return true;
         }
 
+        if (fInkDrag >= 0)
+        {
+            setInkChannel(fInkDrag, x);
+            return true;
+        }
         if (fDragParam >= 0 && fSliderRect.w > 0.0f)
         {
             setNormalized(static_cast<uint32_t>(fDragParam), std::clamp((x - fSliderRect.x) / fSliderRect.w, 0.0f, 1.0f),
@@ -3436,6 +3487,12 @@ private:
             releaseMomentary();
             return true;
         }
+        if (fInkDrag >= 0)
+        {
+            fInkDrag = -1;
+            updateSettings([colors = fSettings.inkColors](Settings& settings) { settings.inkColors = colors; });
+            return true;
+        }
         if (fDragParam >= 0)
         {
             editParameter(static_cast<uint32_t>(fDragParam), false);
@@ -3505,6 +3562,117 @@ private:
 
     // ---------------------------------------------------------------------------------------------------------------
     // Drawing helpers
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Ink: with a gradient on, the highlight colour (outlines, fills, knobs) is drawn with the window's paint: one
+    // texture over the window, so the colours sit in the same place wherever a shape is drawn. Text keeps its plain
+    // colour (see text()).
+
+    // The colour calls below shadow NanoVG's: an ink colour gets the window's paint instead
+    using NanoVG::fillColor;
+    using NanoVG::strokeColor;
+    using NanoVG::text;
+    using NanoVG::textBox;
+    void fillColor(const Color& color)
+    {
+        fFillColor = color;
+        fFillIsInk = isInk(color);
+        if (fFillIsInk)
+            fillPaint(inkPaint(color.alpha));
+        else
+            NanoVG::fillColor(color);
+    }
+
+    // NanoVG draws glyphs with its font atlas and the paint's colour alone, and a window paint's colour is white, so
+    // text can't follow the window's paint: ink text is drawn in its plain colour, the rest of the window in the paint
+    float text(float x, float y, const char* string, const char* end)
+    {
+        return withPlainText([&] { return NanoVG::text(x, y, string, end); });
+    }
+    void textBox(float x, float y, float breakRowWidth, const char* string, const char* end = nullptr)
+    {
+        withPlainText([&] {
+            NanoVG::textBox(x, y, breakRowWidth, string, end);
+            return 0.0f;
+        });
+    }
+    template <typename Draw>
+    float withPlainText(Draw draw)
+    {
+        if (!fFillIsInk)
+            return draw();
+        NanoVG::fillColor(fFillColor);
+        const float result = draw();
+        fillPaint(inkPaint(fFillColor.alpha));
+        return result;
+    }
+    void strokeColor(const Color& color)
+    {
+        if (isInk(color))
+            strokePaint(inkPaint(color.alpha));
+        else
+            NanoVG::strokeColor(color);
+    }
+
+    // The highlight and text colours (matched by their RGB, so a faded one keeps its alpha), while a gradient is on;
+    // text itself is drawn plain (see text())
+    bool isInk(const Color& color) const
+    {
+        if (!fInkImage)
+            return false;
+        auto same = [&color](const Color& other) {
+            return color.red == other.red && color.green == other.green && color.blue == other.blue;
+        };
+        return same(theme::accent) || same(theme::text);
+    }
+
+    // The window's paint at `alpha`. A paint is taken in the coordinates the current transform gives, so the
+    // window's logical rectangle is mapped back through it: the colours stay put wherever the shape is drawn.
+    Paint inkPaint(float alpha)
+    {
+        float current[6], inverse[6];
+        currentTransform(current);
+        nvgTransformInverse(inverse, current);
+        auto toCall = [&inverse, this](float wx, float wy, float& cx, float& cy) {
+            float px = 0.0f, py = 0.0f;
+            nvgTransformPoint(&px, &py, fFrameXform, wx, wy);
+            nvgTransformPoint(&cx, &cy, inverse, px, py);
+        };
+        float x0 = 0.0f, y0 = 0.0f, x1 = 0.0f, y1 = 0.0f;
+        toCall(0.0f, 0.0f, x0, y0);
+        toCall(fWidth, fHeight, x1, y1);
+        return imagePattern(x0, y0, x1 - x0, y1 - y0, 0.0f, *fInkImage, alpha);
+    }
+
+    // Makes the texture when the mode or the colours change; on the frame, so the GL context is current
+    void updateInkImage()
+    {
+        std::vector<std::string> key = fSettings.inkColors;
+        key.insert(key.begin(), std::to_string(fSettings.inkMode));
+        if (key == fInkKey)
+            return;
+        fInkKey = std::move(key);
+        fInkImage.reset();
+        if (fSettings.inkMode < 1 || fSettings.inkMode > 2)
+            return;
+        std::vector<ink::Rgb> colors;
+        for (const std::string& hex : fSettings.inkColors)
+            if (const auto color = ink::parseHex(hex))
+                colors.push_back(ink::lighten(*color));
+        if (colors.empty())
+            return;
+        const std::vector<uint8_t> pixels = ink::makeTexture(static_cast<ink::Mode>(fSettings.inkMode), colors);
+        fInkImage = std::make_unique<NanoImage>(
+            createImageFromRGBA(ink::kTextureWidth, ink::kTextureHeight, pixels.data(), 0));
+    }
+
+    static std::vector<std::string> hexList(const std::vector<ink::Rgb>& colors)
+    {
+        std::vector<std::string> hex;
+        for (const ink::Rgb& color : colors)
+            hex.push_back(ink::toHex(color));
+        return hex;
+    }
 
     void fillRect(float x, float y, float w, float h, const Color& color, float radius = 0.0f)
     {
@@ -6877,7 +7045,7 @@ private:
         fillRect(0, 0, fWidth, fHeight, theme::overlay);
 
         const float w = std::min(800.0f, fWidth - 64.0f);
-        const float h = std::min(508.0f, fHeight - 48.0f);
+        const float h = std::min(536.0f, fHeight - 48.0f);
         const float x = (fWidth - w) / 2, y = (fHeight - h) / 2;
         surface(x, y, w, h, 12.0f, Surface::Popup);
         fHits.push_back({ { x, y, w, h }, Hit::DialogPanel, 0 });
@@ -6957,7 +7125,7 @@ private:
             const float cx = controlX + 14.0f + k * 34.0f, cy = row + 14.0f;
             beginPath();
             circle(cx, cy, 11.0f);
-            fillColor(theme::accents[i]);
+            NanoVG::fillColor(theme::accents[i]); // a plain swatch, even for the one that is the highlight
             fill();
             if (i == fSettings.accent)
             {
@@ -6971,8 +7139,122 @@ private:
         }
         row += rowH;
 
+        rowLabel("Text & outlines");
+        static constexpr const char* modes[] = { "Solid", "Smooth", "Splotchy" };
+        for (int m = 0; m < 3; ++m)
+            drawButton({ controlX + m * 80.0f, row, 74.0f, 28.0f }, modes[m], fSettings.inkMode == m, theme::accent,
+                       Hit::InkMode, m);
+        label(controlX + 252.0f, row + 14.0f,
+              fSettings.inkMode == 0 ? "the highlight is the accent colour above"
+                                     : "text, outlines and fills use the colours below",
+              theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        row += rowH;
+
+        rowLabel("Colours");
+        const auto& palettes = ink::presets();
+        bool custom = fSettings.inkMode != 0;
+        for (size_t p = 0; p < palettes.size(); ++p)
+        {
+            const bool on = fSettings.inkColors == hexList(palettes[p].colors);
+            custom = custom && !on;
+            const std::string name(palettes[p].name);
+            const Rect chip { controlX + p * 96.0f, row, 90.0f, 28.0f };
+            drawButton(chip, name.c_str(), on, theme::accent, Hit::InkPreset, static_cast<int>(p));
+            // the set's colours along the bottom edge
+            const auto& colors = palettes[p].colors;
+            const float segment = (chip.w - 12.0f) / static_cast<float>(colors.size());
+            for (size_t c = 0; c < colors.size(); ++c)
+                fillRect(chip.x + 6.0f + segment * static_cast<float>(c), chip.y + chip.h - 5.0f, segment, 2.0f,
+                         Color(colors[c].r / 255.0f, colors[c].g / 255.0f, colors[c].b / 255.0f));
+        }
+        drawButton({ controlX + palettes.size() * 96.0f, row, 84.0f, 28.0f }, "Custom…", custom, theme::accent,
+                   Hit::InkCustom, 0);
+        row += rowH;
+
         label(x + 24.0f, y + h - 18.0f, pathToUtf8(Settings::defaultPath()).c_str(), theme::textDim, 10.0f,
               ALIGN_LEFT | ALIGN_MIDDLE);
+    }
+
+    // The colour picker: 2 or 3 colours, each set with three sliders (red, green, blue). Colours are kept light
+    // enough to read on the window; a colour that is too dark is lifted toward white.
+    void drawInkPicker()
+    {
+        fHits.push_back({ { 0, 0, fWidth, fHeight }, Hit::DialogBackdrop, 0 });
+        fillRect(0, 0, fWidth, fHeight, theme::overlay);
+
+        const float w = std::min(440.0f, fWidth - 64.0f);
+        const float h = std::min(360.0f, fHeight - 48.0f);
+        const float x = (fWidth - w) / 2, y = (fHeight - h) / 2;
+        surface(x, y, w, h, 12.0f, Surface::Popup);
+        fHits.push_back({ { x, y, w, h }, Hit::DialogPanel, 0 });
+
+        label(x + 20.0f, y + 26.0f, "Custom colours", theme::text, 16.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        const Rect close { x + w - 40.0f, y + 10.0f, 30.0f, 30.0f };
+        label(close.x + 15.0f, close.y + 15.0f, "×", theme::textDim, 22.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        fHits.push_back({ close, Hit::DialogClose, 0 });
+
+        const int count = static_cast<int>(fSettings.inkColors.size());
+        drawButton({ x + 20.0f, y + 56.0f, 120.0f, 28.0f }, "2 colours", count == 2, theme::accent, Hit::InkCount, 2);
+        drawButton({ x + 148.0f, y + 56.0f, 120.0f, 28.0f }, "3 colours", count == 3, theme::accent, Hit::InkCount, 3);
+
+        fInkSlot = std::clamp(fInkSlot, 0, std::max(count - 1, 0));
+        for (int s = 0; s < count; ++s)
+        {
+            const Rect slot { x + 20.0f + s * 104.0f, y + 100.0f, 96.0f, 40.0f };
+            const ink::Rgb color = ink::parseHex(fSettings.inkColors[s]).value_or(ink::Rgb { 255, 255, 255 });
+            fillRect(slot.x, slot.y, slot.w, slot.h, Color(color.r / 255.0f, color.g / 255.0f, color.b / 255.0f), 6.0f);
+            if (s == fInkSlot)
+            {
+                beginPath();
+                rect(slot.x - 3.0f, slot.y - 3.0f, slot.w + 6.0f, slot.h + 6.0f);
+                strokeColor(theme::text);
+                strokeWidth(1.5f);
+                stroke();
+            }
+            fHits.push_back({ slot, Hit::InkSlot, s });
+        }
+
+        const ink::Rgb active = ink::parseHex(fSettings.inkColors[fInkSlot]).value_or(ink::Rgb { 255, 255, 255 });
+        const uint8_t values[] = { active.r, active.g, active.b };
+        static constexpr const char* names[] = { "Red", "Green", "Blue" };
+        for (int channel = 0; channel < 3; ++channel)
+        {
+            const float ry = y + 168.0f + channel * 38.0f;
+            label(x + 20.0f, ry + 10.0f, names[channel], theme::textDim, 13.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+            const Rect track { x + 80.0f, ry, w - 80.0f - 60.0f, 20.0f };
+            fInkSliders[channel] = track;
+            const float fraction = values[channel] / 255.0f;
+            fillRect(track.x, track.y + 7.0f, track.w, 6.0f, theme::inset, 3.0f);
+            fillRect(track.x, track.y + 7.0f, track.w * fraction, 6.0f, theme::text, 3.0f);
+            fillRect(track.x + track.w * fraction - 4.0f, track.y + 1.0f, 8.0f, 18.0f, theme::text, 2.0f);
+            fHits.push_back({ { track.x, track.y - 6.0f, track.w, track.h + 12.0f }, Hit::InkChannel, channel });
+            label(track.x + track.w + 14.0f, ry + 10.0f, std::to_string(values[channel]).c_str(), theme::text, 13.0f,
+                  ALIGN_LEFT | ALIGN_MIDDLE);
+        }
+        label(x + 20.0f, y + 284.0f, ("Hex " + ink::toHex(active)).c_str(), theme::textDim, 12.0f,
+              ALIGN_LEFT | ALIGN_MIDDLE);
+        label(x + 20.0f, y + h - 56.0f, "Colours too dark to read on the window are lifted toward white.",
+              theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        drawButton({ x + w - 108.0f, y + h - 44.0f, 88.0f, 28.0f }, "Done", false, theme::accent, Hit::DialogClose, 0);
+    }
+
+    // Sets a channel of the colour being edited from a point on its slider. Kept light; saved on release.
+    void setInkChannel(int channel, float x)
+    {
+        const Rect& track = fInkSliders[channel];
+        if (track.w <= 0.0f || fInkSlot >= static_cast<int>(fSettings.inkColors.size()))
+            return;
+        const float fraction = std::clamp((x - track.x) / track.w, 0.0f, 1.0f);
+        ink::Rgb color = ink::parseHex(fSettings.inkColors[fInkSlot]).value_or(ink::Rgb { 255, 255, 255 });
+        const auto value = static_cast<uint8_t>(std::lround(fraction * 255.0f));
+        if (channel == 0)
+            color.r = value;
+        else if (channel == 1)
+            color.g = value;
+        else
+            color.b = value;
+        fSettings.inkColors[fInkSlot] = ink::toHex(ink::lighten(color));
+        repaint();
     }
 
     void drawMergePanel(float top)
@@ -7059,6 +7341,16 @@ private:
     bool fListScrollDragging = false;
     float fListGrabY = 0.0f, fListGrabValue = 0.0f;
 
+    // Ink: the window's paint (its texture is made when the mode or the colours change), the frame's transform, and
+    // the colour picker's state
+    std::unique_ptr<NanoImage> fInkImage;
+    std::vector<std::string> fInkKey; // the mode and colours fInkImage was made from
+    float fFrameXform[6] = {};        // the frame's transform (logical to pixels), before anything is drawn
+    Color fFillColor;                 // the colour of the last fillColor() call, and whether it was ink
+    bool fFillIsInk = false;
+    int fInkSlot = 0;                 // the colour the picker edits
+    int fInkDrag = -1;                // the picker slider being dragged (0 red, 1 green, 2 blue)
+    Rect fInkSliders[3];              // the picker's slider tracks, as drawn
     int fDragParam = -1;
     int fMomentaryParam = -1; // a momentary button being held
     std::chrono::steady_clock::time_point fMomentaryPressedAt;

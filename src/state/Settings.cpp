@@ -21,6 +21,8 @@ std::string Settings::toJson() const
         { "normalize", normalize },
         { "parallel", parallel },
         { "accent", accent },
+        { "inkMode", inkMode },
+        { "inkColors", inkColors },
         { "favorites", favorites },
         { "embedFiles", embedFiles },
         { "defaultPreset", defaultPreset },
@@ -57,6 +59,8 @@ Settings Settings::fromJson(std::string_view text)
         get("normalize", settings.normalize);
         get("parallel", settings.parallel);
         get("accent", settings.accent);
+        get("inkMode", settings.inkMode);
+        get("inkColors", settings.inkColors);
         get("favorites", settings.favorites);
         get("embedFiles", settings.embedFiles);
         get("defaultPreset", settings.defaultPreset);
