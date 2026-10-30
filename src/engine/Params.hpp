@@ -107,7 +107,12 @@ enum LaterParam : uint32_t {
 
     kParamMergeAlign,       // ms: > 0 delays branch B, < 0 delays branch A, to line up two amps' timing
 
-    kParamCount
+    // Outputs, hidden: each slot's latched footswitches (Block::latched(), bit i = parameter i), so the UI can show
+    // them and save them in presets
+    kParamSlotLatchBase,
+    kParamSlotLatchEnd = kParamSlotLatchBase + kMaxBlocks,
+
+    kParamCount = kParamSlotLatchEnd
 };
 
 constexpr uint32_t slotBypassParam(int slot)
@@ -123,6 +128,11 @@ constexpr uint32_t slotParam(int slot, int param)
 constexpr uint32_t slotMeterParam(int slot)
 {
     return kParamSlotMeterBase + static_cast<uint32_t>(slot);
+}
+
+constexpr uint32_t slotLatchParam(int slot)
+{
+    return kParamSlotLatchBase + static_cast<uint32_t>(slot);
 }
 
 constexpr bool isSlotParam(uint32_t index)

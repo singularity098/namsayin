@@ -2175,7 +2175,7 @@ private:
     }
 
     // Replaces the chain (undo, redo, presets): the host gets every block's values back
-    void applyChain(ChainState chain)
+    void applyChain(ChainState chain, bool restoreLatches = false)
     {
         migrateNamTone(chain);
         fChain = std::move(chain);
@@ -2189,7 +2189,7 @@ private:
             fSelected = static_cast<int>(fChain.blocks.size()) - 1;
         if (fSelected < 0 && !fChain.blocks.empty())
             fSelected = 0;
-        sendChain();
+        sendChain(restoreLatches);
     }
 
     void undo()
@@ -2240,7 +2240,7 @@ private:
     Preset currentPreset() const
     {
         Preset preset;
-        preset.chain = fChain;
+        preset.chain = withLiveLatches(fChain);
         for (uint32_t index : presetGlobalParams())
             preset.globals[globalParamSpec(index).symbol] = fParams[index];
         return preset;
@@ -2344,7 +2344,7 @@ private:
         }
         fSelected = loaded->preset.chain.blocks.empty() ? -1 : 0;
         fMergeSelected = false;
-        applyChain(loaded->preset.chain);
+        applyChain(loaded->preset.chain, true);
         fSavedChain = fChain;
         updateSettings([&path](Settings& settings) { settings.addRecentPreset(path); });
 
@@ -3616,9 +3616,26 @@ private:
         sendChain();
     }
 
-    void sendChain()
+    // The chain with the footswitches latched now: only the DSP knows them (Block::latched())
+    ChainState withLiveLatches(ChainState chain) const
     {
-        const std::string json = fChain.toJson();
+        for (BlockState& block : chain.blocks)
+            block.latched = latchedBits(block.slot);
+        return chain;
+    }
+
+    uint32_t latchedBits(int slot) const
+    {
+        return slot >= 0 && slot < kMaxBlocks ? static_cast<uint32_t>(fParams[slotLatchParam(slot)]) : 0u;
+    }
+
+    // restoreLatches: the chain is a preset being loaded, so its latched footswitches apply to the blocks the DSP
+    // keeps too; otherwise the blocks keep theirs, and new ones get the latched state seen last
+    void sendChain(bool restoreLatches = false)
+    {
+        ChainState chain = restoreLatches ? fChain : withLiveLatches(fChain);
+        chain.restoreLatches = restoreLatches;
+        const std::string json = chain.toJson();
 #ifndef XYTHOS_TEST_NO_STATE_MESSAGE // test builds only: behave like a host that drops state messages
         setState("chain", json.c_str());
 #endif
@@ -6245,8 +6262,9 @@ private:
                 drawButton({ cx - 40.0f, cy - 14.0f, 80.0f, 28.0f }, spec.name, fParams[index] >= 0.5f, theme::accent,
                            Hit::Toggle, static_cast<int>(index));
             else if (spec.scale == ParamScale::Momentary)
-                drawButton({ cx - 40.0f, cy - 22.0f, 80.0f, 44.0f }, spec.name, fParams[index] >= 0.5f, theme::accent,
-                           Hit::Momentary, static_cast<int>(index));
+                drawButton({ cx - 40.0f, cy - 22.0f, 80.0f, 44.0f }, spec.name,
+                           fParams[index] >= 0.5f || ((latchedBits(block.slot) >> control.param) & 1u) != 0,
+                           theme::accent, Hit::Momentary, static_cast<int>(index));
             else if (spec.scale == ParamScale::Choice)
                 drawChoice(cx, cy, index, spec.name);
             else

@@ -20,11 +20,19 @@ TEST_CASE("chain state round-trips through JSON")
     chain.blocks.push_back(block);
     block.slot = 4;
     block.image = "My Pedal.png";
+    block.latched = 0b10;
     chain.blocks.push_back(block);
 
     const std::optional<ChainState> parsed = ChainState::fromJson(chain.toJson());
     REQUIRE(parsed);
     CHECK(*parsed == chain);
+
+    // a preset being loaded says so; nothing else does
+    CHECK(chain.toJson().find("restoreLatches") == std::string::npos);
+    chain.restoreLatches = true;
+    const std::optional<ChainState> loading = ChainState::fromJson(chain.toJson());
+    REQUIRE(loading);
+    CHECK(loading->restoreLatches);
 }
 
 TEST_CASE("empty state is an empty chain; bad JSON is rejected")

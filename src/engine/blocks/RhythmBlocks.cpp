@@ -164,9 +164,9 @@ public:
             press(fStutter, on);
             break;
         case kKillParamLatch:
-            fLatch = on;
-            if (!fLatch)
+            if (fLatch && !on)
                 fKill.latched = fStutter.latched = false;
+            fLatch = on;
             break;
         case kKillParamInvert: fInvert = on; break;
         case kKillParamTime:
@@ -196,6 +196,17 @@ public:
             fBpm = bpm;
             updateTime();
         }
+    }
+
+    uint32_t latched() const override
+    {
+        return (fKill.latched ? 1u << kKillParamKill : 0u) | (fStutter.latched ? 1u << kKillParamStutter : 0u);
+    }
+
+    void setLatched(uint32_t bits) override
+    {
+        fKill.latched = (bits >> kKillParamKill) & 1u;
+        fStutter.latched = (bits >> kKillParamStutter) & 1u;
     }
 
     void setSongPosition(double beats) override

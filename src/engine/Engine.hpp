@@ -113,6 +113,8 @@ private:
         mutable AlignmentDelay bypassDelay;
         // the latency of the blocks after it: its MIDI is delayed as much, to stay with its audio
         uint32_t midiDelay = 0;
+        // a kept block's latched footswitches from a preset being loaded, set on the audio thread; -1 for none
+        mutable int32_t restoreLatched = -1;
     };
 
     // The chain in four sections: before the split, the two branches, and after the merge. Without a split,

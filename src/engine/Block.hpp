@@ -117,6 +117,15 @@ public:
     // RT. A level the UI shows on the block (e.g. a compressor's gain reduction in dB); read after process().
     virtual float meter() const { return 0.0f; }
 
+    // RT. Footswitches a press has latched on (with a Latch control), as bits: bit i is parameter i (a Momentary
+    // one). They aren't host parameters, so the engine reports them (slotLatchParam()) and the chain state saves them.
+    virtual uint32_t latched() const { return 0; }
+
+    // RT, or non-RT before the block runs. Restores what latched() reported (from a preset or a saved project).
+    // A block keeps them while its Latch control is off, and clears them only when Latch is switched off, so the
+    // order in which the host restores Latch doesn't matter.
+    virtual void setLatched(uint32_t /*bits*/) {}
+
     // Latency in samples this block adds. May only change across a configure()/prepare() call.
     virtual uint32_t latency() const { return 0; }
 

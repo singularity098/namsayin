@@ -4,7 +4,9 @@
 #include <doctest/doctest.h>
 
 #include "TestSupport.hpp"
+#include "engine/BlockRegistry.hpp"
 #include "engine/Engine.hpp"
+#include "engine/blocks/RhythmBlocks.hpp"
 
 #include <cmath>
 #include <thread>
@@ -671,4 +673,56 @@ TEST_CASE("the host deactivating and activating the plugin keeps the chain playi
         rig.run();
         CHECK(rig.left() == doctest::Approx(before));
     }
+}
+
+TEST_CASE("latched footswitches are reported, and restored from a saved chain")
+{
+    Engine engine { BlockRegistry::builtin() };
+    engine.prepare(kRate, kBuffer);
+    std::vector<float> inL(kBuffer, 0.25f), inR(kBuffer, 0.25f), outL(kBuffer), outR(kBuffer);
+    const float* in[2] = { inL.data(), inR.data() };
+    float* out[2] = { outL.data(), outR.data() };
+    auto run = [&](int buffers) {
+        for (int i = 0; i < buffers; ++i)
+            engine.process(in, out, kBuffer);
+    };
+
+    ChainState chain;
+    BlockState kill;
+    kill.typeId = kKillSwitchBlockDescriptor.typeId;
+    kill.slot = 2;
+    kill.latched = 1u << kKillParamStutter;
+    chain.blocks.push_back(kill);
+    // the block is made before the host has restored Latch
+    REQUIRE(engine.setChain(chain));
+    run(4);
+    CHECK(engine.getParameter(slotLatchParam(2)) == 2.0f);
+    engine.setParameter(slotParam(2, kKillParamLatch), 1.0f);
+    run(4);
+    CHECK(engine.getParameter(slotLatchParam(2)) == 2.0f);
+
+    // a press of Kill latches it too
+    engine.setParameter(slotParam(2, kKillParamKill), 1.0f);
+    run(1);
+    engine.setParameter(slotParam(2, kKillParamKill), 0.0f);
+    run(1);
+    CHECK(engine.getParameter(slotLatchParam(2)) == 3.0f);
+
+    // the UI resending the chain (with old latched state) leaves a kept block alone...
+    chain.blocks[0].latched = 0;
+    REQUIRE(engine.setChain(chain));
+    run(4);
+    CHECK(engine.getParameter(slotLatchParam(2)) == 3.0f);
+
+    // ...but a preset being loaded sets it
+    chain.restoreLatches = true;
+    chain.blocks[0].latched = 1u << kKillParamKill;
+    REQUIRE(engine.setChain(chain));
+    run(4);
+    CHECK(engine.getParameter(slotLatchParam(2)) == 1.0f);
+
+    // a removed block's slot reports nothing
+    REQUIRE(engine.setChain(ChainState {}));
+    run(4);
+    CHECK(engine.getParameter(slotLatchParam(2)) == 0.0f);
 }

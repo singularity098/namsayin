@@ -330,9 +330,9 @@ public:
             break;
         }
         case kRepeatParamLatch:
-            fLatch = value >= 0.5f;
-            if (!fLatch)
+            if (fLatch && value < 0.5f)
                 fLatched = false;
+            fLatch = value >= 0.5f;
             break;
         case kRepeatParamSlice:
             fSliceMs = value;
@@ -416,6 +416,10 @@ public:
             }
         }
     }
+
+    uint32_t latched() const override { return fLatched ? 1u << kRepeatParamRepeat : 0u; }
+
+    void setLatched(uint32_t bits) override { fLatched = (bits >> kRepeatParamRepeat) & 1u; }
 
     void reset() override
     {

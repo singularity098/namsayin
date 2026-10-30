@@ -43,7 +43,7 @@ constexpr GlobalParamSpec kMidiParams[kParamMergeBalance - kParamMidiLearn] = {
 };
 
 // Split merge, tuner and metronome
-constexpr GlobalParamSpec kToolParams[kParamCount - kParamMergeBalance] = {
+constexpr GlobalParamSpec kToolParams[kParamSlotLatchBase - kParamMergeBalance] = {
     { "Merge Balance",       "merge_balance",  "%",  -100.0f, 100.0f, 0.0f, kParamFlagNone },
     { "Merge Level A",       "merge_level_a",  "dB", -24.0f,  24.0f,  0.0f, kParamFlagNone },
     { "Merge Level B",       "merge_level_b",  "dB", -24.0f,  24.0f,  0.0f, kParamFlagNone },
@@ -100,18 +100,19 @@ constexpr GlobalParamSpec kToolParams[kParamCount - kParamMergeBalance] = {
     { "Merge Align",         "merge_align",    "ms",  -5.0f,  5.0f,   0.0f,   kParamFlagNone },
 };
 
-struct SlotMeterSpecs {
+// The per-slot outputs: the meters, and the latched footswitches
+struct SlotOutputSpecs {
     char names[kMaxBlocks][24];
     char symbols[kMaxBlocks][16];
     GlobalParamSpec specs[kMaxBlocks];
 
-    SlotMeterSpecs()
+    SlotOutputSpecs(const char* name, const char* symbol, float min, float max, uint32_t flags)
     {
         for (int slot = 0; slot < kMaxBlocks; ++slot)
         {
-            std::snprintf(names[slot], sizeof(names[slot]), "Slot %02d Meter", slot + 1);
-            std::snprintf(symbols[slot], sizeof(symbols[slot]), "s%02d_meter", slot + 1);
-            specs[slot] = { names[slot], symbols[slot], "", -60.0f, 60.0f, 0.0f, kParamFlagOutput | kParamFlagHidden };
+            std::snprintf(names[slot], sizeof(names[slot]), "Slot %02d %s", slot + 1, name);
+            std::snprintf(symbols[slot], sizeof(symbols[slot]), "s%02d_%s", slot + 1, symbol);
+            specs[slot] = { names[slot], symbols[slot], "", min, max, 0.0f, flags };
         }
     }
 };
@@ -122,9 +123,15 @@ const GlobalParamSpec& globalParamSpec(uint32_t index)
 {
     if (index >= kParamSlotMeterBase)
     {
-        static const SlotMeterSpecs meters;
+        static const SlotOutputSpecs meters("Meter", "meter", -60.0f, 60.0f, kParamFlagOutput | kParamFlagHidden);
         if (index < kParamSlotMeterEnd)
             return meters.specs[index - kParamSlotMeterBase];
+        if (index >= kParamSlotLatchBase)
+        {
+            static const SlotOutputSpecs latches("Latched", "latched", 0.0f, 65535.0f,
+                                                 kParamFlagOutput | kParamFlagInteger | kParamFlagHidden);
+            return latches.specs[index - kParamSlotLatchBase];
+        }
         return index < kParamMergeBalance ? kMidiParams[index - kParamMidiLearn] : kToolParams[index - kParamMergeBalance];
     }
     return index >= kFirstLaterParam ? kLaterParams[index - kFirstLaterParam] : kGlobalParams[index];

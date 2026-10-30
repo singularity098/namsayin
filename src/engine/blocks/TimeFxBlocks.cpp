@@ -49,9 +49,9 @@ public:
             fHeld = on;
             break;
         case kTapeStopParamLatch:
-            fLatch = on;
-            if (!fLatch)
+            if (fLatch && !on)
                 fLatched = false;
+            fLatch = on;
             break;
         case kTapeStopParamStopTime:  fStopMs = value; break;
         case kTapeStopParamStartTime: fStartMs = value; break;
@@ -114,6 +114,10 @@ public:
             }
         }
     }
+
+    uint32_t latched() const override { return fLatched ? 1u << kTapeStopParamStop : 0u; }
+
+    void setLatched(uint32_t bits) override { fLatched = (bits >> kTapeStopParamStop) & 1u; }
 
     void reset() override
     {

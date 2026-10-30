@@ -167,9 +167,12 @@ bool Engine::setChain(const ChainState& chain, std::string* error, std::vector<i
 
         CachedBlock& previous = fCache[state.slot];
         std::shared_ptr<Block> block;
+        int32_t restoreLatched = -1;
         if (previous.block && previous.typeId == state.typeId && previous.config == config)
         {
             block = previous.block;
+            if (chain.restoreLatches)
+                restoreLatched = static_cast<int32_t>(state.latched & 0xffffu);
         }
         else
         {
@@ -181,6 +184,7 @@ bool Engine::setChain(const ChainState& chain, std::string* error, std::vector<i
                     failedSlots->push_back(state.slot);
                 continue;
             }
+            block->setLatched(state.latched);
         }
 
         std::vector<Node>* section = &graph->pre;
@@ -191,7 +195,7 @@ bool Engine::setChain(const ChainState& chain, std::string* error, std::vector<i
         case Section::B: section = &graph->branchB; break;
         case Section::Post: section = &graph->post; break;
         }
-        section->push_back(Node { block, type, state.slot, AlignmentDelay {}, 0 });
+        section->push_back(Node { block, type, state.slot, AlignmentDelay {}, 0, restoreLatched });
         cache[state.slot] = { std::move(block), state.typeId, std::move(config) };
     }
 
@@ -303,10 +307,14 @@ void Engine::process(const float* const* inputs, float* const* outputs, uint32_t
     fParams[kParamInClip].store(fInMeters[0].clipping() || fInMeters[1].clipping() ? 1.0f : 0.0f,
                                 std::memory_order_relaxed);
     uint32_t running = 0;
+    std::array<uint32_t, kMaxBlocks> latched {};
     fActive->forEachNode([&](const Node& node) {
         running |= 1u << node.slot;
         fParams[slotMeterParam(node.slot)].store(node.block->meter(), std::memory_order_relaxed);
+        latched[node.slot] = node.block->latched() & 0xffffu;
     });
+    for (int slot = 0; slot < kMaxBlocks; ++slot)
+        fParams[slotLatchParam(slot)].store(static_cast<float>(latched[slot]), std::memory_order_relaxed);
     fParams[kParamRunningSlotsLow].store(static_cast<float>(running & 0xffffu), std::memory_order_relaxed);
     fParams[kParamRunningSlotsHigh].store(static_cast<float>(running >> 16), std::memory_order_relaxed);
     fParams[kParamOutClip].store(fOutMeters[0].clipping() || fOutMeters[1].clipping() ? 1.0f : 0.0f,
@@ -673,6 +681,11 @@ uint32_t Engine::processNodes(const std::vector<Node>& nodes, float* const* work
             }
         }
         slot.applyAll = false;
+        if (node.restoreLatched >= 0)
+        {
+            block.setLatched(static_cast<uint32_t>(node.restoreLatched));
+            node.restoreLatched = -1;
+        }
         block.setTempo(fTempo);
         if (fSongPlaying)
             block.setSongPosition(fSongBeat);

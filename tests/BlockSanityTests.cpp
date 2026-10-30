@@ -250,3 +250,63 @@ TEST_CASE("every built-in block plays on after the host reactivates it")
         CHECK(level < freshLevel * 4.0);
     }
 }
+
+// Footswitches latched with a Latch control aren't host parameters: the block reports them (latched()) so presets
+// and projects can save them, and takes them back (setLatched()) whatever order the host restores Latch in
+TEST_CASE("every latching footswitch reports and restores its latched state")
+{
+    int checked = 0;
+    for (const BlockDescriptor* type : BlockRegistry::builtin().types())
+    {
+        int latch = -1;
+        for (int p = 0; p < type->numParams; ++p)
+        {
+            if (std::string(type->params[p].name) == "Latch")
+                latch = p;
+        }
+        for (int p = 0; p < type->numParams; ++p)
+        {
+            if (type->params[p].scale != ParamScale::Momentary)
+                continue;
+            CAPTURE(std::string(type->typeId) + " / " + type->params[p].name);
+            std::unique_ptr<Block> block = type->create();
+            block->prepare(48000.0, 256);
+            for (int q = 0; q < type->numParams; ++q)
+                block->setParam(q, type->params[q].def);
+            if (latch < 0)
+            {
+                // no Latch control (the looper's buttons act on each press): nothing to save
+                block->setParam(p, 1.0f);
+                block->setParam(p, 0.0f);
+                CHECK(block->latched() == 0u);
+                continue;
+            }
+            ++checked;
+            const uint32_t bit = 1u << p;
+
+            // a press and release latches it, the next one unlatches it
+            block->setParam(latch, 1.0f);
+            block->setParam(p, 1.0f);
+            block->setParam(p, 0.0f);
+            CHECK(block->latched() == bit);
+            block->setParam(p, 1.0f);
+            block->setParam(p, 0.0f);
+            CHECK(block->latched() == 0u);
+
+            // restored before the host has restored Latch (still at its default, off): kept, then used
+            std::unique_ptr<Block> restored = type->create();
+            restored->prepare(48000.0, 256);
+            restored->setLatched(bit);
+            for (int q = 0; q < type->numParams; ++q)
+                restored->setParam(q, type->params[q].def);
+            CHECK(restored->latched() == bit);
+            restored->setParam(latch, 1.0f);
+            CHECK(restored->latched() == bit);
+
+            // switching Latch off lets go of it
+            restored->setParam(latch, 0.0f);
+            CHECK(restored->latched() == 0u);
+        }
+    }
+    CHECK(checked >= 4); // kill switch (Kill, Stutter), beat repeat, tape stop
+}

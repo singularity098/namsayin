@@ -157,8 +157,12 @@ protected:
     {
         if (std::strcmp(key, kStateChain) != 0)
             return String();
-        const std::lock_guard<std::mutex> lock(fChainMutex);
-        return String(fChainJson.c_str());
+        std::string json;
+        {
+            const std::lock_guard<std::mutex> lock(fChainMutex);
+            json = fChainJson;
+        }
+        return String(withLiveLatches(json).c_str());
     }
 
     // Hosts may call this on any thread, and DPF already counts the plugin as active while it runs, so the audio
@@ -268,6 +272,24 @@ private:
         writeChainExchange(fInstanceId, json);
     }
 
+    // Non-RT. The chain with the footswitches latched now, which only the blocks know (Block::latched()), so a
+    // saved project keeps them
+    std::string withLiveLatches(const std::string& json) const
+    {
+        if (json.empty())
+            return json;
+        std::optional<ChainState> chain = ChainState::fromJson(json);
+        if (!chain)
+            return json;
+        chain->restoreLatches = false;
+        for (BlockState& block : chain->blocks)
+        {
+            if (block.slot >= 0 && block.slot < kMaxBlocks)
+                block.latched = static_cast<uint32_t>(fEngine.getParameter(slotLatchParam(block.slot)));
+        }
+        return chain->toJson();
+    }
+
     // Non-RT. Builds the current chain again with fresh blocks, after one broke (Engine::takeChainFault())
     void rebuildChain()
     {
@@ -280,7 +302,7 @@ private:
             return;
         d_stderr2("Xythos: a block's output went NaN; rebuilding the chain");
         fEngine.forgetBlocks();
-        if (const std::optional<ChainState> chain = ChainState::fromJson(json))
+        if (const std::optional<ChainState> chain = ChainState::fromJson(withLiveLatches(json)))
             fEngine.setChain(*chain);
         // the broken blocks play until the new ones swap in: their reports are old news
         std::this_thread::sleep_for(std::chrono::milliseconds(100));

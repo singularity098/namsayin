@@ -27,6 +27,8 @@ std::string ChainState::toJson() const
             blocksJson.back()["branch"] = block.branch;
         if (!block.image.empty())
             blocksJson.back()["image"] = block.image;
+        if (block.latched != 0)
+            blocksJson.back()["latched"] = block.latched;
     }
     json midiJson = json::array();
     for (const MidiMapping& mapping : midi)
@@ -36,6 +38,8 @@ std::string ChainState::toJson() const
         root["midi"] = midiJson;
     if (!preset.empty())
         root["preset"] = preset;
+    if (restoreLatches)
+        root["restoreLatches"] = true;
     if (split)
         root["split"] = { { "begin", split->begin }, { "end", split->end } };
     return root.dump();
@@ -68,6 +72,7 @@ std::optional<ChainState> ChainState::fromJson(std::string_view text, std::strin
             block.bypass = item.value("bypass", false);
             block.branch = item.value("branch", 0);
             block.image = item.value("image", std::string());
+            block.latched = item.value("latched", 0u);
             if (const auto params = item.find("params"); params != item.end())
             {
                 for (size_t i = 0; i < params->size() && i < block.params.size(); ++i)
@@ -84,6 +89,7 @@ std::optional<ChainState> ChainState::fromJson(std::string_view text, std::strin
             }
         }
         state.preset = root.value("preset", std::string());
+        state.restoreLatches = root.value("restoreLatches", false);
         if (const auto split = root.find("split"); split != root.end())
             state.split = SplitState { split->at("begin").get<int>(), split->at("end").get<int>() };
         return state;

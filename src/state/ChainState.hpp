@@ -30,6 +30,7 @@ struct BlockState {
     bool bypass = false;
     int branch = kBranchA;                         // which branch, for blocks inside the split; 0 elsewhere
     std::string image {};                          // the user's own image for it (UserImages.hpp), "" for the stock one
+    uint32_t latched = 0;                          // latched footswitches (Block::latched()): bit i = parameter i
 
     bool operator==(const BlockState&) const = default;
 };
@@ -70,6 +71,9 @@ struct ChainState {
     std::optional<SplitState> split;
     std::vector<MidiMapping> midi;  // at most one mapping per CC and channel
     std::string preset;             // file of the preset this came from (UTF-8), empty if none
+    // Set when the chain is a preset being loaded: blocks the DSP keeps take its `latched` too, not only new ones.
+    // Never saved: the UI sets it on the copy it sends.
+    bool restoreLatches = false;
 
     std::string toJson() const;
     static std::optional<ChainState> fromJson(std::string_view json, std::string* error = nullptr);
