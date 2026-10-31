@@ -132,6 +132,7 @@ target_include_directories(webpdecoder SYSTEM PUBLIC ${WEBP_DIR}/src)
 
 add_library(xythos-engine STATIC
   src/engine/BlockRegistry.cpp
+  src/engine/PhaseCheck.cpp
   src/engine/blocks/AmbientBlocks.cpp
   src/engine/blocks/BarberPoleBlock.cpp
   src/engine/blocks/BitcrusherBlock.cpp
@@ -326,6 +327,7 @@ if(XYTHOS_BUILD_TESTS)
     tests/NamBlockTests.cpp
     tests/ParamHelpTests.cpp
     tests/PedalFaceTests.cpp
+    tests/PhaseCheckTests.cpp
     tests/PedalTests.cpp
     tests/PolyTrackingTests.cpp
     tests/PresetTests.cpp

@@ -23,6 +23,7 @@
 #include "Vsync.hpp"
 #include "engine/BlockRegistry.hpp"
 #include "engine/Params.hpp"
+#include "engine/PhaseCheck.hpp"
 #include "engine/TapTempo.hpp"
 #include "engine/blocks/CompressorBlock.hpp"
 #include "engine/blocks/DelayBlock.hpp"
@@ -51,7 +52,9 @@
 #include <cstring>
 #include <filesystem>
 #include <map>
+#include <mutex>
 #include <set>
+#include <thread>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -132,7 +135,7 @@ enum class Surface { Bar, Panel, Tile, Button, Dialog, Inset, Item, Popup, Popup
 constexpr float kTopBarHeight = 72.0f; // room for the big logo (owner, 2026-10-29; was 60 with the text logo, then 80
                                        // until the logo shrank 10%, 2026-10-31)
 constexpr float kFontScale = 1.69f; // text is drawn this much larger than layout sizes (see fontSize())
-constexpr float kBottomBarHeight = 132.0f;
+constexpr float kBottomBarHeight = 60.0f; // one row, names beside the knobs (owner, 2026-10-31: idea A; was 132)
 constexpr float kTileSize = 120.0f;
 constexpr float kSplitTileSize = 100.0f; // tiles are smaller with a split, to fit two rows
 constexpr float kTileGap = 16.0f;
@@ -186,6 +189,7 @@ enum class Hit {
     TileBypass,
     TileRemove,
     CabWarning,   // index = position in the chain (a NAM block with no cab after it, or with two)
+    PhaseFix,     // the merge panel's out-of-phase warning: click to flip the Invert switch it names
     AddBlock,     // index = Section
     Split,        // add an empty split; index = position in the chain
     Insert,       // add a block at a gap; index = drop point in the layout
@@ -603,6 +607,62 @@ std::vector<AddItem> addItems(Category category)
 
 } // namespace
 
+// The split branches' phase check (engine/PhaseCheck.hpp), on a thread of its own so the UI never waits for it: one
+// check at a time, started again later if one is running; joined when the UI goes away
+class PhaseWorker {
+public:
+    ~PhaseWorker()
+    {
+        fCancel.store(true);
+        if (fThread.joinable())
+            fThread.join();
+    }
+
+    // Checks these branches, unless a check is still running (try again later: false)
+    bool start(std::vector<PhaseBlock> a, std::vector<PhaseBlock> b, double alignMs, std::string key)
+    {
+        if (fBusy.load())
+            return false;
+        if (fThread.joinable())
+            fThread.join();
+        fBusy.store(true);
+        fCancel.store(false);
+        fThread = std::thread([this, a = std::move(a), b = std::move(b), alignMs, key = std::move(key)] {
+            const PhaseResult result = compareBranchPolarity(a, b, alignMs, &fCancel);
+            {
+                const std::lock_guard<std::mutex> lock(fMutex);
+                fResult = result;
+                fResultKey = key;
+                fFresh = true;
+            }
+            fBusy.store(false);
+        });
+        return true;
+    }
+
+    void cancel() { fCancel.store(true); }
+
+    // A finished check's result and what it was for, once
+    bool take(PhaseResult& result, std::string& key)
+    {
+        const std::lock_guard<std::mutex> lock(fMutex);
+        if (!fFresh)
+            return false;
+        fFresh = false;
+        result = fResult;
+        key = fResultKey;
+        return true;
+    }
+
+private:
+    std::thread fThread;
+    std::atomic<bool> fBusy { false }, fCancel { false };
+    std::mutex fMutex;
+    PhaseResult fResult;
+    std::string fResultKey;
+    bool fFresh = false;
+};
+
 class XythosUI : public UI
 {
 public:
@@ -916,6 +976,10 @@ protected:
 
         case Hit::TileRemove:
             removeBlock(hit->index);
+            return true;
+
+        case Hit::PhaseFix:
+            setNormalized(static_cast<uint32_t>(hit->index), fParams[hit->index] >= 0.5f ? 0.0f : 1.0f, true);
             return true;
 
         case Hit::CabWarning:
@@ -1754,6 +1818,7 @@ protected:
     void uiIdle() override
     {
         ++fIdleCount;
+        pollPhaseCheck();
         if (fShowFps)
             repaint(); // the readout itself counts frames, so keep drawing
         if (fMomentaryReleasePending && std::chrono::steady_clock::now() - fMomentaryPressedAt >= kMomentaryMinHold)
@@ -4793,6 +4858,13 @@ private:
             return { "Split",
                      "Splits the chain here into two parallel paths, A and B, which both start empty. Add blocks to "
                      "each with its +; the merge after them mixes the two back together. One split at a time." };
+        case Hit::PhaseFix:
+            return { "Out of Phase",
+                     "Xythos compared the NAM and IR blocks in the two branches by playing a quiet test signal through "
+                     "copies of them, and one branch comes out with its polarity flipped against the other. Merged, "
+                     "the two cancel each other's low end, so the sound goes thin. Click to flip the Invert switch "
+                     "named here; the warning goes away once they're in phase. The check runs in the background each "
+                     "time the branches' amps, cabs, their settings or Align change." };
         case Hit::CabWarning:
             if (cabProblem(hit.index) == CabProblem::TwoCabs)
                 return { "Two Cabs",
@@ -4974,6 +5046,33 @@ private:
 
     void drawKnob(float cx, float cy, uint32_t index, const char* name)
     {
+        drawKnobDial(cx, cy, kKnobRadius, index);
+        label(cx, cy + kKnobRadius + 18.0f, name, theme::textDim, 12.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+        label(cx, cy + kKnobRadius + 38.0f, valueText(index).c_str(), theme::text, 12.0f,
+              ALIGN_CENTER | ALIGN_MIDDLE);
+
+        fHits.push_back({ { cx - kKnobRadius - 6, cy - kKnobRadius - 6, 2 * kKnobRadius + 12, 2 * kKnobRadius + 48 },
+                          Hit::Knob, static_cast<int>(index) });
+    }
+
+    // A small knob with its name above its value to its right (the bottom bar; owner, 2026-10-31). Returns its width.
+    float drawSideKnob(float x, float cy, uint32_t index, const char* name)
+    {
+        constexpr float r = 14.0f;
+        drawKnobDial(x + r + 4.0f, cy, r, index);
+        const float tx = x + 2 * r + 14.0f;
+        label(tx, cy - 8.0f, name, theme::textDim, 12.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        label(tx, cy + 9.0f, valueText(index).c_str(), theme::text, 12.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        constexpr float width = 2 * r + 14.0f + 62.0f;
+        fHits.push_back({ { x - 2.0f, cy - r - 8.0f, width + 4.0f, 2 * r + 16.0f }, Hit::Knob, static_cast<int>(index) });
+        return width;
+    }
+
+    // A knob's dial: a black body with a hairline edge, a scale of ticks lit up to the value, and a dot at the position
+    void drawKnobDial(float cx, float cy, float radius, uint32_t index)
+    {
+        const float kKnobRadius = radius; // the shapes scale with it
+        const float scale = radius / ::kKnobRadius;
         constexpr float start = 0.75f * static_cast<float>(M_PI);
         constexpr float sweep = 1.5f * static_cast<float>(M_PI);
         const float n = std::clamp(normalized(index), 0.0f, 1.0f);
@@ -4992,7 +5091,7 @@ private:
         for (int t = 0; t < ticks; ++t)
         {
             const float tickAngle = start + sweep * t / (ticks - 1);
-            const float r0 = kKnobRadius + 1.0f, r1 = kKnobRadius + (t % 5 == 0 ? 6.0f : 4.0f);
+            const float r0 = kKnobRadius + 1.0f, r1 = kKnobRadius + (t % 5 == 0 ? 6.0f : 4.0f) * std::max(0.7f, scale);
             beginPath();
             moveTo(cx + std::cos(tickAngle) * r0, cy + std::sin(tickAngle) * r0);
             lineTo(cx + std::cos(tickAngle) * r1, cy + std::sin(tickAngle) * r1);
@@ -5002,25 +5101,19 @@ private:
         }
 
         beginPath();
-        circle(cx + std::cos(angle) * (kKnobRadius - 8.0f), cy + std::sin(angle) * (kKnobRadius - 8.0f), 2.2f);
+        circle(cx + std::cos(angle) * (kKnobRadius - 8.0f * scale), cy + std::sin(angle) * (kKnobRadius - 8.0f * scale),
+               std::max(1.6f, 2.2f * scale));
         fillColor(dimmed(theme::accent));
         fill();
 
         if (fLearnParam == static_cast<int>(index))
         {
             beginPath();
-            circle(cx, cy, kKnobRadius + 9.0f);
+            circle(cx, cy, kKnobRadius + 9.0f * std::max(0.7f, scale));
             strokeColor(theme::accent);
             strokeWidth(1.5f);
             stroke();
         }
-
-        label(cx, cy + kKnobRadius + 18.0f, name, theme::textDim, 12.0f, ALIGN_CENTER | ALIGN_MIDDLE);
-        label(cx, cy + kKnobRadius + 38.0f, valueText(index).c_str(), theme::text, 12.0f,
-              ALIGN_CENTER | ALIGN_MIDDLE);
-
-        fHits.push_back({ { cx - kKnobRadius - 6, cy - kKnobRadius - 6, 2 * kKnobRadius + 12, 2 * kKnobRadius + 48 },
-                          Hit::Knob, static_cast<int>(index) });
     }
 
     // A choice parameter: its name, and a button showing the current choice that opens a menu of them
@@ -5617,6 +5710,28 @@ private:
         fillRect(clip.x, clip.y, clip.w, clip.h, latched ? theme::bad : theme::tile, 2.0f);
         fHits.push_back({ { clip.x - 4, clip.y - 4, clip.w + 8, clip.h + 8 }, clipHit, 0 });
         label(x + barWidth + 1.5f, y + h + 12.0f, name, theme::textDim, 11.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+    }
+
+    // A stereo meter lying down (the bottom bar): its name on the left, two bars, and the clip light at the end
+    void drawMeterH(float x, float cy, float w, uint32_t left, uint32_t right, bool latched, Hit clipHit,
+                    const char* name)
+    {
+        label(x, cy, name, theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        const float bx = x + 30.0f, bw = w - 30.0f - 14.0f;
+        constexpr float barH = 5.0f;
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            const float by = cy - barH - 1.5f + ch * (barH + 3.0f);
+            fillRect(bx, by, bw, barH, theme::inset, 2.0f);
+            const float db = fParams[ch == 0 ? left : right];
+            const float level = std::clamp((db + 60.0f) / 66.0f, 0.0f, 1.0f); // -60..+6 dB
+            const Color color = db > -0.5f ? theme::bad : (db > -12.0f ? theme::warn : theme::good);
+            fillRect(bx, by, bw * level, barH, color, 2.0f);
+        }
+        // clip light, click to reset
+        const Rect clip { bx + bw + 5.0f, cy - 6.5f, 8.0f, 13.0f };
+        fillRect(clip.x, clip.y, clip.w, clip.h, latched ? theme::bad : theme::tile, 2.0f);
+        fHits.push_back({ { clip.x - 4, clip.y - 4, clip.w + 8, clip.h + 8 }, clipHit, 0 });
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -6471,6 +6586,104 @@ private:
         fHits.push_back({ grab, Hit::ListScroll, 0 });
     }
 
+    // ---- The split branches' phase check (owner, 2026-10-31)
+    // What it depends on: the NAM and IR blocks in each branch (file, settings, bypass) and Align; "" without a split
+    // or without such a block in both branches
+    std::string phaseKey() const
+    {
+        if (!fChain.split)
+            return {};
+        std::string key;
+        int counts[2] = {};
+        for (int side = 0; side < 2; ++side)
+        {
+            key += side == 0 ? "A:" : "|B:";
+            for (const int index : fChain.sectionIndices(side == 0 ? Section::A : Section::B))
+            {
+                const BlockState& block = fChain.blocks[static_cast<size_t>(index)];
+                const BlockDescriptor* type = BlockRegistry::builtin().find(block.typeId);
+                if (!phaseRelevant(type) || fParams[slotBypassParam(block.slot)] >= 0.5f)
+                    continue;
+                ++counts[side];
+                key += block.typeId + block.config.dump();
+                for (int p = 0; p < type->numParams; ++p)
+                    key += std::to_string(std::lround(fParams[slotParam(block.slot, p)] * 1000.0f)) + ",";
+            }
+        }
+        if (counts[0] == 0 || counts[1] == 0)
+            return {};
+        return key + "|align:" + std::to_string(std::lround(fParams[kParamMergeAlign] * 100.0f));
+    }
+
+    std::vector<PhaseBlock> phaseBranch(Section section) const
+    {
+        std::vector<PhaseBlock> branch;
+        for (const int index : fChain.sectionIndices(section))
+        {
+            const BlockState& block = fChain.blocks[static_cast<size_t>(index)];
+            const BlockDescriptor* type = BlockRegistry::builtin().find(block.typeId);
+            if (!phaseRelevant(type) || fParams[slotBypassParam(block.slot)] >= 0.5f)
+                continue;
+            PhaseBlock b;
+            b.type = type;
+            b.config = block.config;
+            for (int p = 0; p < type->numParams; ++p)
+                b.params[static_cast<size_t>(p)] = fParams[slotParam(block.slot, p)];
+            branch.push_back(std::move(b));
+        }
+        return branch;
+    }
+
+    // Starts a check once what it depends on has stayed the same for a moment (not on every step of a knob drag),
+    // and takes in finished ones. Cheap when nothing changed: one string built and compared per idle tick.
+    void pollPhaseCheck()
+    {
+        PhaseResult result;
+        std::string key;
+        if (fPhaseWorker.take(result, key) && key == fPhaseWanted)
+        {
+            fPhase = result;
+            fPhaseKey = key;
+            repaint();
+        }
+        const std::string wanted = phaseKey();
+        const auto now = std::chrono::steady_clock::now();
+        if (wanted != fPhaseWanted)
+        {
+            fPhaseWanted = wanted;
+            fPhaseChangedAt = now;
+            fPhaseStarted.clear();
+            fPhaseWorker.cancel();
+            repaint();
+        }
+        if (!fPhaseWanted.empty() && fPhaseWanted != fPhaseKey && fPhaseWanted != fPhaseStarted
+            && now - fPhaseChangedAt > std::chrono::milliseconds(600)
+            && fPhaseWorker.start(phaseBranch(Section::A), phaseBranch(Section::B), fParams[kParamMergeAlign],
+                                  fPhaseWanted))
+            fPhaseStarted = fPhaseWanted;
+    }
+
+    // What the merge's Invert switches do to the branches' polarity: Opposite when the merged sound cancels its low end
+    // (the branches flipped against each other and no switch fixing it, or a switch flipping branches that were fine)
+    Polarity mergedPolarity() const
+    {
+        if (fPhaseKey.empty() || fPhaseKey != fPhaseWanted || fPhase.polarity == Polarity::Unknown)
+            return Polarity::Unknown;
+        const bool flipped = (fParams[kParamMergeInvertA] >= 0.5f) != (fParams[kParamMergeInvertB] >= 0.5f);
+        const bool opposite = fPhase.polarity == Polarity::Opposite;
+        return opposite != flipped ? Polarity::Opposite : Polarity::Same;
+    }
+
+    // The fix the warning offers: the Invert switch to flip (one that's on, if one is; else Invert B)
+    uint32_t phaseFixParam() const
+    {
+        if (fParams[kParamMergeInvertB] >= 0.5f)
+            return kParamMergeInvertB;
+        if (fParams[kParamMergeInvertA] >= 0.5f)
+            return kParamMergeInvertA;
+        return kParamMergeInvertB;
+    }
+
     void drawMergeTile()
     {
         const Rect& r = fLayout.merge;
@@ -6490,6 +6703,8 @@ private:
         label(r.x + r.w / 2, rowB, "B", theme::text, 15.0f, ALIGN_CENTER | ALIGN_MIDDLE);
         label(r.x + r.w / 2, (rowA + rowB) / 2, "MERGE", theme::textDim, 10.0f, ALIGN_CENTER | ALIGN_MIDDLE);
         fHits.push_back({ r, Hit::Merge, 0 });
+        if (mergedPolarity() == Polarity::Opposite)
+            drawWarningSign(r.x + 13.0f, r.y + 13.0f, 7.0f); // out of phase: the merge panel says more
 
         const Rect remove { r.x + r.w - 22, r.y + 4, 18, 18 };
         label(remove.x + 9, remove.y + 9, "×", theme::textDim, 18.0f, ALIGN_CENTER | ALIGN_MIDDLE);
@@ -8545,37 +8760,59 @@ private:
         x += 100.0f;
         drawButton({ x - 40.0f, cy - 14.0f, 80.0f, 28.0f }, "Invert B", fParams[kParamMergeInvertB] >= 0.5f,
                    theme::accent, Hit::Toggle, kParamMergeInvertB);
+
+        // the phase check's warning, under the controls: click it to flip the switch it names
+        if (mergedPolarity() == Polarity::Opposite)
+        {
+            const uint32_t fix = phaseFixParam();
+            const bool on = fParams[fix] >= 0.5f;
+            const std::string text = std::string("The branches are out of phase, so their low end cancels. Click to turn ")
+                                   + (on ? "off " : "on ") + (fix == kParamMergeInvertA ? "Invert A." : "Invert B.");
+            const float wy = cy + kKnobRadius + 64.0f;
+            drawWarningSign(39.0f, wy, 7.0f);
+            label(52.0f, wy, text.c_str(), theme::warn, 12.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+            fontSize(12.0f);
+            Rectangle<float> bounds;
+            const float w = textBounds(0, 0, text.c_str(), nullptr, bounds);
+            fHits.push_back({ { 30.0f, wy - 10.0f, w + 30.0f, 20.0f }, Hit::PhaseFix, static_cast<int>(fix) });
+        }
     }
 
+    // The global controls in one row (owner, 2026-10-31: idea A of the mockups): Mono/Stereo, the input meter, the five
+    // knobs with their names and values beside them, the output meter, Limiter (and its gain reduction)
     void drawBottomBar()
     {
         const float top = fHeight - kBottomBarHeight;
         surface(0, top, fWidth, kBottomBarHeight, 0.0f, Surface::Bar);
 
-        const float cy = top + 46.0f;
+        const float cy = top + kBottomBarHeight / 2;
         const bool stereo = fParams[kParamInputMode] >= 0.5f;
-        drawButton({ 24.0f, cy - 14.0f, 80.0f, 28.0f }, stereo ? "Stereo" : "Mono", stereo, theme::accent,
+        drawButton({ 20.0f, cy - 14.0f, 80.0f, 28.0f }, stereo ? "Stereo" : "Mono", stereo, theme::accent,
                    Hit::Toggle, kParamInputMode);
+        // narrower meters and knob slots in a narrow window (900 px at the least)
+        const float meterW = std::clamp(70.0f + (fWidth - 900.0f) * 0.4f, 70.0f, 110.0f), limiterW = 80.0f;
+        const float knobW = fWidth < 1000.0f ? 94.0f : 104.0f;
+        drawMeterH(116.0f, cy, meterW, kParamInPeakL, kParamInPeakR, fInClipLatched, Hit::InClip, "IN");
 
-        drawMeter(128.0f, top + 22.0f, 80.0f, kParamInPeakL, kParamInPeakR, fInClipLatched, Hit::InClip, "IN");
-
-        const float knobsStart = 200.0f;
-        const float spacing = std::clamp((fWidth - knobsStart - 260.0f) / 5.0f, 80.0f, 140.0f);
+        // the knobs share what's between the meters, evenly
+        const float limiterX = fWidth - 20.0f - limiterW;
+        const float outX = limiterX - 16.0f - meterW;
+        const float knobsLeft = 116.0f + meterW + 16.0f, knobsRight = outX - 16.0f;
+        const float gap = std::max(4.0f, (knobsRight - knobsLeft - 5 * knobW) / 5.0f);
         const uint32_t knobs[] = { kParamInput, kParamBass, kParamMiddle, kParamTreble, kParamOutput };
         for (int i = 0; i < 5; ++i)
-            drawKnob(knobsStart + spacing * (i + 0.5f), cy, knobs[i], globalParamSpec(knobs[i]).name);
+            drawSideKnob(knobsLeft + gap / 2 + i * (knobW + gap), cy, knobs[i], globalParamSpec(knobs[i]).name);
 
-        const float right = knobsStart + spacing * 5.0f + 24.0f;
-        drawMeter(right, top + 22.0f, 80.0f, kParamOutPeakL, kParamOutPeakR, fOutClipLatched, Hit::OutClip, "OUT");
+        drawMeterH(outX, cy, meterW, kParamOutPeakL, kParamOutPeakR, fOutClipLatched, Hit::OutClip, "OUT");
 
         const bool limiter = fParams[kParamLimiter] >= 0.5f;
-        drawButton({ right + 40.0f, cy - 14.0f, 80.0f, 28.0f }, "Limiter", limiter, theme::accent, Hit::Toggle,
+        drawButton({ limiterX, cy - 14.0f, limiterW, 28.0f }, "Limiter", limiter, theme::accent, Hit::Toggle,
                    kParamLimiter);
         if (limiter && fParams[kParamLimiterReduction] > 0.5f)
         {
             char gr[24];
             std::snprintf(gr, sizeof(gr), "-%.1f dB", fParams[kParamLimiterReduction]);
-            label(right + 80.0f, cy + 26.0f, gr, theme::warn, 11.0f, ALIGN_CENTER | ALIGN_MIDDLE);
+            label(limiterX + limiterW / 2, cy + 22.0f, gr, theme::warn, 10.0f, ALIGN_CENTER | ALIGN_MIDDLE);
         }
     }
 
@@ -8796,7 +9033,13 @@ private:
     std::string fPickLabel;        // its name, for the dialog's footer
     bool fScrollToPick = false;    // scroll the list to show it (picked with the arrow keys)
     int fItemColumns = 1;          // the block types' grid, as drawn
-    std::vector<Field> fDrawnFields; // the text fields drawn this frame, in order (Tab moves through them)
+    std::vector<Field> fDrawnFields;
+    // the phase check (pollPhaseCheck()): what it should be for, what it was last started for, its result and what that
+    // was for
+    PhaseWorker fPhaseWorker;
+    std::string fPhaseWanted, fPhaseStarted, fPhaseKey;
+    PhaseResult fPhase;
+    std::chrono::steady_clock::time_point fPhaseChangedAt; // the text fields drawn this frame, in order (Tab moves through them)
     PhotoKind fCabKind = PhotoKind::Cab; // the dialog picks a NAM pedal's generic pedal image or an amp's head instead
 
     std::chrono::steady_clock::time_point fChainChangedAt = std::chrono::steady_clock::now();
