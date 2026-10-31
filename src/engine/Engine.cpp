@@ -115,6 +115,8 @@ void Engine::prepare(double sampleRate, uint32_t maxFrames)
     }
     fMetronome.prepare(fSampleRate);
     fClick.assign(fMaxFrames, 0.0f);
+    for (std::vector<float>& click : fBlockClick)
+        click.assign(fMaxFrames, 0.0f);
 
     fInputGain.prepare(fSampleRate);
     fInputGain.snap(dbToGain(param(kParamInput)));
@@ -413,6 +415,9 @@ void Engine::processChunk(const float* const* inputs, float* const* outputs, uin
             fMidiOut[0].endSlot(slot, fChunkTime);
     }
 
+    for (std::vector<float>& click : fBlockClick)
+        std::fill(click.begin(), click.begin() + frames, 0.0f);
+
     // Chain, with a fade out/in around graph swaps
     if (fFade == Fade::Idle)
     {
@@ -477,6 +482,9 @@ void Engine::processChunk(const float* const* inputs, float* const* outputs, uin
     // Metronome, before the limiter so clicks can't clip the output
     std::fill(fClick.begin(), fClick.begin() + frames, 0.0f);
     fMetronome.process(fClick.data(), frames, metronomeSettings(), transport, offset);
+    // and the clicks blocks sent (the looper's count-in), which skip the blocks after them and the output level
+    for (uint32_t i = 0; i < frames; ++i)
+        fClick[i] += fBlockClick[0][i] + fBlockClick[1][i];
     for (uint32_t ch = 0; ch < outChannels; ++ch)
         for (uint32_t i = 0; i < frames; ++i)
             fWork[ch][i] += fClick[i];
@@ -535,7 +543,7 @@ uint32_t Engine::processChain(uint32_t numChannels, uint32_t frames)
     float* scratch[2] = { fScratch[0].data(), fScratch[1].data() };
     Graph& graph = *fActive;
 
-    numChannels = processNodes(graph.pre, work, scratch, numChannels, frames, fMidiOut[0]);
+    numChannels = processNodes(graph.pre, work, scratch, numChannels, frames, fMidiOut[0], fBlockClick[0].data());
     if (graph.split)
     {
         for (uint32_t ch = 0; ch < numChannels; ++ch)
@@ -547,7 +555,7 @@ uint32_t Engine::processChain(uint32_t numChannels, uint32_t frames)
         const bool parallel = graph.worker && !graph.branchB.empty() && fParallel.load(std::memory_order_relaxed);
         if (parallel)
             graph.worker->start(&Engine::runBranchB, this);
-        const uint32_t channelsA = processNodes(graph.branchA, work, scratch, numChannels, frames, fMidiOut[0]);
+        const uint32_t channelsA = processNodes(graph.branchA, work, scratch, numChannels, frames, fMidiOut[0], fBlockClick[0].data());
         graph.alignA.process(work, channelsA, frames);
         if (parallel)
             graph.worker->wait();
@@ -558,7 +566,7 @@ uint32_t Engine::processChain(uint32_t numChannels, uint32_t frames)
         merge(channelsA, fJobChannelsOut, frames);
         numChannels = 2;
     }
-    return processNodes(graph.post, work, scratch, numChannels, frames, fMidiOut[0]);
+    return processNodes(graph.post, work, scratch, numChannels, frames, fMidiOut[0], fBlockClick[0].data());
 }
 
 void Engine::runBranchB(void* context)
@@ -567,7 +575,8 @@ void Engine::runBranchB(void* context)
     float* branch[2] = { engine.fBranch[0].data(), engine.fBranch[1].data() };
     float* scratch[2] = { engine.fBranchScratch[0].data(), engine.fBranchScratch[1].data() };
     engine.fJobChannelsOut = engine.processNodes(engine.fActive->branchB, branch, scratch, engine.fJobChannels,
-                                                 engine.fJobFrames, engine.fMidiOut[1]);
+                                                 engine.fJobFrames, engine.fMidiOut[1],
+                                                 engine.fBlockClick[1].data());
     engine.fActive->alignB.process(branch, engine.fJobChannelsOut, engine.fJobFrames);
 }
 
@@ -656,7 +665,7 @@ void Engine::updateLatency(Graph& graph)
 }
 
 uint32_t Engine::processNodes(const std::vector<Node>& nodes, float* const* work, float* const* scratch,
-                              uint32_t numChannels, uint32_t frames, MidiOutput& midi)
+                              uint32_t numChannels, uint32_t frames, MidiOutput& midi, float* click)
 {
     for (const Node& node : nodes)
     {
@@ -693,6 +702,7 @@ uint32_t Engine::processNodes(const std::vector<Node>& nodes, float* const* work
         block.setRigInput(rig, numChannels);
         midi.setNode(fChunkTime + node.midiDelay, node.slot, &fMidiSounding);
         block.setMidiOutput(&midi);
+        block.setClickOutput(click);
 
         const float bypassTarget = param(slotBypassParam(node.slot)) >= 0.5f ? 1.0f : 0.0f;
         if (node.bypassDelay.delay() > 0)

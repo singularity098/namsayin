@@ -73,4 +73,29 @@ std::string defaultCabImage(std::string_view key, std::string_view fileName, con
 // one; an empty key gets the first. "" if `ids` is empty.
 std::string defaultPedalImage(std::string_view key, const std::vector<std::string>& ids);
 
+// The built-in amp head images (resources/amps/, BlockImages.hpp), "amp-<n>", that NAM amp models show (owner,
+// 2026-10-31). Each photo has styles it suits (picked by eye from how tame or how strange it looks), and a file's name
+// may say what it's for ("Clean", "Jazz", "Crunch", "Lead", "Djent", ...): a file gets a head among those that suit the
+// style its name gives, the strangest-looking ones for the heaviest tones, picked by its content hash, so the same file
+// always gets the same head. A name that says nothing gets any head.
+enum AmpStyle : unsigned {
+    kAmpClean = 1,    // clean, glassy, sparkly
+    kAmpJazz = 2,     // warm, dark, jazz
+    kAmpCrunch = 4,   // edge of breakup, blues, classic rock
+    kAmpHighGain = 8, // lead, hard rock, metal
+    kAmpExtreme = 16, // very heavy and aggressive: the strangest heads
+};
+
+// The styles an amp image suits (0 for an unknown id)
+unsigned ampImageStyle(std::string_view id);
+
+// The style a NAM file's name suggests, one of the AmpStyle bits, or 0 if it doesn't say (a fuzzy match on words like
+// "clean", "jazz", "crunch", "lead", "metal", "djent", and gain numbers like "Gain 9" or "G10")
+unsigned ampStyleInName(std::string_view name);
+
+// The amp head a NAM amp model shows until the user picks another: from `ids`, by `key` (its content hash), among those
+// suiting the style its file name suggests (all of them if it suggests none, or none suit it). An empty key gets the
+// first. "" if `ids` is empty.
+std::string defaultAmpImage(std::string_view key, std::string_view fileName, const std::vector<std::string>& ids);
+
 } // namespace xythos

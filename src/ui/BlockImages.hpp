@@ -33,4 +33,10 @@ BuiltinImage builtinPedalImage(const char* id);
 BuiltinImage builtinPedalThumb(const char* id);
 const std::vector<std::string>& builtinPedalIds();
 
+// The built-in amp head images, which NAM amp models show (FileLooks.hpp, defaultAmpImage()), by image id: "amp-<n>".
+// AmpImages.cpp is generated the same way, from resources/amps/ (tools/prepare_amp_images.py).
+BuiltinImage builtinAmpImage(const char* id);
+BuiltinImage builtinAmpThumb(const char* id);
+const std::vector<std::string>& builtinAmpIds();
+
 } // namespace xythos

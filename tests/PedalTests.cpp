@@ -16,6 +16,7 @@
 #include "engine/blocks/FilterBlock.hpp"
 #include "engine/blocks/FlangerBlock.hpp"
 #include "engine/blocks/GateBlock.hpp"
+#include "engine/TapTempo.hpp"
 #include "engine/blocks/LooperBlock.hpp"
 #include "engine/blocks/ModSweeperBlock.hpp"
 #include "engine/blocks/OctaveBlock.hpp"
@@ -1008,6 +1009,59 @@ TEST_CASE("looper count in: a second press calls it off, and Free mode records a
     testing::runBlock(*block, quiet);
     CHECK(looperStatus(*block).state == LooperState::Recording);
     CHECK(testing::rms(quiet[0], 0, 48000) == 0.0); // no click
+}
+
+TEST_CASE("looper defaults: two bars of count-in, a loud click")
+{
+    // owner, 2026-10-31: 8 clicks (two bars of 4/4), and a click loud enough to hear while playing
+    CHECK(kLooperBlockDescriptor.params[kLooperParamCountIn].def == 8.0f);
+    CHECK(kLooperBlockDescriptor.params[kLooperParamClick].def >= 100.0f);
+    CHECK(kLooperBlockDescriptor.params[kLooperParamClick].max == 200.0f);
+}
+
+TEST_CASE("looper Tap sets the count-in tempo")
+{
+    // taps every 0.4 s: 150 BPM, so one bar of 4 is 1.6 s
+    auto block = countInLooper(0, 1, 1);
+    block->setParam(kLooperParamClick, 0.0f);
+    std::vector<std::vector<float>> gap(1, std::vector<float>(19200, 0.0f));
+    for (int t = 0; t < 4; ++t)
+    {
+        press(*block, kLooperParamTap);
+        testing::runBlock(*block, gap);
+    }
+    press(*block, kLooperParamRecDub);
+    std::vector<std::vector<float>> bar(1, std::vector<float>(48000 * 2, 0.0f));
+    testing::runBlock(*block, bar);
+    CHECK(looperStatus(*block).state == LooperState::Playing);
+    CHECK(looperStatus(*block).lengthTenths == 16);
+}
+
+TEST_CASE("TapTempo averages the taps and starts over after a pause")
+{
+    TapTempo taps;
+    CHECK(taps.tap(10.0) == 0.0);
+    CHECK(taps.tap(10.5) == doctest::Approx(120.0));
+    CHECK(taps.tap(11.0) == doctest::Approx(120.0));
+    CHECK(taps.tap(11.6) == doctest::Approx(60.0 / (1.6 / 3.0)));
+    CHECK(taps.tap(20.0) == 0.0); // a pause: starts over
+    CHECK(taps.tap(21.0) == doctest::Approx(60.0));
+}
+
+TEST_CASE("looper clicks go to the engine's click bus when it gives one")
+{
+    auto block = countInLooper(4, 1, 1);
+    std::vector<float> click(128, 0.0f);
+    std::vector<float> io(128, 0.0f);
+    float* channels[1] = { io.data() };
+    press(*block, kLooperParamRecDub);
+    block->setClickOutput(click.data());
+    block->process(channels, 1, 128);
+    float peak = 0.0f;
+    for (float v : click)
+        peak = std::max(peak, std::abs(v));
+    CHECK(peak > 0.01f);
+    CHECK(testing::rms(io, 0, io.size()) == 0.0);
 }
 
 TEST_CASE("harmonizer intervals follow the scale")

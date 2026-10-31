@@ -23,6 +23,11 @@ namespace xythos {
 // clicks are added to the output only, never recorded. Rec/Dub or Play/Stop during the count-in cancels it; during
 // the timed recording they act as in Free mode (and the clicks stop). Free mode is the looper as it was.
 //
+// The clicks go to the engine's click bus (Block::setClickOutput()), so the blocks after the looper don't change them.
+// Count-In defaults to 8 clicks, two bars of 4 (owner, 2026-10-31; was 4), and Click to 150% (was 70%: too quiet to
+// hear while playing). Tap (owner, 2026-10-31): tapping it sets the tempo for the next count-in, from the average of
+// the last taps; the UI times the same taps and sets the BPM control to match.
+//
 // Config: "countIn" (bool) marks a block made since Count In existed. Blocks saved before it lack it: their new
 // controls hold the host's unused values, so the DSP keeps them in Free mode, and the UI sets the controls to their
 // defaults and adds the key (migrateBlocks()).
@@ -44,7 +49,8 @@ enum LooperParam {
     kLooperParamCountIn,  // choice: clicks before recording, 0..16
     kLooperParamMeasures, // choice: bars to record, 1..16
     kLooperParamLoops,    // choice: passes recorded (the first, then overdubs), 1..8
-    kLooperParamClick,    // %: the clicks' level
+    kLooperParamClick,    // %: the clicks' level (100% = the metronome's default volume; up to 200%)
+    kLooperParamTap,      // momentary: tap tempo for BPM
     kLooperParamCount
 };
 

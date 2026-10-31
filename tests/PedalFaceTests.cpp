@@ -155,3 +155,46 @@ TEST_CASE("every generic pedal photo has a footswitch and an LED, and no knobs")
     }
     CHECK(count == static_cast<int>(genericPedalFaces().size()));
 }
+
+TEST_CASE("every amp head photo has five knobs for the NAM tone controls, a power LED and a switch")
+{
+    const std::filesystem::path images = XYTHOS_AMP_IMAGES;
+    int count = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(images))
+    {
+        if (entry.path().extension() != ".webp")
+            continue;
+        const std::string id = entry.path().stem().string();
+        CAPTURE(id);
+        ++count;
+        const PedalFace* face = ampHeadFace(id.c_str());
+        REQUIRE(face != nullptr);
+        REQUIRE(face->knobs.size() == 5);
+        const char* const names[] = { "Input", "Bass", "Middle", "Treble", "Output" };
+        for (size_t i = 0; i < 5; ++i)
+        {
+            CHECK(std::string(face->knobs[i].param) == names[i]);
+            if (i > 0)
+                CHECK(face->knobs[i].x > face->knobs[i - 1].x);
+        }
+        REQUIRE(face->leds.size() == 1);
+        const FaceLed& led = face->leds[0];
+        const FaceSwitch& sw = face->footswitch;
+        CHECK(sw.radius > 0.0f);
+        CHECK(sw.x + sw.radius <= 1.0f);
+        // nothing overlaps (the photos are 1920 x 1088: y in width units is y * 1088 / 1920)
+        const auto apart = [](float ax, float ay, float ar, float bx, float by, float br) {
+            return std::hypot(ax - bx, (ay - by) * 1088.0f / 1920.0f) >= ar + br;
+        };
+        CHECK(apart(led.x, led.y, led.radius * 1.42f, sw.x, sw.y, sw.radius * 0.8f));
+        for (const FaceKnob& knob : face->knobs)
+        {
+            CHECK(apart(knob.x, knob.y, knob.radius, led.x, led.y, led.radius * 1.42f));
+            CHECK(apart(knob.x, knob.y, knob.radius, sw.x, sw.y, sw.radius));
+        }
+        for (size_t i = 1; i < face->knobs.size(); ++i)
+            CHECK(apart(face->knobs[i].x, face->knobs[i].y, face->knobs[i].radius, face->knobs[i - 1].x,
+                        face->knobs[i - 1].y, face->knobs[i - 1].radius));
+    }
+    CHECK(count == static_cast<int>(ampHeadFaces().size()));
+}

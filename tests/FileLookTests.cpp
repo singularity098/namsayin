@@ -217,3 +217,50 @@ TEST_CASE("each NAM pedal gets a generic pedal image from its hash, spread over 
     for (const auto& [id, n] : uses)
         CHECK(n > 10000 / static_cast<int>(ids.size()) / 3);
 }
+
+TEST_CASE("a NAM file's name suggests its amp style")
+{
+    CHECK(ampStyleInName("Fender Twin Clean") == kAmpClean);
+    CHECK(ampStyleInName("JC-120 jazz warm") == kAmpJazz);
+    CHECK(ampStyleInName("JCM800") == kAmpHighGain);
+    CHECK(ampStyleInName("Roland JC 120") == kAmpJazz);
+    CHECK(ampStyleInName("Plexi Crunch") == kAmpCrunch);
+    CHECK(ampStyleInName("AC30 edge of breakup") == kAmpCrunch);
+    CHECK(ampStyleInName("JCM800 Lead") == kAmpHighGain);
+    CHECK(ampStyleInName("5150 Djent Chug") == kAmpExtreme);
+    CHECK(ampStyleInName("Recto Modern Clean") == kAmpClean); // a heavy amp's clean channel is clean
+    CHECK(ampStyleInName("Some Amp Gain 2") == kAmpClean);
+    CHECK(ampStyleInName("Some Amp G10") == kAmpExtreme);
+    CHECK(ampStyleInName("Some Amp gain_7") == kAmpHighGain);
+    CHECK(ampStyleInName("My Amp") == 0u);
+    CHECK(ampStyleInName("Pleads") == 0u); // not inside a longer word
+}
+
+TEST_CASE("each NAM amp gets an amp head from its hash, matching the style its name suggests")
+{
+    std::vector<std::string> ids;
+    for (const auto& entry : std::filesystem::directory_iterator(XYTHOS_AMP_IMAGES))
+        if (entry.path().extension() == ".webp")
+            ids.push_back(entry.path().stem().string());
+    REQUIRE(ids.size() >= 78);
+    CHECK(defaultAmpImage("", "x", {}).empty());
+    CHECK(defaultAmpImage("", "x", ids) == "amp-1");
+    for (const std::string& id : ids)
+        CHECK(ampImageStyle(id) != 0u);
+
+    const std::string hash = "00112233445566778899aabbccddeeff";
+    std::vector<std::string> reversed(ids.rbegin(), ids.rend());
+    CHECK(defaultAmpImage(hash, "Amp", ids) == defaultAmpImage(hash, "Amp", reversed));
+    for (int i = 0; i < 200; ++i)
+    {
+        const std::string key = "hash " + std::to_string(i);
+        CHECK((ampImageStyle(defaultAmpImage(key, "Brutal Djent", ids)) & kAmpExtreme) != 0u);
+        CHECK((ampImageStyle(defaultAmpImage(key, "Twin Clean", ids)) & kAmpClean) != 0u);
+        CHECK((ampImageStyle(defaultAmpImage(key, "Jazz", ids)) & kAmpJazz) != 0u);
+    }
+    // a name that says nothing: any head
+    std::map<std::string, int> uses;
+    for (int i = 0; i < 10000; ++i)
+        ++uses[defaultAmpImage("hash " + std::to_string(i), "My Amp", ids)];
+    CHECK(uses.size() == ids.size());
+}

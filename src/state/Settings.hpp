@@ -38,6 +38,7 @@ struct Settings {
     std::string dismissedUpdate; // the release whose banner was closed: it and older ones stay hidden
     std::map<std::string, std::string> cabImages; // IR content hash -> the built-in cab image the user picked for it
     std::map<std::string, std::string> pedalImages; // NAM pedal content hash -> the generic pedal image picked for it
+    std::map<std::string, std::string> ampImages;   // NAM amp content hash -> the amp head image picked for it
 
     static constexpr size_t kMaxRecentPresets = 8;
     void addRecentPreset(const std::string& path);

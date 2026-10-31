@@ -143,4 +143,217 @@ std::string defaultPedalImage(std::string_view key, const std::vector<std::strin
     return sorted[static_cast<size_t>(dice.below(static_cast<int>(sorted.size())))];
 }
 
+namespace {
+
+// Picked by eye from each photo (owner, 2026-10-31: the heavy, very distorted tones get the strangest-looking heads)
+struct AmpImageStyle {
+    const char* id;
+    unsigned style;
+};
+constexpr AmpImageStyle kAmpImageStyles[] = {
+    { "amp-1", kAmpHighGain },
+    { "amp-2", kAmpClean },
+    { "amp-3", kAmpHighGain },
+    { "amp-4", kAmpClean },
+    { "amp-5", kAmpExtreme },
+    { "amp-6", kAmpCrunch },
+    { "amp-7", kAmpCrunch },
+    { "amp-8", kAmpHighGain },
+    { "amp-9", kAmpClean | kAmpJazz },
+    { "amp-10", kAmpExtreme },
+    { "amp-11", kAmpClean | kAmpJazz },
+    { "amp-12", kAmpExtreme },
+    { "amp-13", kAmpExtreme },
+    { "amp-14", kAmpClean },
+    { "amp-15", kAmpCrunch },
+    { "amp-16", kAmpCrunch | kAmpExtreme },
+    { "amp-17", kAmpHighGain },
+    { "amp-18", kAmpExtreme },
+    { "amp-19", kAmpExtreme },
+    { "amp-20", kAmpCrunch },
+    { "amp-21", kAmpExtreme },
+    { "amp-22", kAmpClean | kAmpCrunch },
+    { "amp-23", kAmpCrunch | kAmpHighGain },
+    { "amp-24", kAmpHighGain },
+    { "amp-25", kAmpHighGain },
+    { "amp-26", kAmpCrunch },
+    { "amp-27", kAmpHighGain | kAmpExtreme },
+    { "amp-28", kAmpExtreme },
+    { "amp-29", kAmpHighGain | kAmpExtreme },
+    { "amp-30", kAmpClean | kAmpCrunch },
+    { "amp-31", kAmpClean | kAmpCrunch },
+    { "amp-32", kAmpCrunch | kAmpHighGain },
+    { "amp-33", kAmpClean | kAmpCrunch },
+    { "amp-34", kAmpClean | kAmpJazz },
+    { "amp-35", kAmpHighGain },
+    { "amp-36", kAmpHighGain },
+    { "amp-37", kAmpClean | kAmpCrunch },
+    { "amp-38", kAmpHighGain | kAmpExtreme },
+    { "amp-39", kAmpHighGain },
+    { "amp-40", kAmpHighGain },
+    { "amp-41", kAmpClean | kAmpCrunch },
+    { "amp-42", kAmpExtreme },
+    { "amp-43", kAmpClean | kAmpJazz },
+    { "amp-44", kAmpExtreme },
+    { "amp-45", kAmpExtreme },
+    { "amp-46", kAmpExtreme },
+    { "amp-47", kAmpCrunch | kAmpHighGain },
+    { "amp-48", kAmpHighGain },
+    { "amp-49", kAmpHighGain },
+    { "amp-50", kAmpClean | kAmpCrunch },
+    { "amp-51", kAmpCrunch | kAmpHighGain },
+    { "amp-52", kAmpClean | kAmpCrunch },
+    { "amp-53", kAmpCrunch },
+    { "amp-54", kAmpHighGain | kAmpExtreme },
+    { "amp-55", kAmpHighGain },
+    { "amp-56", kAmpExtreme },
+    { "amp-57", kAmpCrunch },
+    { "amp-58", kAmpHighGain | kAmpExtreme },
+    { "amp-59", kAmpCrunch },
+    { "amp-60", kAmpCrunch | kAmpHighGain },
+    { "amp-61", kAmpClean | kAmpCrunch },
+    { "amp-62", kAmpHighGain | kAmpExtreme },
+    { "amp-63", kAmpClean | kAmpJazz },
+    { "amp-64", kAmpHighGain },
+    { "amp-65", kAmpCrunch },
+    { "amp-66", kAmpClean },
+    { "amp-67", kAmpExtreme },
+    { "amp-68", kAmpHighGain },
+    { "amp-69", kAmpCrunch },
+    { "amp-70", kAmpHighGain },
+    { "amp-71", kAmpCrunch | kAmpHighGain },
+    { "amp-72", kAmpExtreme },
+    { "amp-73", kAmpHighGain | kAmpExtreme },
+    { "amp-74", kAmpHighGain | kAmpExtreme },
+    { "amp-75", kAmpExtreme },
+    { "amp-76", kAmpCrunch | kAmpHighGain },
+    { "amp-77", kAmpClean | kAmpJazz },
+    { "amp-78", kAmpHighGain | kAmpExtreme },
+};
+
+std::string lowerAscii(std::string_view text)
+{
+    std::string out(text);
+    for (char& c : out)
+        if (c >= 'A' && c <= 'Z')
+            c = static_cast<char>(c - 'A' + 'a');
+    return out;
+}
+
+bool isAlpha(char c) { return c >= 'a' && c <= 'z'; }
+bool isDigit(char c) { return c >= '0' && c <= '9'; }
+
+// Whether `word` is in `text` (lowercase) and not inside a longer word: "lead" in "Lead 2" and "lead_ch" but not in
+// "pleads"; with `prefix` it may go on ("metal" in "metallica")
+bool hasWord(const std::string& text, std::string_view word, bool prefix = false)
+{
+    for (size_t at = text.find(word); at != std::string::npos; at = text.find(word, at + 1))
+    {
+        const size_t end = at + word.size();
+        if ((at == 0 || !isAlpha(text[at - 1])) && (prefix || end >= text.size() || !isAlpha(text[end])))
+            return true;
+    }
+    return false;
+}
+
+// A gain setting in the name: "gain 7", "gain7", "g7", "gain-10", "g 8.5"; -1 if none
+double gainInName(const std::string& text)
+{
+    for (const std::string_view word : { std::string_view("gain"), std::string_view("g") })
+    {
+        for (size_t at = text.find(word); at != std::string::npos; at = text.find(word, at + 1))
+        {
+            if (at > 0 && isAlpha(text[at - 1]))
+                continue;
+            size_t i = at + word.size();
+            while (i < text.size() && (text[i] == ' ' || text[i] == '_' || text[i] == '-' || text[i] == '@'))
+                ++i;
+            if (i >= text.size() || !isDigit(text[i]))
+                continue;
+            double value = 0.0;
+            while (i < text.size() && isDigit(text[i]))
+                value = value * 10.0 + (text[i++] - '0');
+            if (i + 1 < text.size() && (text[i] == '.' || text[i] == ',') && isDigit(text[i + 1]))
+                value += (text[i + 1] - '0') / 10.0;
+            if (value <= 10.0)
+                return value;
+        }
+    }
+    return -1.0;
+}
+
+} // namespace
+
+unsigned ampImageStyle(std::string_view id)
+{
+    for (const AmpImageStyle& entry : kAmpImageStyles)
+        if (id == entry.id)
+            return entry.style;
+    return 0;
+}
+
+unsigned ampStyleInName(std::string_view name)
+{
+    const std::string text = lowerAscii(name);
+    const auto any = [&text](std::initializer_list<std::string_view> words, bool prefix = false) {
+        for (const std::string_view word : words)
+            if (hasWord(text, word, prefix))
+                return true;
+        return false;
+    };
+    // what the name says about the sound wins over the amp it names: a "Clean" channel of a metal amp is clean, a
+    // "Crunch" setting of a Plexi is crunch
+    if (any({ "jazz", "warm", "mellow", "smooth" }))
+        return kAmpJazz;
+    if (any({ "clean", "cln", "glass", "glassy", "sparkle", "chime", "pristine", "acoustic" }))
+        return kAmpClean;
+    if (any({ "djent", "brutal", "doom", "sludge", "grind", "death", "thall", "extreme", "insane", "evil", "chug",
+              "fuzz" }))
+        return kAmpExtreme;
+    if (any({ "heavy", "lead", "high gain", "highgain", "hi gain", "higain", "hg", "shred", "thrash", "dist",
+              "distortion", "hot" })
+        || any({ "metal" }, true))
+        return kAmpHighGain;
+    if (any({ "crunch", "crnch", "edge", "breakup", "break up", "blues", "bluesy", "drive", "overdrive", "od", "rock",
+              "classic" }))
+        return kAmpCrunch;
+    // then the amp it names
+    if (any({ "mesa", "rectifier", "recto", "5150", "6505", "uberschall", "fortin", "boogie" }))
+        return kAmpExtreme;
+    if (any({ "jcm", "plexi", "evh", "slo", "soldano", "friedman", "jvm" }, true))
+        return kAmpHighGain;
+    if (any({ "vox", "ac30", "ac15", "marshall", "dumble", "orange" }))
+        return kAmpCrunch;
+    if (any({ "jc", "jc120" }))
+        return kAmpJazz;
+    if (any({ "twin", "deluxe", "fender", "princeton", "bassman" }))
+        return kAmpClean;
+    // a gain number: a fuzzy guess at the rest
+    if (const double gain = gainInName(text); gain >= 0.0)
+        return gain < 3.0 ? kAmpClean : gain < 6.0 ? kAmpCrunch : gain < 9.0 ? kAmpHighGain : kAmpExtreme;
+    return 0;
+}
+
+std::string defaultAmpImage(std::string_view key, std::string_view fileName, const std::vector<std::string>& ids)
+{
+    if (ids.empty())
+        return {};
+    // in their numbers' order, so the pick doesn't depend on the order the ids come in
+    std::vector<std::string> sorted = ids;
+    const auto number = [](const std::string& id) { return std::atoi(id.c_str() + id.rfind('-') + 1); };
+    std::stable_sort(sorted.begin(), sorted.end(),
+                     [&number](const std::string& a, const std::string& b) { return number(a) < number(b); });
+    if (key.empty())
+        return sorted.front();
+    std::vector<std::string> pool;
+    if (const unsigned style = ampStyleInName(fileName); style != 0)
+        for (const std::string& id : sorted)
+            if (ampImageStyle(id) & style)
+                pool.push_back(id);
+    if (pool.empty())
+        pool = sorted;
+    Dice dice(key);
+    return pool[static_cast<size_t>(dice.below(static_cast<int>(pool.size())))];
+}
+
 } // namespace xythos

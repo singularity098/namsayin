@@ -5,7 +5,8 @@
 # Run at build time (cmake -DSOURCE=<resources/blocks> -DOUT=<file> -P EmbedBlockImages.cmake), so the images are
 # committed only as WebPs; tools/prepare_block_image.py makes them.
 # With -DKIND=Cab it writes CabImages.cpp from resources/cabs/ instead (tools/prepare_cab_images.py), by image id; the
-# functions are then builtinCabImage(), builtinCabThumb() and builtinCabIds().
+# functions are then builtinCabImage(), builtinCabThumb() and builtinCabIds(); likewise -DKIND=Pedal (resources/pedals/)
+# and -DKIND=Amp (resources/amps/).
 
 if(NOT KIND)
   set(KIND Block)

@@ -161,7 +161,7 @@ private:
     // Both return the channel count after them: a Mono chain turns stereo at a stereo block and at the merge
     uint32_t processChain(uint32_t numChannels, uint32_t frames);
     uint32_t processNodes(const std::vector<Node>& nodes, float* const* work, float* const* scratch,
-                          uint32_t numChannels, uint32_t frames, MidiOutput& midi);
+                          uint32_t numChannels, uint32_t frames, MidiOutput& midi, float* click);
     void collectMidi(const MidiOutput& midi);
     void merge(uint32_t channelsA, uint32_t channelsB, uint32_t frames);
     float mergeGain(int branch, int channel) const;
@@ -233,6 +233,7 @@ private:
     std::vector<float> fRigInput[2]; // the chain input, for blocks keyed from it (Block::setRigInput)
     std::vector<float> fBranch[2], fBranchScratch[2]; // branch B of a split
     std::vector<float> fClick;
+    std::vector<float> fBlockClick[2]; // clicks blocks send past the chain (the looper's): the main thread's, branch B's
 };
 
 } // namespace xythos

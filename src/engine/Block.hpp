@@ -138,6 +138,11 @@ public:
 
     // RT. Where the block sends MIDI (MIDI Out), called before every process(); its frames are the buffer's.
     virtual void setMidiOutput(MidiOutput* /*output*/) {}
+
+    // RT. A mono buffer, called before every process() with its frames, that the engine adds to the plugin's output
+    // with the metronome: past the blocks after this one and the output level, so a click (the looper's count-in)
+    // isn't distorted by an amp after it or turned down with the guitar. Blocks add to it, never overwrite it.
+    virtual void setClickOutput(float* /*click*/) {}
 };
 
 enum class MeterStyle {

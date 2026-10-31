@@ -929,8 +929,8 @@ constexpr BlockHelp kBlockHelp[] = {
       "Beats to the bar for the count-in metronome (4 for 4/4, 3 for a waltz). The first beat of each bar clicks "
       "higher." },
     { "looper", "Count-In",
-      "How many clicks the metronome counts before recording starts. 4 gives you one bar of 4/4 to get ready; 0 "
-      "starts recording on the first click." },
+      "How many clicks the metronome counts before recording starts. 8 gives you two bars of 4/4 to get ready; 4 "
+      "one bar; 0 starts recording on the first click." },
     { "looper", "Measures",
       "How many bars Count In mode records. When they're done the loop closes on its own and plays back, so you "
       "don't need to hit the footswitch on the beat." },
@@ -938,7 +938,12 @@ constexpr BlockHelp kBlockHelp[] = {
       "How many times round the loop Count In mode records. 1 records the loop once; with more, each extra pass "
       "overdubs on top (the click keeps going) before it settles into playback." },
     { "looper", "Click",
-      "The volume of the count-in metronome. The click is only heard, never recorded into the loop." },
+      "The volume of the count-in metronome, up to 200%. 100% is as loud as the main metronome's default. The click "
+      "is only heard, never recorded into the loop, and blocks after the looper don't change it, so an amp after "
+      "it won't distort it." },
+    { "looper", "Tap",
+      "Tap it in time, three or four times, to set the BPM for the next count-in to the tempo you tap. Map a "
+      "footswitch to it with MIDI learn to set the tempo with your foot." },
 
     // Octave
     { "octave", "Sub 1",

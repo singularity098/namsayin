@@ -247,6 +247,16 @@ add_custom_command(
   DEPENDS ${XYTHOS_PEDAL_IMAGES} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedBlockImages.cmake
   COMMENT "Embedding the generic pedal images"
   VERBATIM)
+# The built-in amp head images for NAM amp models: resources/amps/ (made by tools/prepare_amp_images.py), the same way
+file(GLOB XYTHOS_AMP_IMAGES CONFIGURE_DEPENDS resources/amps/*.webp resources/amps/thumbs/*.webp)
+set(XYTHOS_AMP_IMAGES_CPP ${CMAKE_CURRENT_BINARY_DIR}/generated/AmpImages.cpp)
+add_custom_command(
+  OUTPUT ${XYTHOS_AMP_IMAGES_CPP}
+  COMMAND ${CMAKE_COMMAND} -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/resources/amps -DOUT=${XYTHOS_AMP_IMAGES_CPP}
+          -DKIND=Amp -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedBlockImages.cmake
+  DEPENDS ${XYTHOS_AMP_IMAGES} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedBlockImages.cmake
+  COMMENT "Embedding the amp head images"
+  VERBATIM)
 
 dpf_add_plugin(xythos
   TARGETS ${XYTHOS_FORMATS}
@@ -259,6 +269,7 @@ dpf_add_plugin(xythos
     ${XYTHOS_BLOCK_IMAGES_CPP}
     ${XYTHOS_CAB_IMAGES_CPP}
     ${XYTHOS_PEDAL_IMAGES_CPP}
+    ${XYTHOS_AMP_IMAGES_CPP}
     src/ui/FileLooks.cpp
     src/ui/FolderPicker.cpp
     src/ui/FontData.cpp
@@ -353,6 +364,7 @@ if(XYTHOS_BUILD_TESTS)
     XYTHOS_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/recordings" XYTHOS_RECORDINGS_WAV="${CMAKE_BINARY_DIR}/recordings"
     XYTHOS_BLOCK_IMAGES="${CMAKE_CURRENT_SOURCE_DIR}/resources/blocks"
     XYTHOS_CAB_IMAGES="${CMAKE_CURRENT_SOURCE_DIR}/resources/cabs"
-    XYTHOS_PEDAL_IMAGES="${CMAKE_CURRENT_SOURCE_DIR}/resources/pedals")
+    XYTHOS_PEDAL_IMAGES="${CMAKE_CURRENT_SOURCE_DIR}/resources/pedals"
+    XYTHOS_AMP_IMAGES="${CMAKE_CURRENT_SOURCE_DIR}/resources/amps")
   add_test(NAME xythos-tests COMMAND xythos-tests)
 endif()

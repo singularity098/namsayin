@@ -23,6 +23,7 @@
 #include "Vsync.hpp"
 #include "engine/BlockRegistry.hpp"
 #include "engine/Params.hpp"
+#include "engine/TapTempo.hpp"
 #include "engine/blocks/CompressorBlock.hpp"
 #include "engine/blocks/DelayBlock.hpp"
 #include "engine/blocks/IrBlock.hpp"
@@ -128,7 +129,8 @@ enum class Led { None, Off, On };
 // Kinds of box, for surface(): each has its own outline brightness
 enum class Surface { Bar, Panel, Tile, Button, Dialog, Inset, Item, Popup, PopupItem };
 
-constexpr float kTopBarHeight = 80.0f; // room for the big logo (owner, 2026-10-29; was 60 with the text logo)
+constexpr float kTopBarHeight = 72.0f; // room for the big logo (owner, 2026-10-29; was 60 with the text logo, then 80
+                                       // until the logo shrank 10%, 2026-10-31)
 constexpr float kFontScale = 1.69f; // text is drawn this much larger than layout sizes (see fontSize())
 constexpr float kBottomBarHeight = 132.0f;
 constexpr float kTileSize = 120.0f;
@@ -210,6 +212,7 @@ enum class Hit {
     DialogBackdrop,
     DialogPanel,
     DialogClose,
+    DialogOk,       // Add Block's OK: keeps the block being previewed
     DialogCategory, // index = Category
     DialogItem,     // index = position in the current category's item list
     ListRow,        // index = row in fRows (the library list or the search results)
@@ -314,6 +317,10 @@ enum Field {
     kFieldCount
 };
 
+// Which built-in photos the Cab Image dialog picks from: cabs (IR blocks), generic pedals (NAM pedal captures), amp
+// heads (NAM amps)
+enum class PhotoKind { Cab, Pedal, Amp };
+
 enum class Dialog { None, AddBlock, Settings, Menu, SavePreset, Presets, Images, CabImages, InkPicker };
 
 // What a file picked in the file browser is for
@@ -356,7 +363,6 @@ struct ChainLayout {
 
 constexpr const char* kFretboredUrl = "https://singularity098.github.io/fretbored/";
 constexpr const char* kGitHubUrl = "https://github.com/singularity098/xythos";
-constexpr double kTapTimeout = 2.0; // seconds between taps before tap tempo starts over
 constexpr int kNoteValues[4] = { 2, 4, 8, 16 };
 
 // Beat groupings, as in Fretbored. A grouping is stored as a bit mask of the beats that start a group.
@@ -741,6 +747,7 @@ protected:
         fWidth = getWidth() / scale;
         fHeight = getHeight() / scale;
         fHits.clear();
+        fDrawnFields.clear();
         ++fFrame;
 
         save();
@@ -1075,13 +1082,15 @@ protected:
             repaint();
             return true;
 
+        // Add Block: a click picks a block and puts it in the chain to hear it (a live preview); OK, Enter or a
+        // double-click keeps it, Cancel or Esc takes it out again
         case Hit::DialogItem: {
             const std::vector<AddItem> items = addItems(fDialogCategory);
             if (hit->index >= static_cast<int>(items.size()))
                 return true;
-            const AddItem& item = items[hit->index];
-            closeDialog();
-            addBlock(item.type, nlohmann::json::object());
+            pickAddItem(items[hit->index]);
+            if (doubleClick)
+                commitPreview();
             return true;
         }
 
@@ -1093,14 +1102,15 @@ protected:
             }
             if (hit->index >= static_cast<int>(fRows.size()) || fRows[hit->index].type == nullptr)
                 return true;
-            const AddRow row = fRows[hit->index];
-            nlohmann::json config = nlohmann::json::object();
-            if (row.entry)
-                config = { { "path", row.entry->path }, { "hash", row.entry->hash } };
-            closeDialog();
-            addBlock(row.type, std::move(config));
+            pickAddRow(fRows[hit->index]);
+            if (doubleClick)
+                commitPreview();
             return true;
         }
+
+        case Hit::DialogOk:
+            commitPreview();
+            return true;
 
         case Hit::ListStar: {
             if (hit->index >= static_cast<int>(fRows.size()) || fRows[hit->index].entry == nullptr)
@@ -1293,13 +1303,15 @@ protected:
         case Hit::CabChoose: {
             // kept in the settings by the IR's (or NAM pedal's) content, so it follows the file into every chain and
             // preset
-            const bool pedal = fCabPedal;
-            const std::vector<std::string>& ids = pedal ? builtinPedalIds() : builtinCabIds();
+            const PhotoKind kind = fCabKind;
+            const std::vector<std::string>& ids = photoIds(kind);
             const std::string id = hit->index >= 0 && hit->index < static_cast<int>(ids.size()) ? ids[hit->index]
                                                                                                  : std::string();
             const std::string key = cabKey(fCabHash, fCabPath);
-            updateSettings([&key, &id, pedal](Settings& settings) {
-                std::map<std::string, std::string>& picks = pedal ? settings.pedalImages : settings.cabImages;
+            updateSettings([&key, &id, kind](Settings& settings) {
+                std::map<std::string, std::string>& picks = kind == PhotoKind::Pedal ? settings.pedalImages
+                                                          : kind == PhotoKind::Amp   ? settings.ampImages
+                                                                                     : settings.cabImages;
                 if (id.empty())
                     picks.erase(key);
                 else
@@ -1536,6 +1548,10 @@ protected:
             && stepLibraryHistory(ev.key == kKeyRight || ev.key == ']'))
             return true;
 
+        // Tab and Shift+Tab move between the text fields on screen, in the order they're drawn
+        if (ev.key == kKeyTab && (fFocusedField >= 0 || fDialog != Dialog::None) && tabToField((ev.mod & kModifierShift) != 0))
+            return true;
+
         if (fFocusedField >= 0)
         {
             TextEdit& edit = focusedEdit();
@@ -1555,6 +1571,10 @@ protected:
                 edit.moveEnd(shift);
             else if (ev.key == kKeyEnter && fDialog == Dialog::SavePreset)
                 confirmSavePreset();
+            else if (fDialog == Dialog::AddBlock && (ev.key == kKeyUp || ev.key == kKeyDown))
+                movePick(0, ev.key == kKeyUp ? -1 : 1);
+            else if (fDialog == Dialog::AddBlock && ev.key == kKeyEnter)
+                commitPreview();
             else if (ev.key == kKeyEnter)
                 blurField(true);
             else if (ev.key == kKeyEscape && (fFocusedField == kFieldSearch || fDialog == Dialog::SavePreset))
@@ -1598,6 +1618,21 @@ protected:
             closeDialog();
             return true;
         }
+        if (fDialog == Dialog::AddBlock)
+        {
+            switch (ev.key)
+            {
+            case kKeyUp:    movePick(0, -1); return true;
+            case kKeyDown:  movePick(0, 1); return true;
+            case kKeyLeft:  movePick(-1, 0); return true;
+            case kKeyRight: movePick(1, 0); return true;
+            case kKeyEnter: commitPreview(); return true;
+            default:        break;
+            }
+        }
+        // (not while Add Block may be previewing a block: the chain isn't settled)
+        if (fDialog == Dialog::AddBlock)
+            return false;
         if ((ev.mod & kModifierControl) && (ev.key == 'z' || ev.key == 'Z'))
         {
             if (ev.mod & kModifierShift)
@@ -1869,6 +1904,7 @@ private:
             const GlobalParamSpec& spec = globalParamSpec(index);
             value = spec.min + n * (spec.max - spec.min);
         }
+        watchLooperTap(index, value);
         if (gesture)
             editParameter(index, true);
         setHostParameter(index, value);
@@ -1960,19 +1996,36 @@ private:
     void tap()
     {
         const auto now = std::chrono::steady_clock::now();
-        if (!fTaps.empty() && std::chrono::duration<double>(now - fTaps.back()).count() > kTapTimeout)
-            fTaps.clear();
-        fTaps.push_back(now);
-        if (fTaps.size() > 8)
-            fTaps.erase(fTaps.begin());
         fTapAt = now;
-        if (fTaps.size() >= 2)
-        {
-            const double average =
-                std::chrono::duration<double>(fTaps.back() - fTaps.front()).count() / (fTaps.size() - 1);
-            setValue(kParamMetroTempo, static_cast<float>(std::round(60.0 / average)));
-        }
+        if (const double bpm = fTapTempo.tap(std::chrono::duration<double>(now.time_since_epoch()).count()); bpm > 0.0)
+            setValue(kParamMetroTempo, static_cast<float>(std::round(bpm)));
         repaint();
+    }
+
+    // A looper's Tap pressed (from the panel or a MIDI footswitch: about to be written to the host as `value`): the
+    // UI times the taps as the block does, and sets its BPM control to the tempo tapped, so the knob shows it
+    void watchLooperTap(uint32_t index, float value)
+    {
+        if (!isSlot(index) || value < 0.5f || fParams[index] >= 0.5f)
+            return;
+        const uint32_t offset = index - kSlotParamBase;
+        const int slot = static_cast<int>(offset / kSlotParamCount);
+        const int param = static_cast<int>(offset % kSlotParamCount) - 1;
+        const BlockState* block = blockInSlot(slot);
+        if (param != kLooperParamTap || block == nullptr || block->typeId != kLooperBlockDescriptor.typeId)
+            return;
+        TapTempo& taps = fLooperTaps[static_cast<size_t>(slot)];
+        const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        if (const double bpm = taps.tap(seconds); bpm > 0.0)
+        {
+            const ParamSpec& spec = kLooperBlockDescriptor.params[kLooperParamBpm];
+            const uint32_t bpmIndex = slotParam(slot, kLooperParamBpm);
+            const float n = spec.toNormalized(std::clamp(static_cast<float>(std::round(bpm)), spec.min, spec.max));
+            editParameter(bpmIndex, true);
+            setHostParameter(bpmIndex, n);
+            editParameter(bpmIndex, false);
+            syncChainValue(bpmIndex, n);
+        }
     }
 
     // A new frequency from the tuner. Readings are median-filtered; a clear change of note starts over.
@@ -2126,16 +2179,17 @@ private:
             return;
         const BlockState& state = fChain.blocks[block];
         openCabDialog(state.config.value("hash", std::string()), state.config.value("path", std::string()),
-                      isNamPedal(state));
+                      isNamPedal(state) ? PhotoKind::Pedal : isNamAmp(state) ? PhotoKind::Amp : PhotoKind::Cab);
     }
 
     // The Cab Image dialog for an IR file (its content hash and path), or the Pedal Image dialog for a NAM pedal
     // capture; from Add Block, closing it goes back there
-    void openCabDialog(const std::string& hash, const std::string& path, bool pedal = false)
+    void openCabDialog(const std::string& hash, const std::string& path, PhotoKind kind = PhotoKind::Cab)
     {
+        const bool pedal = kind != PhotoKind::Cab;
         fCabHash = hash;
         fCabPath = path;
-        fCabPedal = pedal;
+        fCabKind = kind;
         fCabReturn = fDialog == Dialog::AddBlock ? Dialog::AddBlock : Dialog::None;
         fCabReturnScroll = fListScroll;
         // the current image's size starts open
@@ -2598,6 +2652,7 @@ private:
             if (mapping.channel * 128 + mapping.cc == cc)
             {
                 const float value = midiCcToValue(mapping.param, static_cast<int>(fParams[kParamMidiLastValue]));
+                watchLooperTap(mapping.param, value);
                 setHostParameter(mapping.param, value);
                 if (isSlot(mapping.param))
                     syncChainValue(mapping.param, value);
@@ -2664,7 +2719,12 @@ private:
             }
             if (row.type == &kNamBlockDescriptor && namGear(row.entry->gearType) == NamGear::Pedal)
             {
-                openCabDialog(row.entry->hash, row.entry->path, true);
+                openCabDialog(row.entry->hash, row.entry->path, PhotoKind::Pedal);
+                return true;
+            }
+            if (row.type == &kNamBlockDescriptor && isAmpGear(namGear(row.entry->gearType)))
+            {
+                openCabDialog(row.entry->hash, row.entry->path, PhotoKind::Amp);
                 return true;
             }
         }
@@ -2707,6 +2767,8 @@ private:
                 entries.push_back({ "Cab Image…", MenuAction::CabImage });
             if (isNamPedal(fChain.blocks[hit->index]) && userImage(fChain.blocks[hit->index]) == nullptr)
                 entries.push_back({ "Pedal Image…", MenuAction::CabImage });
+            if (isNamAmp(fChain.blocks[hit->index]) && userImage(fChain.blocks[hit->index]) == nullptr)
+                entries.push_back({ "Amp Image…", MenuAction::CabImage });
             entries.push_back({ "Copy", MenuAction::CopyBlock });
             if (gBlockClipboard)
                 entries.push_back({ "Paste after", MenuAction::PasteBlock });
@@ -2999,6 +3061,8 @@ private:
         fListScroll = 0.0f;
         if (dialog == Dialog::AddBlock)
         {
+            fPickKey.clear();
+            fPreviewing = false;
             // ready to type a new search
             fFields[kFieldSearch].clear();
             focusField(kFieldSearch);
@@ -3015,8 +3079,29 @@ private:
         getWindow().focus();
     }
 
+    // Moves the keyboard focus to the next text field drawn (the previous one with `back`), wrapping around, with its
+    // text selected so typing replaces it. From no field: the first (or last). False if no field is on screen.
+    bool tabToField(bool back)
+    {
+        if (fDrawnFields.empty())
+            return false;
+        const int n = static_cast<int>(fDrawnFields.size());
+        int at = -1;
+        for (int i = 0; i < n; ++i)
+            if (fDrawnFields[static_cast<size_t>(i)] == fFocusedField)
+                at = i;
+        const int next = at < 0 ? (back ? n - 1 : 0) : (at + (back ? n - 1 : 1)) % n;
+        blurField(true);
+        focusField(fDrawnFields[static_cast<size_t>(next)]);
+        fEdit.selectAll();
+        repaint();
+        return true;
+    }
+
     void closeDialog()
     {
+        if (fDialog == Dialog::AddBlock)
+            cancelPreview();
         blurField(true);
         if (fDialog == Dialog::InkPicker)
         {
@@ -3189,6 +3274,8 @@ private:
             return cabImage(cabImageFor(block), thumb);
         if (isNamPedal(block))
             return pedalImage(pedalImageFor(block), thumb);
+        if (isNamAmp(block))
+            return ampImage(ampImageFor(block), thumb);
         return typeImage(BlockRegistry::builtin().find(block.typeId), thumb);
     }
 
@@ -3212,6 +3299,49 @@ private:
             return nullptr;
         const std::string key = std::string(kPedalKey) + id;
         return thumb ? builtinThumb(key) : builtinImage(key);
+    }
+
+    // The gear types shown as an amp head: amps, amps with their cab, outboard preamps, and models that don't say
+    static bool isAmpGear(NamGear gear)
+    {
+        return gear == NamGear::Unknown || gear == NamGear::Amp || gear == NamGear::AmpCab || gear == NamGear::Outboard;
+    }
+
+    // A NAM block with a file whose model is an amp (isAmpGear()); one without a file keeps the drawn art
+    bool isNamAmp(const BlockState& block) const
+    {
+        return block.typeId == kNamBlockDescriptor.typeId && !block.config.value("path", std::string()).empty()
+            && isAmpGear(namGear(namFileInfo(block).gearType));
+    }
+
+    // A built-in amp head image (resources/amps/), or its thumbnail; cached with the block types' images
+    NanoImage* ampImage(const std::string& id, bool thumb)
+    {
+        if (id.empty())
+            return nullptr;
+        const std::string key = std::string(kAmpKey) + id;
+        return thumb ? builtinThumb(key) : builtinImage(key);
+    }
+
+    // The amp head a NAM amp shows: the one the user picked for it (Settings::ampImages), else one picked by its hash
+    // among those suiting the style its name suggests
+    std::string ampImageFor(const std::string& hash, const std::string& path) const
+    {
+        const std::vector<std::string>& ids = builtinAmpIds();
+        const auto picked = fSettings.ampImages.find(cabKey(hash, path));
+        if (picked != fSettings.ampImages.end() && std::find(ids.begin(), ids.end(), picked->second) != ids.end())
+            return picked->second;
+        return defaultAmpImage(cabKey(hash, path), path.empty() ? std::string() : fileStem(path), ids);
+    }
+
+    std::string ampImageFor(const BlockState& block) const
+    {
+        return ampImageFor(block.config.value("hash", std::string()), block.config.value("path", std::string()));
+    }
+
+    static const std::vector<std::string>& photoIds(PhotoKind kind)
+    {
+        return kind == PhotoKind::Pedal ? builtinPedalIds() : kind == PhotoKind::Amp ? builtinAmpIds() : builtinCabIds();
     }
 
     // A NAM block whose file captures a pedal (its metadata's gear type)
@@ -3312,6 +3442,7 @@ private:
     // kPedalKey and theirs
     static constexpr std::string_view kCabKey = "cab:";
     static constexpr std::string_view kPedalKey = "pedal:";
+    static constexpr std::string_view kAmpKey = "amp:";
 
     static BuiltinImage builtinData(const std::string& key, bool thumb)
     {
@@ -3324,6 +3455,11 @@ private:
         {
             const char* const id = key.c_str() + kPedalKey.size();
             return thumb ? builtinPedalThumb(id) : builtinPedalImage(id);
+        }
+        if (key.starts_with(kAmpKey))
+        {
+            const char* const id = key.c_str() + kAmpKey.size();
+            return thumb ? builtinAmpThumb(id) : builtinAmpImage(id);
         }
         return thumb ? builtinBlockThumb(key.c_str()) : builtinBlockImage(key.c_str());
     }
@@ -3391,11 +3527,19 @@ private:
         if (type != nullptr && isBuiltinImage(img, type->typeId))
             return pedalFace(type->typeId);
         for (const auto& [key, cached] : fBuiltinImages)
+        {
             if (cached.image.get() == &img && key.starts_with(kPedalKey))
                 return genericPedalFace(key.c_str() + kPedalKey.size());
+            if (cached.image.get() == &img && key.starts_with(kAmpKey))
+                return ampHeadFace(key.c_str() + kAmpKey.size());
+        }
         for (const auto& [key, thumb] : fBuiltinThumbs)
+        {
             if (thumb.get() == &img && key.starts_with(kPedalKey))
                 return genericPedalFace(key.c_str() + kPedalKey.size());
+            if (thumb.get() == &img && key.starts_with(kAmpKey))
+                return ampHeadFace(key.c_str() + kAmpKey.size());
+        }
         return nullptr;
     }
 
@@ -3697,14 +3841,15 @@ private:
 
     // Adds a block where Add Block was opened for (the end of a section, a gap, or in place of a block being
     // replaced), starting from its defaults (parameter values live in the host)
-    void addBlock(const BlockDescriptor* type, nlohmann::json config)
+    void addBlock(const BlockDescriptor* type, nlohmann::json config, bool undoable = true)
     {
         Section section = fAddSection;
         int position = std::exchange(fAddPosition, kMaxBlocks);
         const int replace = indexOfSlot(std::exchange(fReplaceSlot, -1));
         if (replace < 0 && fChain.freeSlot() < 0)
             return;
-        beginEdit();
+        if (undoable)
+            beginEdit();
         if (replace >= 0)
         {
             section = fChain.sectionOf(replace);
@@ -3747,6 +3892,157 @@ private:
         fSelected = indexOfSlot(slot);
         fMergeSelected = false;
         sendChain();
+    }
+
+    // ---- Add Block's live preview
+    // The first pick takes a snapshot of the chain (and where the block goes); each pick puts the snapshot back and
+    // adds the picked block, so what's heard follows the selection. Keeping it records one undo step from the
+    // snapshot; cancelling puts the snapshot back with none.
+
+    // What identifies a row or item across frames (fRows is rebuilt as it's drawn): its file, folder or type
+    static std::string pickKey(const AddRow& row)
+    {
+        if (!row.folder.empty())
+            return "dir:" + row.folder;
+        if (row.entry != nullptr)
+            return "file:" + row.entry->path;
+        return row.type != nullptr ? std::string("type:") + row.type->typeId : std::string();
+    }
+
+    static std::string pickKey(const AddItem& item) { return std::string("type:") + item.type->typeId; }
+
+    void pickAddItem(const AddItem& item)
+    {
+        if (fPreviewing && fPickKey == pickKey(item))
+            return; // already in the chain (the first click of a double-click)
+        fPickKey = pickKey(item);
+        fPickLabel = item.label;
+        previewBlock(item.type, nlohmann::json::object());
+    }
+
+    // A row: a file or block type is previewed; a folder is only selected (Enter opens it)
+    void pickAddRow(const AddRow& row)
+    {
+        if (fPreviewing && fPickKey == pickKey(row))
+            return;
+        fPickKey = pickKey(row);
+        if (!row.folder.empty() || row.type == nullptr)
+        {
+            repaint();
+            return;
+        }
+        fPickLabel = row.entry != nullptr ? row.entry->name : std::string(row.type->displayName);
+        nlohmann::json config = nlohmann::json::object();
+        if (row.entry)
+            config = { { "path", row.entry->path }, { "hash", row.entry->hash } };
+        previewBlock(row.type, std::move(config));
+    }
+
+    void previewBlock(const BlockDescriptor* type, nlohmann::json config)
+    {
+        if (!fPreviewing)
+        {
+            fPreviewBase = fChain;
+            fPreviewBaseSelected = fSelected;
+            fPreviewSection = fAddSection;
+            fPreviewPosition = fAddPosition;
+            fPreviewReplaceSlot = fReplaceSlot;
+            fPreviewing = true;
+        }
+        else
+        {
+            restorePreviewBase();
+        }
+        fAddSection = fPreviewSection;
+        fAddPosition = fPreviewPosition;
+        fReplaceSlot = fPreviewReplaceSlot;
+        addBlock(type, std::move(config), false);
+    }
+
+    // The chain as it was before the preview, its values back in the host (a replaced block's slot may have been
+    // reused); not sent
+    void restorePreviewBase()
+    {
+        fChain = fPreviewBase;
+        for (const BlockState& block : fChain.blocks)
+        {
+            setHostParameter(slotBypassParam(block.slot), block.bypass ? 1.0f : 0.0f);
+            for (int p = 0; p < kParamsPerSlot; ++p)
+                setHostParameter(slotParam(block.slot, p), block.params[p]);
+        }
+        fSelected = fPreviewBaseSelected;
+    }
+
+    // OK, Enter or a double-click: keeps the previewed block (one undo step) and closes Add Block. On a folder row,
+    // Enter opens the folder instead.
+    void commitPreview()
+    {
+        if (!fPreviewing && fPickKey.starts_with("dir:"))
+        {
+            openLibraryDir(fPickKey.substr(4));
+            return;
+        }
+        if (!fPreviewing)
+            return;
+        fPreviewing = false;
+        fUndo.push(fPreviewBase);
+        fPickKey.clear();
+        closeDialog();
+    }
+
+    // Cancel, Esc, × or a click outside: the chain goes back to how it was
+    void cancelPreview()
+    {
+        if (!fPreviewing)
+            return;
+        fPreviewing = false;
+        fPickKey.clear();
+        fAddSection = fPreviewSection;
+        fAddPosition = kMaxBlocks;
+        fReplaceSlot = -1;
+        restorePreviewBase();
+        sendChain();
+    }
+
+    // The arrow keys: the next row (dy) or, in the two-column grid of block types, the next item across (dx); each
+    // one is previewed as it's reached
+    void movePick(int dx, int dy)
+    {
+        const bool rows = !fFields[kFieldSearch].empty() || isLibraryCategory(fDialogCategory);
+        if (rows)
+        {
+            if (dy == 0)
+                return;
+            const int count = static_cast<int>(fRows.size());
+            int at = -1;
+            for (int i = 0; i < count; ++i)
+                if (!fPickKey.empty() && pickKey(fRows[static_cast<size_t>(i)]) == fPickKey)
+                    at = i;
+            int next = at < 0 ? (dy > 0 ? -1 : count) : at;
+            do
+                next += dy;
+            while (next >= 0 && next < count && fRows[static_cast<size_t>(next)].heading != nullptr);
+            if (next < 0 || next >= count)
+                return;
+            fScrollToPick = true;
+            pickAddRow(fRows[static_cast<size_t>(next)]);
+            return;
+        }
+        const std::vector<AddItem> items = addItems(fDialogCategory);
+        const int count = static_cast<int>(items.size());
+        if (count == 0)
+            return;
+        int at = -1;
+        for (int i = 0; i < count; ++i)
+            if (pickKey(items[static_cast<size_t>(i)]) == fPickKey)
+                at = i;
+        const int columns = std::max(1, fItemColumns);
+        int next = at < 0 ? 0 : at + dx + dy * columns;
+        if (at >= 0 && (next < 0 || next >= count))
+            return;
+        next = std::clamp(next, 0, count - 1);
+        fScrollToPick = true;
+        pickAddItem(items[static_cast<size_t>(next)]);
     }
 
     // Inserts a copy of the copied block at a position in a section (past its end: at the end), with its values
@@ -4454,6 +4750,14 @@ private:
         case Hit::A2Size:
             return { "A2 Full/Lite", kA2SizeHelp };
         case Hit::CabImage:
+            if (hit.index >= 0 && hit.index < static_cast<int>(fChain.blocks.size()) && isNamAmp(fChain.blocks[hit.index]))
+                return { "Amp Image",
+                         "The amp head shown for this NAM model. Each model gets one of the built-in heads from its "
+                         "file's content, one that suits the style its name suggests (clean, jazz, crunch, lead, or "
+                         "very heavy for the strangest heads). Its knobs turn the block's Input, Bass, Middle, Treble "
+                         "and Output, and its power switch turns the block on or off. Right-click it to pick another "
+                         "head: your pick follows the file into every chain and preset, until you pick again or reset "
+                         "it to the default. You can also right-click a model in Add Block." };
             if (hit.index >= 0 && hit.index < static_cast<int>(fChain.blocks.size()) && isNamPedal(fChain.blocks[hit.index]))
                 return { "Pedal Image",
                          "The pedal shown for this NAM pedal capture. Each capture gets one of the built-in pedals "
@@ -4468,8 +4772,12 @@ private:
         case Hit::CabChoose:
             if (hit.index < 0)
                 return { "Reset to Default",
-                         fCabPedal ? "Shows the pedal this capture gets by default again: picked from its file's content."
-                                   : "Shows the cab this IR gets by default again: picked from its file's content." };
+                         fCabKind == PhotoKind::Pedal
+                             ? "Shows the pedal this capture gets by default again: picked from its file's content."
+                         : fCabKind == PhotoKind::Amp
+                             ? "Shows the amp head this model gets by default again: picked from its file's content "
+                               "and name."
+                             : "Shows the cab this IR gets by default again: picked from its file's content." };
             return {};
         case Hit::BlockImage:
             return { "Image",
@@ -4512,8 +4820,8 @@ private:
             if (hit.index >= 0 && hit.index < static_cast<int>(fRows.size()) && fRows[hit.index].entry != nullptr
                 && fRows[hit.index].type == &kIrBlockDescriptor)
                 return { fRows[hit.index].entry->name,
-                         "Click to add this IR to the chain. Right-click it to pick the cab image it shows, here and "
-                         "in every chain and preset." };
+                         "Click to hear this IR in the chain, double-click to add it. Right-click it to pick the cab "
+                         "image it shows, here and in every chain and preset." };
             return {};
         case Hit::MetroAccent:
             return { "Beat " + std::to_string(hit.index + 1), globalParamHelp(kParamMetroAccent1) };
@@ -5389,7 +5697,9 @@ private:
     // (owner, 2026-10-30; it was fixed violet): with a gradient on, the gradient's colour where it sits.
     float drawLogo(float x, float y, float maxRight)
     {
-        constexpr float kLogoHeight = 76.0f; // the image's height, glow included: letters 36 px high, crop circle 54 across
+        // the image's height, glow included: letters 32 px high, crop circle 49 across (owner, 2026-10-31: 10% smaller
+        // than the 76 it was, for room)
+        constexpr float kLogoHeight = 68.4f;
         if (!fLogoTried)
         {
             fLogoTried = true;
@@ -6396,7 +6706,7 @@ private:
             const bool bypassed = fParams[slotBypassParam(block.slot)] >= 0.5f;
             // an IR's cab image, or a NAM pedal's pedal image: right-click (or click) to pick another; under the
             // image's footswitch, which drawBlockImage() adds
-            if (img && (type == &kIrBlockDescriptor || isNamPedal(block)) && userImage(block) == nullptr)
+            if (img && (type == &kIrBlockDescriptor || isNamPedal(block) || isNamAmp(block)) && userImage(block) == nullptr)
                 fHits.push_back({ { imageX, imageY, imageW, imageH }, Hit::CabImage, fSelected });
             globalAlpha(bypassed ? 0.35f : 1.0f);
             const Led led = bypassed ? Led::Off : Led::On;
@@ -6531,7 +6841,8 @@ private:
         surface(x, y, w, h, 12.0f, Surface::Popup);
         fHits.push_back({ { x, y, w, h }, Hit::DialogPanel, 0 });
 
-        label(x + 20.0f, y + 26.0f, fReplaceSlot >= 0 ? "Replace Block" : "Add Block", theme::text, 16.0f,
+        const bool replacing = (fPreviewing ? fPreviewReplaceSlot : fReplaceSlot) >= 0;
+        label(x + 20.0f, y + 26.0f, replacing ? "Replace Block" : "Add Block", theme::text, 16.0f,
               ALIGN_LEFT | ALIGN_MIDDLE);
         const Rect close { x + w - 40.0f, y + 10.0f, 30.0f, 30.0f };
         label(close.x + 15.0f, close.y + 15.0f, "×", theme::textDim, 22.0f, ALIGN_CENTER | ALIGN_MIDDLE);
@@ -6558,16 +6869,35 @@ private:
             fHits.push_back({ r, Hit::DialogCategory, c });
         }
 
+        // the footer: what's being heard, Cancel and OK (Enter and Esc do the same; a double-click is pick and OK)
+        constexpr float kFooterH = 48.0f;
+        const float listBottomY = y + h - kFooterH;
+        {
+            const Rect ok { x + w - 16.0f - 96.0f, y + h - 40.0f, 96.0f, 30.0f };
+            const Rect cancel { ok.x - 8.0f - 96.0f, ok.y, 96.0f, 30.0f };
+            drawButton(cancel, "Cancel", false, theme::accent, Hit::DialogClose, 0);
+            drawButton(ok, replacing ? "Replace" : "Add", fPreviewing, theme::accent, Hit::DialogOk, 0);
+            if (!fPreviewing)
+                fillRect(ok.x, ok.y, ok.w, ok.h, theme::background.withAlpha(0.6f), 6.0f);
+            fontSize(12.0f);
+            const std::string hint = fPreviewing
+                ? fitText("Hearing " + fPickLabel + " in the chain", std::max(0.0f, cancel.x - 16.0f - (x + 20.0f)))
+                : fitText("Pick a block to hear it in the chain; double-click to add it",
+                          std::max(0.0f, cancel.x - 16.0f - (x + 20.0f)));
+            label(x + 20.0f, ok.y + ok.h / 2, hint.c_str(), fPreviewing ? theme::text : theme::textDim, 12.0f,
+                  ALIGN_LEFT | ALIGN_MIDDLE);
+        }
+
         // the category's blocks on the right, or what matches the search in every category
         const float itemsX = listX + listW + 16.0f, itemsW = x + w - 16.0f - itemsX;
         if (searching)
         {
-            drawSearchResults(itemsX, listTop, itemsW, y + h - 12.0f - listTop);
+            drawSearchResults(itemsX, listTop, itemsW, listBottomY - listTop);
             return;
         }
         if (isLibraryCategory(fDialogCategory))
         {
-            drawLibraryList(itemsX, listTop, itemsW, y + h - 12.0f - listTop);
+            drawLibraryList(itemsX, listTop, itemsW, listBottomY - listTop);
             return;
         }
         const std::vector<AddItem> items = addItems(fDialogCategory);
@@ -6580,11 +6910,23 @@ private:
         // one column of rows while they fit, then two, in reading order; rows keep their height (big enough to see
         // the art) and the list scrolls
         constexpr float itemH = 112.0f, gap = 8.0f, thumbW = 92.0f;
-        const float itemsH = y + h - 12.0f - listTop;
+        const float itemsH = listBottomY - listTop;
         const int count = static_cast<int>(items.size());
         const int columns = count * (itemH + gap) - gap > itemsH ? 2 : 1;
+        fItemColumns = columns;
         const int rows = (count + columns - 1) / columns;
         const float contentH = rows * (itemH + gap) - gap;
+        if (fScrollToPick)
+        {
+            fScrollToPick = false;
+            for (int i = 0; i < count; ++i)
+            {
+                if (pickKey(items[static_cast<size_t>(i)]) != fPickKey)
+                    continue;
+                const float top = (i / columns) * (itemH + gap);
+                fListScroll = std::clamp(fListScroll, top + itemH - itemsH, top);
+            }
+        }
         float gridW = itemsW;
         fListScroll = std::clamp(fListScroll, 0.0f, std::max(0.0f, contentH - itemsH));
         if (contentH > itemsH)
@@ -6604,6 +6946,8 @@ private:
                 continue;
             const bool inside = fMouseY >= listTop && fMouseY < listBottom;
             surface(r.x, r.y, r.w, r.h, 8.0f, Surface::PopupItem, inside && r.contains(fMouseX, fMouseY));
+            if (pickKey(items[i]) == fPickKey)
+                drawPickOutline(r, 8.0f);
             if (NanoImage* img = typeImage(items[i].type, true))
                 drawBlockImage(*img, items[i].type, -1, r.x + 10.0f, r.y + 6.0f, thumbW, r.h - 12.0f, 3.0f, false);
             else
@@ -6618,10 +6962,22 @@ private:
         restore();
     }
 
+    // The picked row or item in Add Block (the one being heard): a highlight outline over its surface
+    void drawPickOutline(const Rect& r, float radius)
+    {
+        fillRect(r.x, r.y, r.w, r.h, theme::accent.withAlpha(0.12f), radius);
+        beginPath();
+        roundedRect(r.x + 1.0f, r.y + 1.0f, r.w - 2.0f, r.h - 2.0f, radius);
+        strokeColor(theme::accent);
+        strokeWidth(1.5f);
+        stroke();
+    }
+
     // A single-line text field. Click to edit; Enter or clicking elsewhere ends editing. A clearable field shows an ×
     // to empty it while it has text.
     void drawTextField(const Rect& r, Field field, const char* placeholder, bool clearable = false)
     {
+        fDrawnFields.push_back(field);
         const bool clearButton = clearable && !fFields[field].empty();
         const float textRight = clearButton ? 26.0f : 0.0f; // room for the ×
         const bool focused = fFocusedField == field;
@@ -7016,9 +7372,15 @@ private:
     void drawRows(float x, float listY, float w, float listH)
     {
         constexpr float rowH = 76.0f, headingH = 28.0f, thumbW = 96.0f, textX = thumbW + 20.0f;
-        float contentH = 0.0f;
+        float contentH = 0.0f, pickTop = -1.0f;
         for (const AddRow& row : fRows)
+        {
+            if (row.heading == nullptr && !fPickKey.empty() && pickKey(row) == fPickKey)
+                pickTop = contentH;
             contentH += row.heading ? headingH : rowH;
+        }
+        if (std::exchange(fScrollToPick, false) && pickTop >= 0.0f)
+            fListScroll = std::clamp(fListScroll, pickTop + rowH - listH, pickTop);
         fListScroll = std::clamp(fListScroll, 0.0f, std::max(0.0f, contentH - listH));
         if (contentH > listH)
         {
@@ -7046,6 +7408,8 @@ private:
             const Rect r { x, y0, w, rowH - 4.0f };
             const bool hover = r.contains(fMouseX, fMouseY) && fMouseY >= listY && fMouseY < listY + listH;
             surface(r.x, r.y, r.w, r.h, 6.0f, Surface::Item, hover);
+            if (!fPickKey.empty() && pickKey(row) == fPickKey)
+                drawPickOutline(r, 6.0f);
             const float top = std::max(r.y, listY), bottom = std::min(r.y + r.h, listY + listH);
 
             if (!row.folder.empty())
@@ -7068,6 +7432,8 @@ private:
                                ? cabImage(cabImageFor(row.entry->hash, row.entry->path), true)
                            : namGear(row.entry->gearType) == NamGear::Pedal
                                ? pedalImage(pedalImageFor(row.entry->hash, row.entry->path), true)
+                           : isAmpGear(namGear(row.entry->gearType))
+                               ? ampImage(ampImageFor(row.entry->hash, row.entry->path), true)
                                : nullptr;
             if (img)
                 drawBlockImage(*img, row.type, -1, r.x + 8.0f, r.y + 4.0f, thumbW, r.h - 8.0f, 3.0f, false);
@@ -7464,7 +7830,8 @@ private:
 
     // The Cab Image dialog: the built-in cab images by size, in sections to open (bass: 1x10, 2x10, 4x10; guitar:
     // 1x12, 2x12, 4x12). Clicking one shows it for the IR (fCabHash) from then on; Reset to Default undoes that.
-    // For a NAM pedal (fCabPedal) it's the Pedal Image dialog: the generic pedal images, all in one grid.
+    // For a NAM pedal (PhotoKind::Pedal) it's the Pedal Image dialog: the generic pedal images, all in one grid; for a NAM
+    // amp (PhotoKind::Amp) the Amp Image dialog, the amp heads likewise.
     void drawCabDialog()
     {
         fHits.push_back({ { 0, 0, fWidth, fHeight }, Hit::DialogBackdrop, 0 });
@@ -7476,8 +7843,11 @@ private:
         surface(x, y, w, h, 12.0f, Surface::Dialog);
         fHits.push_back({ { x, y, w, h }, Hit::DialogPanel, 0 });
 
-        const bool pedal = fCabPedal;
-        label(x + 20.0f, y + 26.0f, pedal ? "Pedal Image" : "Cab Image", theme::text, 16.0f, ALIGN_LEFT | ALIGN_MIDDLE);
+        const PhotoKind kind = fCabKind;
+        const bool pedal = kind != PhotoKind::Cab; // one grid without size sections (pedals, amps)
+        const bool amp = kind == PhotoKind::Amp;
+        label(x + 20.0f, y + 26.0f, amp ? "Amp Image" : pedal ? "Pedal Image" : "Cab Image", theme::text, 16.0f,
+              ALIGN_LEFT | ALIGN_MIDDLE);
         const Rect close { x + w - 40.0f, y + 10.0f, 30.0f, 30.0f };
         label(close.x + 15.0f, close.y + 15.0f, "×", theme::textDim, 22.0f, ALIGN_CENTER | ALIGN_MIDDLE);
         fHits.push_back({ close, Hit::DialogClose, 0 });
@@ -7486,21 +7856,24 @@ private:
                                          w - 80.0f);
         label(x + 20.0f, y + 48.0f, file.c_str(), theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
 
-        const std::vector<std::string>& ids = pedal ? builtinPedalIds() : builtinCabIds();
-        const std::string current = pedal ? pedalImageFor(fCabHash, fCabPath) : cabImageFor(fCabHash, fCabPath);
-        const std::string fallback = pedal ? defaultPedalImage(cabKey(fCabHash, fCabPath), ids)
-                                           : defaultCabImage(cabKey(fCabHash, fCabPath),
-                                                             fCabPath.empty() ? std::string() : fileStem(fCabPath), ids);
-        // the sections: a cab size each, or for pedals one without a heading
+        const std::vector<std::string>& ids = photoIds(kind);
+        const std::string stem = fCabPath.empty() ? std::string() : fileStem(fCabPath);
+        const std::string current = amp ? ampImageFor(fCabHash, fCabPath)
+                                  : pedal ? pedalImageFor(fCabHash, fCabPath) : cabImageFor(fCabHash, fCabPath);
+        const std::string fallback = amp ? defaultAmpImage(cabKey(fCabHash, fCabPath), stem, ids)
+                                   : pedal ? defaultPedalImage(cabKey(fCabHash, fCabPath), ids)
+                                           : defaultCabImage(cabKey(fCabHash, fCabPath), stem, ids);
+        // the sections: a cab size each, or for pedals and amps one without a heading
         std::vector<std::vector<std::string>> sizes;
         if (pedal)
-            sizes.push_back(cabImagesOfSize(ids, "pedal"));
+            sizes.push_back(cabImagesOfSize(ids, amp ? "amp" : "pedal"));
         else
             for (const char* size : kCabSizes)
                 sizes.push_back(cabImagesOfSize(ids, size));
         const auto open = [&](size_t i) { return pedal || fCabOpen[i]; };
 
-        constexpr float groupH = 30.0f, sectionH = 40.0f, tile = 124.0f, gap = 10.0f;
+        constexpr float groupH = 30.0f, sectionH = 40.0f, gap = 10.0f;
+        const float tile = amp ? 160.0f : 124.0f; // the heads are wide
         const float listX = x + 16.0f, listY = y + 66.0f, listH = h - 66.0f - 64.0f;
         float listW = w - 32.0f;
         const auto columnsFor = [&](float width) { return std::max(1, static_cast<int>((width + gap) / (tile + gap))); };
@@ -7510,7 +7883,7 @@ private:
             {
                 total += pedal ? 0.0f : sectionH;
                 if (open(i) && !sizes[i].empty())
-                    total += ((sizes[i].size() + columns - 1) / columns) * (tile + gap) + gap;
+                    total += ((sizes[i].size() + columns - 1) / columns) * ((amp ? tile * 0.62f : tile) + gap) + gap;
             }
             return total;
         };
@@ -7586,13 +7959,14 @@ private:
             // its cabs: the IR's current one outlined, the default one labelled
             for (size_t k = 0; k < sizes[i].size(); ++k)
             {
-                const Rect r { listX + (k % columns) * (tile + gap), ry + (k / columns) * (tile + gap), tile, tile };
+                const float tileH = amp ? tile * 0.62f : tile;
+                const Rect r { listX + (k % columns) * (tile + gap), ry + (k / columns) * (tileH + gap), tile, tileH };
                 if (!visible(r.y, r.h))
                     continue;
                 const std::string& id = sizes[i][k];
                 const bool hover = r.contains(fMouseX, fMouseY) && fMouseY >= listY && fMouseY < listY + listH;
                 surface(r.x, r.y, r.w, r.h, 6.0f, Surface::Item, hover);
-                if (NanoImage* img = pedal ? pedalImage(id, true) : cabImage(id, true))
+                if (NanoImage* img = amp ? ampImage(id, true) : pedal ? pedalImage(id, true) : cabImage(id, true))
                     drawImageFit(*img, r.x + 6.0f, r.y + 6.0f, r.w - 12.0f, r.h - 12.0f, 3.0f);
                 if (id == current)
                 {
@@ -7615,22 +7989,26 @@ private:
                 const int index = static_cast<int>(std::find(ids.begin(), ids.end(), id) - ids.begin());
                 fHits.push_back({ clipped(r), Hit::CabChoose, index });
             }
-            ry += ((sizes[i].size() + columns - 1) / columns) * (tile + gap) + gap;
+            ry += ((sizes[i].size() + columns - 1) / columns) * ((amp ? tile * 0.62f : tile) + gap) + gap;
         }
         restore();
 
-        const bool picked = (pedal ? fSettings.pedalImages : fSettings.cabImages).count(cabKey(fCabHash, fCabPath)) != 0;
+        const bool picked = (amp ? fSettings.ampImages : pedal ? fSettings.pedalImages : fSettings.cabImages)
+                                .count(cabKey(fCabHash, fCabPath)) != 0;
         const Rect reset { x + w - 24.0f - 150.0f, y + h - 48.0f, 150.0f, 30.0f };
         if (picked)
             drawButton(reset, "Reset to Default", false, theme::accent, Hit::CabChoose, -1);
         label(x + 20.0f, y + h - 40.0f,
-              pedal ? (picked ? "You picked this capture's pedal. It follows the file into every chain and preset."
+              amp ? (picked ? "You picked this model's amp head. It follows the file into every chain and preset."
+                            : "This model shows its default head, picked from the file's content and name.")
+              : pedal ? (picked ? "You picked this capture's pedal. It follows the file into every chain and preset."
                               : "This capture shows its default pedal, picked from the file's content.")
                     : (picked ? "You picked this IR's cab. It follows the file into every chain and preset."
                               : "This IR shows its default cab, picked from the file's content."),
               theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
         label(x + 20.0f, y + h - 24.0f,
-              pedal ? "Click a pedal to show it for this capture from now on."
+              amp ? "Click a head to show it for this model from now on."
+              : pedal ? "Click a pedal to show it for this capture from now on."
                     : "Click a cab to show it for this IR from now on.",
               theme::textDim, 11.0f, ALIGN_LEFT | ALIGN_MIDDLE);
     }
@@ -8335,7 +8713,8 @@ private:
     // metronome
     bool fMetroPanel = false;
     Rect fSliderRect; // the slider being dragged (w == 0: a knob is)
-    std::vector<std::chrono::steady_clock::time_point> fTaps;
+    TapTempo fTapTempo;                          // the metronome's
+    std::array<TapTempo, kMaxBlocks> fLooperTaps; // each looper's Tap, by slot
     std::chrono::steady_clock::time_point fTapAt, fBeatAt;
 
     // tuner display
@@ -8406,7 +8785,19 @@ private:
     Dialog fCabReturn = Dialog::None;
     float fCabReturnScroll = 0.0f;
     std::array<bool, kCabSizes.size()> fCabOpen {};
-    bool fCabPedal = false; // the dialog picks a NAM pedal's generic pedal image instead
+    // Add Block's live preview (previewBlock())
+    bool fPreviewing = false;      // a picked block is in the chain, to be kept or taken out
+    ChainState fPreviewBase;       // the chain before it
+    int fPreviewBaseSelected = -1;
+    Section fPreviewSection = Section::Pre;
+    int fPreviewPosition = kMaxBlocks;
+    int fPreviewReplaceSlot = -1;
+    std::string fPickKey;          // the picked row or item (pickKey()); empty: none
+    std::string fPickLabel;        // its name, for the dialog's footer
+    bool fScrollToPick = false;    // scroll the list to show it (picked with the arrow keys)
+    int fItemColumns = 1;          // the block types' grid, as drawn
+    std::vector<Field> fDrawnFields; // the text fields drawn this frame, in order (Tab moves through them)
+    PhotoKind fCabKind = PhotoKind::Cab; // the dialog picks a NAM pedal's generic pedal image or an amp's head instead
 
     std::chrono::steady_clock::time_point fChainChangedAt = std::chrono::steady_clock::now();
     bool fStatusPending = true;

@@ -4,6 +4,7 @@
 #include "engine/blocks/LooperBlock.hpp"
 
 #include "engine/dsp/Smoother.hpp"
+#include "engine/TapTempo.hpp"
 #include "engine/metronome/Metronome.hpp"
 
 #include <algorithm>
@@ -15,7 +16,7 @@ namespace xythos {
 namespace {
 
 constexpr uint32_t kFadeSamples = 256; // the loop's ends are faded this long when it's closed, so the seam doesn't click
-constexpr float kClickGain = 0.8f;      // the clicks at Click 100%, as the metronome's default volume
+constexpr float kClickGain = 0.8f;      // the clicks at Click 100%, as the metronome's default volume (up to 200%)
 
 const char* const kModeChoices[] = { "Count In", "Free" };
 const char* const kBeatChoices[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12" };
@@ -86,25 +87,42 @@ public:
         case kLooperParamCountIn:  fCountIn = std::clamp(static_cast<int>(std::lround(value)), 0, 16); break;
         case kLooperParamMeasures: fMeasures = std::clamp(static_cast<int>(std::lround(value)), 1, 16); break;
         case kLooperParamLoops:    fLoops = std::clamp(static_cast<int>(std::lround(value)), 1, 8); break;
-        case kLooperParamClick:    fClickLevel = std::clamp(value / 100.0f, 0.0f, 1.0f); break;
+        case kLooperParamClick:    fClickLevel = std::clamp(value / 100.0f, 0.0f, 2.0f); break;
+        case kLooperParamTap:
+            if (on && !fTapHeld)
+            {
+                // the next count-in's tempo; the UI sets the BPM control to the same (it times the taps too)
+                const double bpm = fTapTempo.tap(static_cast<double>(fSamples) / fSampleRate);
+                if (bpm > 0.0)
+                    fBpm = std::clamp(std::round(bpm), 40.0, 240.0);
+            }
+            fTapHeld = on;
+            break;
         }
     }
 
+    void setClickOutput(float* click) override { fClickOut = click; }
+
     void process(float* const* io, uint32_t numChannels, uint32_t frames) override
     {
+        fSamples += frames;
         for (uint32_t i = 0; i < frames; ++i)
         {
             if (fTimed)
                 tick();
             processSample(io, numChannels, i);
-            // the clicks go out, never into the loop
+            // the clicks go out, never into the loop: to the engine's click bus, past the blocks after this one (an
+            // amp after the looper would distort them), or without an engine into the block's output
             if (fClickData != nullptr)
             {
                 const float sample = (*fClickData)[fClickPos] * fClickGain;
                 if (++fClickPos >= fClickData->size())
                     fClickData = nullptr;
-                for (uint32_t ch = 0; ch < numChannels; ++ch)
-                    io[ch][i] += sample;
+                if (fClickOut != nullptr)
+                    fClickOut[i] += sample;
+                else
+                    for (uint32_t ch = 0; ch < numChannels; ++ch)
+                        io[ch][i] += sample;
             }
         }
 
@@ -330,8 +348,13 @@ private:
     bool fHasCountIn = false; // the config's "countIn": blocks saved before Count In stay in Free mode
     bool fCountInMode = true;
     double fBpm = 120.0;
-    int fBeats = 4, fCountIn = 4, fMeasures = 4, fLoops = 1;
-    float fClickLevel = 0.7f;
+    int fBeats = 4, fCountIn = 8, fMeasures = 4, fLoops = 1;
+    float fClickLevel = 1.5f;
+    // Tap: the footswitch's taps, timed by the samples processed
+    TapTempo fTapTempo;
+    uint64_t fSamples = 0;
+    bool fTapHeld = false;
+    float* fClickOut = nullptr; // the engine's click bus (setClickOutput()), or none
     // the timeline, in samples from the press (fTimed while it runs: counting in, recording, overdub passes)
     bool fTimed = false;
     uint64_t fClock = 0;
@@ -366,10 +389,11 @@ const BlockDescriptor kLooperBlockDescriptor = {
         ParamSpec { "Mode", "", 0.0f, 1.0f, 0.0f, ParamScale::Choice, kModeChoices },
         ParamSpec { "BPM", "BPM", 40.0f, 240.0f, 120.0f, ParamScale::Linear },
         ParamSpec { "Beats", "", 1.0f, 12.0f, 4.0f, ParamScale::Choice, kBeatChoices },
-        ParamSpec { "Count-In", "", 0.0f, 16.0f, 4.0f, ParamScale::Choice, kCountInChoices },
+        ParamSpec { "Count-In", "", 0.0f, 16.0f, 8.0f, ParamScale::Choice, kCountInChoices },
         ParamSpec { "Measures", "", 1.0f, 16.0f, 4.0f, ParamScale::Choice, kMeasureChoices },
         ParamSpec { "Loops", "", 1.0f, 8.0f, 1.0f, ParamScale::Choice, kLoopChoices },
-        ParamSpec { "Click", "%", 0.0f, 100.0f, 70.0f, ParamScale::Linear },
+        ParamSpec { "Click", "%", 0.0f, 200.0f, 150.0f, ParamScale::Linear },
+        ParamSpec { "Tap", "", 0.0f, 1.0f, 0.0f, ParamScale::Momentary },
     },
     [] { return std::unique_ptr<Block>(new LooperBlock()); },
     -1,
